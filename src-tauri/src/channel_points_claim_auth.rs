@@ -111,7 +111,9 @@ pub enum TvDevicePoll {
     #[serde(rename = "slowDown")]
     SlowDown,
     #[serde(rename = "done")]
-    Done { status: ChannelPointsClaimAuthStatus },
+    Done {
+        status: ChannelPointsClaimAuthStatus,
+    },
 }
 
 fn ensure_keyring() -> Result<(), ChannelPointsClaimAuthError> {
@@ -125,9 +127,7 @@ fn ensure_keyring() -> Result<(), ChannelPointsClaimAuthError> {
         }
         Ok(())
     });
-    result
-        .clone()
-        .map_err(ChannelPointsClaimAuthError::Keyring)
+    result.clone().map_err(ChannelPointsClaimAuthError::Keyring)
 }
 
 fn entry() -> Result<Entry, ChannelPointsClaimAuthError> {

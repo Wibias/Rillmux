@@ -163,10 +163,7 @@ async fn post_tv_claim_gql(
             crate::channel_points_claim_auth::client_session_id(),
         )
         .header("Client-Version", client_version)
-        .header(
-            "X-Device-Id",
-            crate::channel_points_claim_auth::device_id(),
-        )
+        .header("X-Device-Id", crate::channel_points_claim_auth::device_id())
         .header("Origin", TWITCH_URL)
         .header(REFERER, format!("{TWITCH_URL}/{channel_login}"))
         .json(payload)
@@ -286,13 +283,7 @@ async fn claim_bonus(
     client_version: &str,
 ) -> Result<u16, ChannelPointsError> {
     let payload = claim_payload(channel_id, claim_id);
-    let (status, body) = post_tv_claim_gql(
-        &payload,
-        channel_login,
-        token,
-        client_version,
-    )
-    .await?;
+    let (status, body) = post_tv_claim_gql(&payload, channel_login, token, client_version).await?;
 
     if !status.is_success() {
         return Err(ChannelPointsError::Message(format!(
@@ -303,7 +294,9 @@ async fn claim_bonus(
         return Err(ChannelPointsError::Message(message));
     }
     if body.pointer("/data/claimCommunityPoints").is_none()
-        || body.pointer("/data/claimCommunityPoints").is_some_and(Value::is_null)
+        || body
+            .pointer("/data/claimCommunityPoints")
+            .is_some_and(Value::is_null)
     {
         return Err(ChannelPointsError::Message(
             "Twitch did not apply the Channel Points bonus claim".into(),
@@ -362,12 +355,9 @@ pub async fn refresh(raw_channel_login: &str) -> Result<ChannelPointsSnapshot, C
                             bonus_claimed = true;
                             claim_http_status = Some(status);
                             context.claim_id = None;
-                            if let Ok(updated) = fetch_context(
-                                &channel_login,
-                                &points_auth.token,
-                                &client_version,
-                            )
-                            .await
+                            if let Ok(updated) =
+                                fetch_context(&channel_login, &points_auth.token, &client_version)
+                                    .await
                             {
                                 context = updated;
                             }

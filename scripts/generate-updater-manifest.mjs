@@ -27,6 +27,34 @@ const version = tag.replace(/^v/, "");
 const repo =
   process.argv[3] ?? process.env.GITHUB_REPOSITORY ?? "Wibias/streamlink-twitch-gui";
 
+/**
+ * Extract the CHANGELOG.md section for this release (Keep a Changelog
+ * format). Falls back to a release-page link when the section is missing so
+ * the dialog still has something to show.
+ */
+async function releaseNotesFor(version) {
+  const changelogPath = path.join(root, "CHANGELOG.md");
+  try {
+    const changelog = await readFile(changelogPath, "utf8");
+    const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const heading = new RegExp(`^## \\[${escaped}\\][^\\n]*`, "m");
+    const match = heading.exec(changelog);
+    if (!match) {
+      return `See https://github.com/${repo}/releases/tag/${tag}`;
+    }
+    const sectionStart = match.index + match[0].length;
+    const next = /^## /gm;
+    next.lastIndex = sectionStart;
+    const nextMatch = next.exec(changelog);
+    const sectionEnd = nextMatch ? nextMatch.index : changelog.length;
+    return changelog.slice(sectionStart, sectionEnd).trim();
+  } catch {
+    return `See https://github.com/${repo}/releases/tag/${tag}`;
+  }
+}
+
+const notes = await releaseNotesFor(version);
+
 // Prefer the NSIS installer; fall back to MSI.
 const candidates = [
   { dir: path.join(bundleDir, "nsis"), ext: ".exe.sig" },
@@ -64,7 +92,7 @@ const sanitizedAsset = assetName.replace(/[^A-Za-z0-9._-]+/g, ".");
 
 const manifest = {
   version,
-  notes: `See https://github.com/${repo}/releases/tag/${tag}`,
+  notes,
   pub_date: new Date().toISOString(),
   platforms: {
     "windows-x86_64": {

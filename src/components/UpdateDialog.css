@@ -1,0 +1,121 @@
+.update-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: color-mix(in srgb, #000 55%, transparent);
+}
+
+.update-dialog__panel {
+  width: min(560px, 100%);
+  max-height: min(85vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--bg-elevated);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.update-dialog__header {
+  padding: 1.1rem 1.2rem 0.55rem;
+}
+
+.update-dialog__header h2 {
+  margin: 0 0 0.25rem;
+}
+
+.update-dialog__header p {
+  margin: 0;
+}
+
+.update-dialog__body {
+  padding: 0.4rem 1.2rem 1rem;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.update-dialog__status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.update-dialog__bar {
+  display: block;
+  height: 6px;
+  background: var(--bg-sunken);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.update-dialog__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+
+.update-dialog__error {
+  color: var(--danger);
+  margin: 0 0 1rem;
+}
+
+.update-dialog__notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.update-dialog__list {
+  margin: 0.15rem 0 0.3rem;
+  padding: 0;
+  list-style: none;
+}
+
+.update-dialog__heading {
+  margin: 0.7rem 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.update-dialog__subheading {
+  margin: 0.55rem 0 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.update-dialog__bullet {
+  position: relative;
+  margin: 0 0 0.25rem 1.05rem;
+  line-height: 1.45;
+}
+
+.update-dialog__bullet::before {
+  content: "•";
+  position: absolute;
+  left: -1.05rem;
+  color: var(--accent-light);
+}
+
+.update-dialog__paragraph {
+  margin: 0 0 0.45rem;
+  line-height: 1.45;
+}
+
+.update-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.85rem 1.2rem 1.1rem;
+  border-top: 1px solid var(--border);
+}

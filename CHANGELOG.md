@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+### Changed
+
+- Update prompt is now a modal window: it shows the release notes (changelog) for the new version with **Download & install** / **Cancel**, and closes when you click outside it (Esc works too)
+
 ## [0.4.0] — 2026-08-09
 
 ### Added

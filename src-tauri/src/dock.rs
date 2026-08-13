@@ -1467,8 +1467,10 @@ fn grip_thread_main() {
     }
 
     fn mover_rect(video: Rect, chat_opt: Option<Rect>) -> Rect {
-        const W: i32 = 88;
-        const H: i32 = 44;
+        // Compact handle centered on the video|chat seam. Keep it small so it
+        // does not swallow a stream tile's close control in multistream layouts.
+        const W: i32 = 56;
+        const H: i32 = 28;
         let seam_x = chat_opt.map(|c| c.left).unwrap_or(video.right);
         let cx = seam_x;
         let cy = video.top + video.height() / 2;

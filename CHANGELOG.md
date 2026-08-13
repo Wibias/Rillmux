@@ -12,9 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.4.1] — 2026-08-14
+
 ### Changed
 
 - Update prompt is now a modal window: it shows the release notes (changelog) for the new version with **Download & install** / **Cancel**, and closes when you click outside it (Esc works too)
+
+### Fixed
+
+- Change-monitor handle no longer covers a stream tile's close control at the divider between streams and Chatterino in multistream layouts
 
 ## [0.4.0] — 2026-08-09
 
@@ -156,7 +162,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/streamlink-twitch-gui/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Wibias/streamlink-twitch-gui/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.0
 [0.3.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.3.0

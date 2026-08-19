@@ -23,3 +23,20 @@
   gap: 0.5rem;
   flex-shrink: 0;
 }
+
+.raid-banner--overlay {
+  margin: 0;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+}
+
+html:has(.raid-banner--overlay),
+body:has(.raid-banner--overlay) {
+  background: transparent;
+  overflow: hidden;
+}
+
+#root:has(.raid-banner--overlay) {
+  min-height: 100%;
+}

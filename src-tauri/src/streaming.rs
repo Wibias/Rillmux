@@ -1253,6 +1253,82 @@ pub fn dock_cycle_monitor() {
     crate::dock::cycle_monitor();
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+const RAID_OVERLAY_WIDTH: i32 = 420;
+const RAID_OVERLAY_HEIGHT: i32 = 92;
+const RAID_OVERLAY_INSET: i32 = 16;
+
+fn overlay_rect_from_host(host: OverlayRect) -> OverlayRect {
+    let width = (host.width - RAID_OVERLAY_INSET * 2).clamp(240, RAID_OVERLAY_WIDTH);
+    OverlayRect {
+        x: host.x + RAID_OVERLAY_INSET,
+        y: host.y + RAID_OVERLAY_INSET,
+        width,
+        height: RAID_OVERLAY_HEIGHT,
+    }
+}
+
+#[cfg(windows)]
+fn overlay_rect_from_hwnd(hwnd: *mut core::ffi::c_void) -> Option<OverlayRect> {
+    if hwnd.is_null() {
+        return None;
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindowRect(hwnd: *mut core::ffi::c_void, rect: *mut WinRect) -> i32;
+    }
+    let mut rect = WinRect {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    if unsafe { GetWindowRect(hwnd, &mut rect) } == 0 {
+        return None;
+    }
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    if width < 80 || height < 40 {
+        return None;
+    }
+    Some(OverlayRect {
+        x: rect.left,
+        y: rect.top,
+        width,
+        height,
+    })
+}
+
+/// Player first, then owned Chatterino. Main-window fallback is frontend-owned.
+#[cfg(windows)]
+pub fn raid_overlay_host(from_channel: &str) -> Option<OverlayRect> {
+    let title = mpv_window_title(from_channel);
+    let player = find_window_by_title(&title, true).and_then(overlay_rect_from_hwnd);
+    if let Some(host) = player {
+        return Some(overlay_rect_from_host(host));
+    }
+    let chat = owned_chatterino_pid()
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .and_then(find_main_window_for_pid)
+        .and_then(overlay_rect_from_hwnd);
+    chat.map(overlay_rect_from_host)
+}
+
+#[cfg(not(windows))]
+pub fn raid_overlay_host(_from_channel: &str) -> Option<OverlayRect> {
+    None
+}
+
 /// Monotonic counter serializing layout_watching retile threads (latest wins).
 static LAYOUT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
@@ -3159,6 +3235,28 @@ mod tests {
         // mpv_window_title strips anything outside [a-z0-9_-].
         assert_eq!(mpv_window_title("Some_Channel-1"), "stgui-some_channel-1");
         assert_eq!(mpv_window_title("äöü"), "stgui-stream");
+    }
+
+    #[test]
+    fn raid_overlay_uses_player_inset_and_clamps_narrow_hosts() {
+        let wide = overlay_rect_from_host(OverlayRect {
+            x: 10,
+            y: 20,
+            width: 800,
+            height: 450,
+        });
+        assert_eq!(wide.x, 26);
+        assert_eq!(wide.y, 36);
+        assert_eq!(wide.width, 420);
+        assert_eq!(wide.height, 92);
+
+        let narrow = overlay_rect_from_host(OverlayRect {
+            x: 810,
+            y: 20,
+            width: 300,
+            height: 450,
+        });
+        assert_eq!(narrow.width, 268);
     }
 
     /// Minimized windows report a tiny GetWindowRect (~160x28). The dock

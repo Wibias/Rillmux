@@ -7,6 +7,7 @@ import { useWatchingStore, type StreamSession } from "../lib/streaming/store";
 import {
   getFollowedChannelLogins,
   getFollowedStreams,
+  LIVE_STREAM_QUERY,
   searchChannels,
   streamThumbnail,
   type HelixChannel,
@@ -100,7 +101,7 @@ export function MultistreamPage() {
     queryKey: ["multistream-followed-live", userId],
     enabled: loggedIn && Boolean(userId) && debounced.length < 2,
     queryFn: () => getFollowedStreams(userId!),
-    staleTime: 20_000,
+    ...LIVE_STREAM_QUERY,
   });
 
   const sessionByChannel = useMemo(() => {

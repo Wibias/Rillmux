@@ -148,6 +148,18 @@ async fn channel_points_refresh(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn channel_points_vote_poll(
+    channel_login: String,
+    poll_id: String,
+    choice_id: String,
+    cost: u64,
+) -> Result<channel_points::ChannelPointsSnapshot, String> {
+    channel_points::vote_poll(&channel_login, &poll_id, &choice_id, cost)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Helix GET proxy: keeps the OAuth token inside Rust (never in the webview).
 #[tauri::command]
 async fn helix_fetch(
@@ -328,6 +340,7 @@ pub fn run() {
             viewer_presence_sync,
             viewer_presence_status,
             channel_points_refresh,
+            channel_points_vote_poll,
             helix_fetch,
             stream_start,
             stream_list,

@@ -3533,8 +3533,7 @@ mod tests {
 
     #[test]
     fn low_latency_line_is_info_not_ready() {
-        let (phase, ready) =
-            classify_line("[cli][info] Low latency streaming (HLS live edge: 2)");
+        let (phase, ready) = classify_line("[cli][info] Low latency streaming (HLS live edge: 2)");
         assert_eq!(phase, "info");
         assert!(!ready);
     }
@@ -3584,8 +3583,12 @@ mod tests {
         assert_eq!(dock_watchdog_interval_ms(false, false), 500);
         assert_eq!(dock_watchdog_interval_ms(true, true), 100);
         assert_eq!(dock_watchdog_interval_ms(true, false), 400);
-        assert!(dock_watchdog_needs_fast_tick(true, false, false, false, false, false));
-        assert!(dock_watchdog_needs_fast_tick(false, false, true, false, false, false));
+        assert!(dock_watchdog_needs_fast_tick(
+            true, false, false, false, false, false
+        ));
+        assert!(dock_watchdog_needs_fast_tick(
+            false, false, true, false, false, false
+        ));
         assert!(!dock_watchdog_needs_fast_tick(
             false, false, false, false, false, false
         ));

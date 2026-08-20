@@ -17,9 +17,8 @@ const CHANNEL_POINTS_CONTEXT_HASHES: [&str; 2] = [
     "7fe050e3761eb2cf258d70ee1a21cbd76fa8cf3d7e7b12fc437e7029d446b5e3",
     "374314de591e69925fce3ddc2bcf085796f56ebb8cad67a0daa3165c03adc345",
 ];
-const VIEWABLE_POLL_HASHES: [&str; 1] = [
-    "d37a38ac165e9a15c26cd631d70070ee4339d48ff4975053e622b918ce638e0f",
-];
+const VIEWABLE_POLL_HASHES: [&str; 1] =
+    ["d37a38ac165e9a15c26cd631d70070ee4339d48ff4975053e622b918ce638e0f"];
 const VIEWABLE_POLL_QUERIES: [&str; 3] = [
     r#"query ViewableChannelPoll($login: String!) { channel(name: $login) { currentPoll { id title status remainingDurationMilliseconds settings { communityPointsVotes { isEnabled cost } } self { voter { choices { pollChoice { id } } } } choices { id title totalVoters votes { total communityPoints } } } } }"#,
     r#"query ViewableChannelPoll($login: String!) { user(login: $login) { channel { currentPoll { id title status remainingDurationMilliseconds settings { communityPointsVotes { isEnabled cost } } self { voter { choices { pollChoice { id } } } } choices { id title totalVoters votes { total communityPoints } } } } } }"#,
@@ -124,11 +123,7 @@ pub fn cached_snapshot(raw_channel_login: &str) -> Option<ChannelPointsSnapshot>
     if !valid_login(&channel_login) {
         return None;
     }
-    let context = last_contexts()
-        .lock()
-        .ok()?
-        .get(&channel_login)
-        .cloned()?;
+    let context = last_contexts().lock().ok()?.get(&channel_login).cloned()?;
     Some(ChannelPointsSnapshot {
         channel_login,
         balance: context.balance,
@@ -914,7 +909,12 @@ fn prediction_query_payload(channel_login: &str, query: &str) -> Value {
     })
 }
 
-fn make_prediction_payload(event_id: &str, outcome_id: &str, points: u64, transaction_id: &str) -> Value {
+fn make_prediction_payload(
+    event_id: &str,
+    outcome_id: &str,
+    points: u64,
+    transaction_id: &str,
+) -> Value {
     json!({
         "operationName": "MakePrediction",
         "query": MAKE_PREDICTION_QUERY,
@@ -953,7 +953,11 @@ async fn fetch_prediction(
     token: &str,
     client_version: &str,
 ) -> Option<ChannelPointsPrediction> {
-    for query in [PREDICTION_QUERY, PREDICTION_QUERY_USER, PREDICTION_QUERY_BARE] {
+    for query in [
+        PREDICTION_QUERY,
+        PREDICTION_QUERY_USER,
+        PREDICTION_QUERY_BARE,
+    ] {
         let payload = prediction_query_payload(channel_login, query);
         let Ok((status, body)) = post_web_gql(&payload, channel_login, token, client_version).await
         else {
@@ -1120,8 +1124,7 @@ pub async fn refresh(
             }
             if context.poll.is_none() {
                 context.poll =
-                    fetch_viewable_poll(&channel_login, &points_auth.token, &client_version)
-                        .await;
+                    fetch_viewable_poll(&channel_login, &points_auth.token, &client_version).await;
             }
             if context.poll.is_none() {
                 mark_poll_gql_miss(&channel_login);
@@ -1209,9 +1212,8 @@ pub async fn vote_poll(
         }
         return refresh(&channel_login, true).await;
     }
-    Err(last_error.unwrap_or_else(|| {
-        ChannelPointsError::Message("Twitch rejected the poll vote".into())
-    }))
+    Err(last_error
+        .unwrap_or_else(|| ChannelPointsError::Message("Twitch rejected the poll vote".into())))
 }
 
 pub async fn vote_prediction(
@@ -1602,7 +1604,10 @@ mod tests {
         );
         let prediction = cached_prediction("42").expect("cached");
         assert_eq!(prediction.id, "pred-3");
-        ingest_pubsub("predictions-channel-v1.42", &json!({ "type": "event-complete" }));
+        ingest_pubsub(
+            "predictions-channel-v1.42",
+            &json!({ "type": "event-complete" }),
+        );
         assert!(cached_prediction("42").is_none());
     }
 

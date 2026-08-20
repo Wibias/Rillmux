@@ -6,8 +6,8 @@ use std::error::Error as _;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use thiserror::Error;
 use tauri::{AppHandle, Emitter};
+use thiserror::Error;
 use url::Url;
 
 use crate::http::shared_client;

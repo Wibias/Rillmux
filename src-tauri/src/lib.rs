@@ -151,9 +151,7 @@ async fn channel_points_refresh(
 }
 
 #[tauri::command]
-fn channel_points_cached(
-    channel_login: String,
-) -> Option<channel_points::ChannelPointsSnapshot> {
+fn channel_points_cached(channel_login: String) -> Option<channel_points::ChannelPointsSnapshot> {
     channel_points::cached_snapshot(&channel_login)
 }
 
@@ -350,9 +348,7 @@ fn enable_main_title_bar_overlay(window: &tauri::WebviewWindow) -> Result<(), St
     window
         .set_title_bar_overlay(true)
         .map_err(|e| e.to_string())?;
-    window
-        .set_title_bar_height(32)
-        .map_err(|e| e.to_string())?;
+    window.set_title_bar_height(32).map_err(|e| e.to_string())?;
     let light = TitleBarColors {
         symbol: Some("#0e0e10".into()),
         hover: Some("#00000014".into()),

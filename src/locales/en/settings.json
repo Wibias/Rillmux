@@ -1,5 +1,13 @@
 {
   "main": "General",
+  "tabInterface": "Interface",
+  "tabStreaming": "Streaming",
+  "tabPlayer": "Player",
+  "tabChat": "Chat",
+  "tabNotifications": "Notifications",
+  "tabHotkeys": "Hotkeys",
+  "tabChannels": "Channels",
+  "tabGeneral": "General",
   "streaming": "Streaming",
   "player": "Player",
   "chat": "Chat",

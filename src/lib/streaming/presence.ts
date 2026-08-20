@@ -1,3 +1,6 @@
+import type { HelixStream } from "../twitch/helix";
+import { MAX_MULTISTREAMS } from "./layout";
+
 export interface PresenceSource {
   channelLogin: string;
   channelId: string;
@@ -42,6 +45,18 @@ export function prunePresenceMetadata(
   );
 }
 
+export function presenceSourceFromStream(
+  stream: Pick<HelixStream, "id" | "user_id" | "user_login">,
+): PresenceSource | null {
+  const channelLogin = stream.user_login.trim().toLowerCase();
+  const channelId = stream.user_id.trim();
+  const broadcastId = stream.id.trim();
+  if (!channelLogin || !channelId || !broadcastId) {
+    return null;
+  }
+  return { channelLogin, channelId, broadcastId };
+}
+
 export function buildPresenceTargets(
   sessions: PresenceSession[],
   metadata: PresenceMetadata,
@@ -80,7 +95,7 @@ export function buildPresenceTargets(
         },
       ];
     })
-    .slice(0, 2);
+    .slice(0, MAX_MULTISTREAMS);
 }
 
 export function describeViewerPresenceStatus(

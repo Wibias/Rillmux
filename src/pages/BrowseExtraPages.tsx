@@ -20,6 +20,7 @@ import {
   getTeamByName,
   getTopGames,
   getUsersByLogin,
+  LIVE_STREAM_QUERY,
   searchCategories,
   searchChannels,
   type HelixStream,
@@ -103,6 +104,7 @@ export function GameStreamsPage() {
     queryFn: ({ pageParam }) =>
       getStreamsByGame(gameId, pageParam, streamLanguages),
     getNextPageParam: (last) => last.pagination?.cursor,
+    ...LIVE_STREAM_QUERY,
   });
 
   const streams = query.data?.pages.flatMap((p) => p.data) ?? [];
@@ -352,6 +354,7 @@ export function ChannelPage() {
     queryKey: ["channel-stream", login],
     enabled: loggedIn && Boolean(login),
     queryFn: () => getChannelStreams(login),
+    ...LIVE_STREAM_QUERY,
   });
   const live = streamQuery.data?.data[0] as HelixStream | undefined;
 
@@ -509,7 +512,7 @@ export function TeamPage() {
     queryKey: ["team-live", teamName, memberIds.join(",")],
     enabled: loggedIn && memberIds.length > 0,
     queryFn: () => getStreamsByUserIds(memberIds),
-    staleTime: 30_000,
+    ...LIVE_STREAM_QUERY,
   });
 
   const liveByLogin = useMemo(() => {

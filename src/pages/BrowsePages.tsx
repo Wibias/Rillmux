@@ -18,7 +18,7 @@ import {
   isMultistreamLayout,
   layoutCapacity,
 } from "../lib/streaming/layout";
-import { getFollowedStreams, getTopGames, getTopStreams } from "../lib/twitch/helix";
+import { getFollowedStreams, getTopGames, getTopStreams, LIVE_STREAM_QUERY } from "../lib/twitch/helix";
 import { languagesQueryKey } from "../lib/twitch/languages";
 import { useSettingsStore } from "../lib/settings/store";
 import { isTauri } from "../lib/tauri";
@@ -37,6 +37,7 @@ export function FollowedPage() {
     queryFn: ({ pageParam }) =>
       getFollowedStreams(session!.userId!, pageParam),
     getNextPageParam: (last) => last.pagination?.cursor,
+    ...LIVE_STREAM_QUERY,
   });
 
   const streams = query.data?.pages.flatMap((p) => p.data) ?? [];
@@ -102,7 +103,7 @@ export function StreamsPage() {
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => getTopStreams(pageParam, streamLanguages),
     getNextPageParam: (last) => last.pagination?.cursor,
-    staleTime: 20_000,
+    ...LIVE_STREAM_QUERY,
   });
 
   const streams = query.data?.pages.flatMap((p) => p.data) ?? [];

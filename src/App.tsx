@@ -30,6 +30,7 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { LaunchErrorBanner } from "./components/LaunchErrorBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { RaidBanner } from "./components/RaidBanner";
+import { ChannelPointsPollOverlay } from "./components/ChannelPointsPollOverlay";
 import { SentryBootstrap } from "./lib/sentry";
 import "./styles/global.css";
 
@@ -74,7 +75,21 @@ function AppRoutes() {
   );
 }
 
+function isRaidOverlay() {
+  return new URLSearchParams(window.location.search).get("overlay") === "raid";
+}
+
 export default function App() {
+  if (isRaidOverlay()) {
+    return (
+      <ThemeProvider>
+        <SettingsBootstrap>
+          <RaidBanner />
+        </SettingsBootstrap>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
@@ -92,6 +107,7 @@ export default function App() {
                         <LaunchErrorBanner />
                         <UpdateBanner />
                         <RaidBanner />
+                        <ChannelPointsPollOverlay />
                         <AppRoutes />
                       </AppShell>
                     </StreamingBootstrap>

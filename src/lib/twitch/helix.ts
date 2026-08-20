@@ -60,10 +60,27 @@ export interface HelixUser {
   profile_image_url: string;
 }
 
-export function streamThumbnail(url: string, width = 440, height = 248): string {
-  return url
+export const STREAM_THUMBNAIL_REFRESH_MS = 60_000;
+
+/** Shared React Query options for live preview lists. */
+export const LIVE_STREAM_QUERY = {
+  refetchInterval: STREAM_THUMBNAIL_REFRESH_MS,
+  refetchOnMount: "always" as const,
+  staleTime: 0,
+};
+
+export function streamThumbnail(
+  url: string,
+  width = 440,
+  height = 248,
+  now = Date.now(),
+): string {
+  const sized = url
     .replace("{width}", String(width))
     .replace("{height}", String(height));
+  const bucket = Math.floor(now / STREAM_THUMBNAIL_REFRESH_MS);
+  const separator = sized.includes("?") ? "&" : "?";
+  return `${sized}${separator}t=${bucket}`;
 }
 
 export async function getFollowedStreams(

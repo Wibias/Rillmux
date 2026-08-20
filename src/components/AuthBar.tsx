@@ -62,8 +62,8 @@ export function AuthBar({ compact = false }: { compact?: boolean }) {
               {t("logout")}
             </button>
           </div>
-          <TwitchWebsiteAuth compact={compact} />
           <ChannelPointsClaimAuth compact={compact} />
+          <TwitchWebsiteAuth compact={compact} />
           <ChannelPointsStatus compact={compact} />
         </>
       ) : !device ? (

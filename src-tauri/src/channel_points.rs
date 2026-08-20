@@ -18,12 +18,35 @@ const CHANNEL_POINTS_CONTEXT_HASHES: [&str; 2] = [
 ];
 const CLAIM_COMMUNITY_POINTS_HASH: &str =
     "46aaeebe02c99afdf4fc97c7c0cba964124bf6b0af229395f1f6d1feed05b3d0";
+const VOTE_POLL_HASH: &str = "6b21d6e5c8c6c8d6f0c0c6e6a0b0d0e0f0a1b2c3d4e5f60718293a4b5c6d7e8";
 const CLIENT_VERSION_TTL: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Error)]
 pub enum ChannelPointsError {
     #[error("{0}")]
     Message(String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelPointsPollChoice {
+    pub id: String,
+    pub title: String,
+    pub votes: u64,
+    pub points: u64,
+    pub total_voters: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelPointsPoll {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub remaining_seconds: Option<u64>,
+    pub cost: u64,
+    pub voted_choice_id: Option<String>,
+    pub choices: Vec<ChannelPointsPollChoice>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -35,6 +58,7 @@ pub struct ChannelPointsSnapshot {
     pub bonus_claimed: bool,
     pub claim_http_status: Option<u16>,
     pub claim_error: Option<String>,
+    pub poll: Option<ChannelPointsPoll>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +66,7 @@ struct ContextState {
     channel_id: String,
     balance: u64,
     claim_id: Option<String>,
+    poll: Option<ChannelPointsPoll>,
 }
 
 fn client_version_cache() -> &'static Mutex<Option<(String, Instant)>> {
@@ -195,6 +220,25 @@ fn context_payload(channel_login: &str, hash: &str) -> Value {
     })
 }
 
+fn vote_poll_payload(poll_id: &str, choice_id: &str, cost: u64) -> Value {
+    json!({
+        "operationName": "VotePoll",
+        "variables": {
+            "input": {
+                "pollID": poll_id,
+                "choiceID": choice_id,
+                "cost": cost
+            }
+        },
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": VOTE_POLL_HASH
+            }
+        }
+    })
+}
+
 fn claim_payload(channel_id: &str, claim_id: &str) -> Value {
     json!({
         "operationName": "ClaimCommunityPoints",
@@ -246,6 +290,91 @@ fn parse_context(body: &Value) -> Result<ContextState, ChannelPointsError> {
         channel_id,
         balance,
         claim_id,
+        poll: parse_active_poll(channel),
+    })
+}
+
+fn u64_field(value: &Value, key: &str) -> u64 {
+    value.get(key).and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn parse_active_poll(channel: &Value) -> Option<ChannelPointsPoll> {
+    let poll = [
+        "/activePoll",
+        "/polls/0",
+        "/communityPointsSettings/activePoll",
+    ]
+    .into_iter()
+    .find_map(|path| channel.pointer(path))
+    .or_else(|| channel.get("activePoll"))?;
+    let id = poll
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())?;
+    let status = poll
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("ACTIVE")
+        .to_ascii_uppercase();
+    if status != "ACTIVE" && status != "COMPLETED" {
+        return None;
+    }
+    let title = poll
+        .get("title")
+        .or_else(|| poll.get("prompt"))
+        .and_then(Value::as_str)
+        .unwrap_or("Channel Points poll")
+        .to_string();
+    let remaining_seconds = poll
+        .get("remainingSeconds")
+        .or_else(|| poll.get("timeLeft"))
+        .and_then(Value::as_u64);
+    let cost = poll
+        .get("cost")
+        .or_else(|| poll.pointer("/settings/cost"))
+        .and_then(Value::as_u64)
+        .unwrap_or(10);
+    let voted_choice_id = poll
+        .pointer("/self/choiceID")
+        .or_else(|| poll.pointer("/self/choiceId"))
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+    let choices = poll
+        .get("choices")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|choice| {
+            let id = choice
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())?;
+            let title = choice
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Choice")
+                .to_string();
+            Some(ChannelPointsPollChoice {
+                id: id.to_string(),
+                title,
+                votes: u64_field(choice, "votes").max(u64_field(choice, "totalVotes")),
+                points: u64_field(choice, "points").max(u64_field(choice, "totalPoints")),
+                total_voters: u64_field(choice, "totalVoters"),
+            })
+        })
+        .collect::<Vec<_>>();
+    if choices.is_empty() {
+        return None;
+    }
+    Some(ChannelPointsPoll {
+        id: id.to_string(),
+        title,
+        status,
+        remaining_seconds,
+        cost,
+        voted_choice_id,
+        choices,
     })
 }
 
@@ -387,7 +516,56 @@ pub async fn refresh(raw_channel_login: &str) -> Result<ChannelPointsSnapshot, C
         bonus_claimed,
         claim_http_status,
         claim_error,
+        poll: context.poll,
     })
+}
+
+pub async fn vote_poll(
+    raw_channel_login: &str,
+    poll_id: &str,
+    choice_id: &str,
+    cost: u64,
+) -> Result<ChannelPointsSnapshot, ChannelPointsError> {
+    let channel_login = raw_channel_login.trim().to_ascii_lowercase();
+    if !valid_login(&channel_login) {
+        return Err(ChannelPointsError::Message(
+            "invalid Twitch channel login".into(),
+        ));
+    }
+    if poll_id.trim().is_empty() || choice_id.trim().is_empty() {
+        return Err(ChannelPointsError::Message("invalid poll vote".into()));
+    }
+    let points_auth = crate::twitch_web_auth::load_session()
+        .map_err(|error| ChannelPointsError::Message(error.to_string()))?
+        .ok_or_else(|| {
+            ChannelPointsError::Message("Twitch Website Authentication is not configured".into())
+        })?;
+    let session = crate::auth::get_session()
+        .await
+        .map_err(|error| ChannelPointsError::Message(error.to_string()))?;
+    if !session.logged_in || session.user_id.as_deref() != Some(points_auth.user_id.as_str()) {
+        return Err(ChannelPointsError::Message(
+            "Twitch Website Authentication does not match the current Twitch account".into(),
+        ));
+    }
+    let client_version = current_client_version().await;
+    let payload = vote_poll_payload(poll_id.trim(), choice_id.trim(), cost.min(1_000_000));
+    let (status, body) = post_web_gql(
+        &payload,
+        &channel_login,
+        &points_auth.token,
+        &client_version,
+    )
+    .await?;
+    if !status.is_success() {
+        return Err(ChannelPointsError::Message(format!(
+            "Twitch rejected the poll vote (HTTP {status})"
+        )));
+    }
+    if let Some(message) = gql_error_message(&body) {
+        return Err(ChannelPointsError::Message(message));
+    }
+    refresh(&channel_login).await
 }
 
 #[cfg(test)]
@@ -402,6 +580,19 @@ mod tests {
         assert_eq!(
             payload["extensions"]["persistedQuery"]["sha256Hash"],
             CHANNEL_POINTS_CONTEXT_HASHES[0]
+        );
+    }
+
+    #[test]
+    fn builds_vote_poll_payload() {
+        let payload = vote_poll_payload("poll-1", "choice-2", 10);
+        assert_eq!(payload["operationName"], "VotePoll");
+        assert_eq!(payload["variables"]["input"]["pollID"], "poll-1");
+        assert_eq!(payload["variables"]["input"]["choiceID"], "choice-2");
+        assert_eq!(payload["variables"]["input"]["cost"], 10);
+        assert_eq!(
+            payload["extensions"]["persistedQuery"]["sha256Hash"],
+            VOTE_POLL_HASH
         );
     }
 
@@ -438,5 +629,46 @@ mod tests {
         assert_eq!(context.channel_id, "123");
         assert_eq!(context.balance, 18450);
         assert_eq!(context.claim_id.as_deref(), Some("claim-456"));
+        assert!(context.poll.is_none());
+    }
+
+    #[test]
+    fn parses_active_channel_points_poll() {
+        let body = json!({
+            "data": {
+                "community": {
+                    "channel": {
+                        "id": "123",
+                        "activePoll": {
+                            "id": "poll-1",
+                            "title": "Next game?",
+                            "status": "ACTIVE",
+                            "remainingSeconds": 42,
+                            "cost": 10,
+                            "self": { "choiceID": "a" },
+                            "choices": [
+                                { "id": "a", "title": "Minecraft", "votes": 12, "points": 120 },
+                                { "id": "b", "title": "GTA", "votes": 3, "points": 30 }
+                            ]
+                        },
+                        "self": {
+                            "communityPoints": {
+                                "balance": 100,
+                                "availableClaim": null
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let context = parse_context(&body).unwrap();
+        let poll = context.poll.expect("poll");
+        assert_eq!(poll.id, "poll-1");
+        assert_eq!(poll.title, "Next game?");
+        assert_eq!(poll.cost, 10);
+        assert_eq!(poll.remaining_seconds, Some(42));
+        assert_eq!(poll.voted_choice_id.as_deref(), Some("a"));
+        assert_eq!(poll.choices.len(), 2);
+        assert_eq!(poll.choices[0].title, "Minecraft");
     }
 }

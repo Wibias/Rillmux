@@ -17,7 +17,7 @@ mod viewer_presence;
 use auth::{AuthSession, DeviceCodeResponse};
 use doctor::DoctorReport;
 use std::sync::Arc;
-use streaming::{LaunchRequest, SharedStreaming, StreamSession, StreamingState};
+use streaming::{LaunchRequest, OverlayRect, SharedStreaming, StreamSession, StreamingState};
 use tauri::{AppHandle, Manager};
 
 #[tauri::command]
@@ -148,6 +148,18 @@ async fn channel_points_refresh(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn channel_points_vote_poll(
+    channel_login: String,
+    poll_id: String,
+    choice_id: String,
+    cost: u64,
+) -> Result<channel_points::ChannelPointsSnapshot, String> {
+    channel_points::vote_poll(&channel_login, &poll_id, &choice_id, cost)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Helix GET proxy: keeps the OAuth token inside Rust (never in the webview).
 #[tauri::command]
 async fn helix_fetch(
@@ -266,6 +278,11 @@ fn eventsub_sync(enabled: bool, channels: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn raid_overlay_place(from_channel: String) -> Option<OverlayRect> {
+    streaming::raid_overlay_host(&from_channel)
+}
+
+#[tauri::command]
 fn app_quit(app: AppHandle) {
     channel_points_realtime::clear();
     app.exit(0);
@@ -323,6 +340,7 @@ pub fn run() {
             viewer_presence_sync,
             viewer_presence_status,
             channel_points_refresh,
+            channel_points_vote_poll,
             helix_fetch,
             stream_start,
             stream_list,
@@ -336,6 +354,7 @@ pub fn run() {
             dock_set_chat_fraction,
             dock_cycle_monitor,
             eventsub_sync,
+            raid_overlay_place,
             app_quit
         ])
         .setup(|app| {
@@ -346,12 +365,17 @@ pub fn run() {
             // Warm Streamlink so the first watch doesn't pay Python/plugin cold-start.
             std::thread::spawn(|| {
                 if let Some(path) = doctor::find_streamlink_path() {
-                    let _ = std::process::Command::new(path)
-                        .arg("--version")
+                    let mut cmd = std::process::Command::new(path);
+                    cmd.arg("--version")
                         .stdin(std::process::Stdio::null())
                         .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status();
+                        .stderr(std::process::Stdio::null());
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        cmd.creation_flags(0x0800_0000);
+                    }
+                    let _ = cmd.status();
                 }
             });
             Ok(())

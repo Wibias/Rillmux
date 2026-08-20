@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../lib/settings/store";
 import {
@@ -13,7 +13,6 @@ import type {
   HotkeySettings,
   PlayerId,
   PlayerInput,
-  StreamlinkSource,
   ThemeMode,
 } from "../lib/settings/types";
 import { defaultMpvPresets, describeMpvPresets } from "../lib/settings/mpv";
@@ -27,6 +26,7 @@ import { eventToHotkey, normalizeHotkey } from "../lib/hotkeys";
 import { isTauri } from "../lib/tauri";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { syncViewerPresence, useWatchingStore } from "../lib/streaming/store";
+import { SETTINGS_TABS, settingsTabFromPath } from "../lib/settings/tabs";
 import "./SettingsPage.css";
 import "../components/SetupHelp.css";
 
@@ -62,12 +62,14 @@ export function SettingsPage() {
   const replaceSettings = useSettingsStore((s) => s.replaceSettings);
   const setChannelOverride = useSettingsStore((s) => s.setChannelOverride);
   const applyLayout = useWatchingStore((s) => s.applyLayout);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = settingsTabFromPath(location.pathname);
   const fileRef = useRef<HTMLInputElement>(null);
   const [newChannelLogin, setNewChannelLogin] = useState("");
   const [newChannelQuality, setNewChannelQuality] = useState("");
 
   const qualityIsCustom = !isPresetQuality(settings.streaming.quality);
-  const streamlinkIsCustom = settings.streamlink.source === "custom";
   const channelEntries = Object.entries(settings.channels);
 
   const captureHotkey =
@@ -95,6 +97,22 @@ export function SettingsPage() {
         <h1>{t("routes:settingsTitle")}</h1>
       </header>
 
+      <div className="settings__tabs" role="tablist" aria-label={t("routes:settingsTitle")}>
+        {SETTINGS_TABS.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            className={activeTab === tab ? "settings__tab is-active" : "settings__tab"}
+            onClick={() => navigate(`/settings/${tab}`)}
+          >
+            {t(`settings:tab${tab[0]!.toUpperCase()}${tab.slice(1)}`)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "interface" ? (
       <fieldset className="settings__group">
         <legend>{t("settings:gui")}</legend>
 
@@ -181,62 +199,13 @@ export function SettingsPage() {
           </div>
         </div>
       </fieldset>
+      ) : null}
 
+      {activeTab === "streaming" ? (
       <fieldset className="settings__group">
         <legend>{t("settings:streaming")}</legend>
 
-        <div className="settings__row">
-          <div className="settings__label">
-            <span>{t("settings:streamlinkSource")}</span>
-          </div>
-          <div className="settings__control">
-            <select
-              value={settings.streamlink.source}
-              onChange={(e) =>
-                setSettings({
-                  streamlink: {
-                    ...settings.streamlink,
-                    source: e.target.value as StreamlinkSource,
-                  },
-                })
-              }
-            >
-              <option value="bundled">{t("settings:streamlinkBundled")}</option>
-              <option value="system">{t("settings:streamlinkSystem")}</option>
-              <option value="custom">{t("settings:streamlinkCustom")}</option>
-            </select>
-            <p className="muted">{t("settings:streamlinkBundledHint")}</p>
-          </div>
-        </div>
 
-        <div
-          className={
-            streamlinkIsCustom
-              ? "settings__row"
-              : "settings__row settings__row--slot"
-          }
-          aria-hidden={!streamlinkIsCustom}
-        >
-          <div className="settings__label">
-            <span>{t("settings:streamlinkCustomPath")}</span>
-          </div>
-          <div className="settings__control">
-            <input
-              className="input"
-              value={settings.streamlink.customPath}
-              disabled={!streamlinkIsCustom}
-              tabIndex={streamlinkIsCustom ? 0 : -1}
-              onChange={(e) =>
-                setSettings({
-                  streamlink: {
-                    ...settings.streamlink,
-                    customPath: e.target.value,
-                  },
-                })
-              }
-            />
-          </div>
-        </div>
 
         <div className="settings__row settings__row--stack">
           <div className="settings__label">
@@ -339,6 +308,26 @@ export function SettingsPage() {
           <span className="settings__check-text">
             {t("settings:channelPoints")}
             <small className="muted">{t("settings:channelPointsHint")}</small>
+          </span>
+        </label>
+
+        <label className="settings__row settings__row--check">
+          <input
+            type="checkbox"
+            checked={settings.streaming.channelPointsPolls}
+            disabled={!settings.streaming.channelPoints}
+            onChange={(e) =>
+              setSettings({
+                streaming: {
+                  ...settings.streaming,
+                  channelPointsPolls: e.target.checked,
+                },
+              })
+            }
+          />
+          <span className="settings__check-text">
+            {t("settings:channelPointsPolls")}
+            <small className="muted">{t("settings:channelPointsPollsHint")}</small>
           </span>
         </label>
 
@@ -600,7 +589,9 @@ export function SettingsPage() {
           </div>
         </div>
       </fieldset>
+      ) : null}
 
+      {activeTab === "player" ? (
       <fieldset className="settings__group">
         <legend>{t("settings:player")}</legend>
 
@@ -813,7 +804,9 @@ export function SettingsPage() {
           </span>
         </label>
       </fieldset>
+      ) : null}
 
+      {activeTab === "chat" ? (
       <fieldset className="settings__group">
         <legend>{t("settings:chat")}</legend>
         <div className="settings__row">
@@ -842,7 +835,9 @@ export function SettingsPage() {
           </div>
         </div>
       </fieldset>
+      ) : null}
 
+      {activeTab === "notifications" ? (
       <fieldset className="settings__group">
         <legend>{t("settings:notifications")}</legend>
         <label className="settings__row settings__row--check">
@@ -898,7 +893,9 @@ export function SettingsPage() {
           )}
         </div>
       </fieldset>
+      ) : null}
 
+      {activeTab === "hotkeys" ? (
       <fieldset className="settings__group">
         <legend>{t("settings:hotkeys")}</legend>
         <p className="muted settings__hint">{t("settings:hotkeysHint")}</p>
@@ -929,7 +926,9 @@ export function SettingsPage() {
           </div>
         ))}
       </fieldset>
+      ) : null}
 
+      {activeTab === "channels" ? (
       <fieldset className="settings__group">
         <legend>{t("settings:channels")}</legend>
         <p className="muted settings__hint">{t("settings:channelsHint")}</p>
@@ -999,7 +998,9 @@ export function SettingsPage() {
           </div>
         </div>
       </fieldset>
+      ) : null}
 
+      {activeTab === "general" ? (
       <fieldset className="settings__group">
         <legend>{t("settings:main")}</legend>
         <label className="settings__row settings__row--check">
@@ -1057,6 +1058,7 @@ export function SettingsPage() {
           </div>
         </div>
       </fieldset>
+      ) : null}
     </section>
   );
 }

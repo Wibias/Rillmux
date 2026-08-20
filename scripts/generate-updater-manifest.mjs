@@ -1,0 +1,110 @@
+/**
+ * Generates the Tauri v2 updater manifest (latest.json) from the signed
+ * bundle artifacts produced by `tauri build` (which only creates .sig files,
+ * not the manifest — that is normally tauri-action's job).
+ *
+ * The manifest endpoint in tauri.conf.json points at
+ * releases/latest/download/latest.json, so the release workflow must attach
+ * this file to every published release.
+ *
+ * Usage: node scripts/generate-updater-manifest.mjs <tag> [owner/repo]
+ *   tag        e.g. v0.1.0 (or 0.1.0)
+ *   owner/repo defaults to $GITHUB_REPOSITORY, then Wibias/Rillmux
+ */
+import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const bundleDir = path.join(root, "src-tauri", "target", "release", "bundle");
+
+const tag = process.argv[2];
+if (!tag) {
+  console.error("Usage: node scripts/generate-updater-manifest.mjs <tag> [owner/repo]");
+  process.exit(1);
+}
+const version = tag.replace(/^v/, "");
+const repo =
+  process.argv[3] ?? process.env.GITHUB_REPOSITORY ?? "Wibias/Rillmux";
+
+/**
+ * Extract the CHANGELOG.md section for this release (Keep a Changelog
+ * format). Falls back to a release-page link when the section is missing so
+ * the dialog still has something to show.
+ */
+async function releaseNotesFor(version) {
+  const changelogPath = path.join(root, "CHANGELOG.md");
+  try {
+    const changelog = await readFile(changelogPath, "utf8");
+    const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const heading = new RegExp(`^## \\[${escaped}\\][^\\n]*`, "m");
+    const match = heading.exec(changelog);
+    if (!match) {
+      return `See https://github.com/${repo}/releases/tag/${tag}`;
+    }
+    const sectionStart = match.index + match[0].length;
+    const next = /^## /gm;
+    next.lastIndex = sectionStart;
+    const nextMatch = next.exec(changelog);
+    const sectionEnd = nextMatch ? nextMatch.index : changelog.length;
+    return changelog.slice(sectionStart, sectionEnd).trim();
+  } catch {
+    return `See https://github.com/${repo}/releases/tag/${tag}`;
+  }
+}
+
+const notes = await releaseNotesFor(version);
+
+// Prefer the NSIS installer; fall back to MSI.
+const candidates = [
+  { dir: path.join(bundleDir, "nsis"), ext: ".exe.sig" },
+  { dir: path.join(bundleDir, "msi"), ext: ".msi.sig" },
+];
+
+let assetName = null;
+let signature = null;
+for (const { dir, ext } of candidates) {
+  let entries = [];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    continue;
+  }
+  const sig = entries.find((name) => name.endsWith(ext));
+  if (!sig) continue;
+  assetName = sig.slice(0, -".sig".length);
+  signature = (await readFile(path.join(dir, sig), "utf8")).trim();
+  break;
+}
+
+if (!assetName || !signature) {
+  console.error(
+    `No updater signature found under ${bundleDir} (looked for nsis/*.exe.sig, msi/*.msi.sig).`,
+  );
+  console.error("Did the build run with createUpdaterArtifacts and TAURI_SIGNING_PRIVATE_KEY set?");
+  process.exit(1);
+}
+
+// GitHub sanitizes uploaded asset names (spaces and other specials become
+// dots — observed: "Streamlink Twitch GUI_…exe" → "Streamlink.Twitch.GUI_…exe").
+// The download URL must use the sanitized name, otherwise it 404s.
+const sanitizedAsset = assetName.replace(/[^A-Za-z0-9._-]+/g, ".");
+
+const manifest = {
+  version,
+  notes,
+  pub_date: new Date().toISOString(),
+  platforms: {
+    "windows-x86_64": {
+      signature,
+      url: `https://github.com/${repo}/releases/download/${tag}/${encodeURIComponent(sanitizedAsset)}`,
+    },
+  },
+};
+
+const out = path.join(bundleDir, "latest.json");
+await mkdir(bundleDir, { recursive: true });
+await writeFile(out, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+console.log(`Updater manifest written to ${out}`);
+console.log(`  version: ${version}`);
+console.log(`  asset:   ${assetName}`);

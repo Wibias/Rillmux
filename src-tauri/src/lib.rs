@@ -1,0 +1,468 @@
+// MSVC prints “.lib/.exp werden erstellt” to stdout while linking cdylibs; ignore that noise.
+#![allow(linker_messages)]
+
+mod auth;
+mod channel_points;
+mod channel_points_claim_auth;
+mod channel_points_realtime;
+mod dock;
+mod doctor;
+mod eventsub;
+mod helix;
+mod http;
+mod streaming;
+mod twitch_web_auth;
+mod viewer_presence;
+
+use auth::{AuthSession, DeviceCodeResponse};
+use doctor::DoctorReport;
+use std::sync::Arc;
+use streaming::{LaunchRequest, OverlayRect, SharedStreaming, StreamSession, StreamingState};
+use tauri::{AppHandle, Manager};
+use tauri_plugin_window_controls::{TitleBarColors, WindowControlsExt};
+
+#[tauri::command]
+async fn get_doctor_report() -> Result<DoctorReport, String> {
+    // Probing `streamlink --version`, `mpv --version` and the registry can
+    // take seconds (AV scans, cold Python start) — never run it on the
+    // main thread (sync commands) or a runtime worker without offloading.
+    tauri::async_runtime::spawn_blocking(doctor::run_doctor)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_twitch_client_id() -> Result<String, String> {
+    auth::public_client_id().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn auth_get_session() -> Result<AuthSession, String> {
+    auth::get_session().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn auth_start_device_login() -> Result<DeviceCodeResponse, String> {
+    auth::start_device_flow().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn auth_poll_device_login(device_code: String) -> Result<auth::DevicePoll, String> {
+    auth::poll_device_token(&device_code)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn auth_logout(
+    presence: tauri::State<'_, viewer_presence::SharedViewerPresence>,
+) -> Result<(), String> {
+    channel_points_realtime::clear();
+    viewer_presence::cancel_all(presence.inner());
+    auth::logout().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn twitch_web_auth_status() -> Result<twitch_web_auth::TwitchWebAuthStatus, String> {
+    twitch_web_auth::get_status().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn twitch_web_auth_save(
+    token: String,
+) -> Result<twitch_web_auth::TwitchWebAuthStatus, String> {
+    twitch_web_auth::save(&token)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn twitch_web_auth_clear(
+    presence: tauri::State<'_, viewer_presence::SharedViewerPresence>,
+) -> Result<twitch_web_auth::TwitchWebAuthStatus, String> {
+    channel_points_realtime::clear();
+    viewer_presence::cancel_all(presence.inner());
+    twitch_web_auth::clear().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn channel_points_claim_auth_status(
+) -> Result<channel_points_claim_auth::ChannelPointsClaimAuthStatus, String> {
+    channel_points_claim_auth::get_status().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn channel_points_claim_auth_start_device_login(
+) -> Result<channel_points_claim_auth::TvDeviceCodeResponse, String> {
+    channel_points_claim_auth::start_device_flow()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn channel_points_claim_auth_poll_device_login(
+    device_code: String,
+) -> Result<channel_points_claim_auth::TvDevicePoll, String> {
+    channel_points_claim_auth::poll_device_token(&device_code)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn channel_points_claim_auth_clear(
+) -> Result<channel_points_claim_auth::ChannelPointsClaimAuthStatus, String> {
+    channel_points_claim_auth::clear().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn viewer_presence_sync(
+    state: tauri::State<'_, viewer_presence::SharedViewerPresence>,
+    enabled: bool,
+    targets: Vec<viewer_presence::ViewerPresenceTarget>,
+) -> Result<viewer_presence::ViewerPresenceStatus, String> {
+    if let Err(error) = channel_points_realtime::sync(enabled, &targets).await {
+        viewer_presence::cancel_all(state.inner());
+        return Err(error);
+    }
+    if enabled && !targets.is_empty() && !channel_points_realtime::is_ready() {
+        viewer_presence::cancel_all(state.inner());
+        return Err("waiting for Twitch realtime presence".into());
+    }
+    viewer_presence::sync(state.inner().clone(), enabled, targets)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn viewer_presence_status(
+    state: tauri::State<'_, viewer_presence::SharedViewerPresence>,
+) -> Result<viewer_presence::ViewerPresenceStatus, String> {
+    viewer_presence::get_status(state.inner()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn channel_points_refresh(
+    channel_login: String,
+    include_poll: Option<bool>,
+) -> Result<channel_points::ChannelPointsSnapshot, String> {
+    channel_points::refresh(&channel_login, include_poll.unwrap_or(false))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn channel_points_cached(channel_login: String) -> Option<channel_points::ChannelPointsSnapshot> {
+    channel_points::cached_snapshot(&channel_login)
+}
+
+#[tauri::command]
+async fn channel_points_vote_poll(
+    channel_login: String,
+    poll_id: String,
+    choice_id: String,
+    cost: u64,
+) -> Result<channel_points::ChannelPointsSnapshot, String> {
+    channel_points::vote_poll(&channel_login, &poll_id, &choice_id, cost)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn channel_points_vote_prediction(
+    channel_login: String,
+    event_id: String,
+    outcome_id: String,
+    points: u64,
+) -> Result<channel_points::ChannelPointsSnapshot, String> {
+    channel_points::vote_prediction(&channel_login, &event_id, &outcome_id, points)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Helix GET proxy: keeps the OAuth token inside Rust (never in the webview).
+#[tauri::command]
+async fn helix_fetch(
+    path: String,
+    query: Option<Vec<(String, String)>>,
+) -> Result<serde_json::Value, String> {
+    helix::fetch(&path, &query.unwrap_or_default())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn stream_start(
+    app: AppHandle,
+    state: tauri::State<'_, SharedStreaming>,
+    request: LaunchRequest,
+) -> Result<StreamSession, String> {
+    // Path resolution + process spawn off the main thread.
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        streaming::start_stream(&app, &state, request).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn stream_list(
+    state: tauri::State<'_, SharedStreaming>,
+) -> Result<Vec<StreamSession>, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        streaming::list_sessions(&state).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn stream_stop(state: tauri::State<'_, SharedStreaming>, id: String) -> Result<(), String> {
+    // child.wait() blocks until Streamlink exits — offload it.
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        streaming::stop_stream(&state, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn stream_stop_all(state: tauri::State<'_, SharedStreaming>) -> Result<(), String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        streaming::stop_all(&state).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn stream_toggle_mute(
+    state: tauri::State<'_, SharedStreaming>,
+    id: String,
+) -> Result<bool, String> {
+    streaming::toggle_stream_mute(&state, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn open_chatterino_chat(channels: Vec<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        streaming::launch_chatterino_for_channels(&channels).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn close_owned_chatterino() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(streaming::close_owned_chatterino)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn layout_watching(
+    channels: Vec<String>,
+    reserve_chat: bool,
+    layout: Option<String>,
+    linked_dock: Option<bool>,
+    chat_fraction: Option<f64>,
+    main_side: Option<String>,
+) -> Result<(), String> {
+    streaming::layout_watching(
+        &channels,
+        reserve_chat,
+        layout.as_deref(),
+        linked_dock,
+        chat_fraction,
+        main_side.as_deref(),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn dock_set_linked(enabled: bool) {
+    streaming::dock_set_linked(enabled);
+}
+
+#[tauri::command]
+fn dock_set_chat_fraction(fraction: f64) {
+    streaming::dock_set_chat_fraction(fraction);
+}
+
+#[tauri::command]
+fn dock_cycle_monitor() {
+    streaming::dock_cycle_monitor();
+}
+
+#[tauri::command]
+fn eventsub_sync(enabled: bool, channels: Vec<String>) -> Result<(), String> {
+    eventsub::sync(enabled, channels);
+    Ok(())
+}
+
+#[tauri::command]
+fn raid_overlay_place(from_channel: String) -> Option<OverlayRect> {
+    streaming::raid_overlay_host(&from_channel)
+}
+
+#[tauri::command]
+async fn poll_overlay_place() -> Option<OverlayRect> {
+    tauri::async_runtime::spawn_blocking(streaming::poll_overlay_chat_host)
+        .await
+        .ok()
+        .flatten()
+}
+
+#[tauri::command]
+fn poll_overlay_raise() {
+    streaming::raise_poll_overlay_window();
+}
+
+#[tauri::command]
+fn app_quit(app: AppHandle) {
+    channel_points_realtime::clear();
+    app.exit(0);
+}
+
+fn init_sentry() -> Option<sentry::ClientInitGuard> {
+    let dsn = std::env::var("SENTRY_DSN").ok().filter(|s| !s.is_empty())?;
+    let mut opts = sentry::apply_defaults(sentry::ClientOptions::default());
+    opts.dsn = Some(dsn.parse().ok()?);
+    opts.release = Some(std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION")));
+    opts.send_default_pii = false;
+    Some(sentry::init(opts))
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn enable_main_title_bar_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
+    window
+        .set_title_bar_overlay(true)
+        .map_err(|e| e.to_string())?;
+    window.set_title_bar_height(32).map_err(|e| e.to_string())?;
+    let light = TitleBarColors {
+        symbol: Some("#0e0e10".into()),
+        hover: Some("#00000014".into()),
+        pressed: Some("#0000000a".into()),
+        ..Default::default()
+    };
+    let dark = TitleBarColors {
+        symbol: Some("#efeff1".into()),
+        hover: Some("#ffffff14".into()),
+        pressed: Some("#ffffff0a".into()),
+        ..Default::default()
+    };
+    window
+        .set_title_bar_colors(light, dark)
+        .map_err(|e| e.to_string())
+}
+
+/// Inject native Win11 caption buttons into the frameless main window.
+/// Called from the webview after `__TAURI_INTERNALS__` exists so the overlay
+/// script does not bail out on a too-early eval.
+#[tauri::command]
+fn enable_title_bar_overlay(window: tauri::WebviewWindow) -> Result<(), String> {
+    enable_main_title_bar_overlay(&window)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let _sentry_guard = init_sentry();
+    let streaming = Arc::new(StreamingState::new());
+    let viewer_presence = Arc::new(viewer_presence::ViewerPresenceState::new());
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_controls::init())
+        .manage(streaming)
+        .manage(viewer_presence)
+        .invoke_handler(tauri::generate_handler![
+            get_doctor_report,
+            get_twitch_client_id,
+            auth_get_session,
+            auth_start_device_login,
+            auth_poll_device_login,
+            auth_logout,
+            twitch_web_auth_status,
+            twitch_web_auth_save,
+            twitch_web_auth_clear,
+            channel_points_claim_auth_status,
+            channel_points_claim_auth_start_device_login,
+            channel_points_claim_auth_poll_device_login,
+            channel_points_claim_auth_clear,
+            viewer_presence_sync,
+            viewer_presence_status,
+            channel_points_refresh,
+            channel_points_cached,
+            channel_points_vote_poll,
+            channel_points_vote_prediction,
+            helix_fetch,
+            stream_start,
+            stream_list,
+            stream_stop,
+            stream_stop_all,
+            stream_toggle_mute,
+            open_chatterino_chat,
+            close_owned_chatterino,
+            layout_watching,
+            dock_set_linked,
+            dock_set_chat_fraction,
+            dock_cycle_monitor,
+            eventsub_sync,
+            raid_overlay_place,
+            poll_overlay_place,
+            poll_overlay_raise,
+            app_quit,
+            enable_title_bar_overlay
+        ])
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+                let _ = window.set_shadow(true);
+                let _ = enable_main_title_bar_overlay(&window);
+            }
+            streaming::init_dock(app.handle().clone());
+            eventsub::init(app.handle().clone());
+            channel_points_realtime::init(app.handle().clone());
+            viewer_presence::init(app.handle().clone());
+            let state = app.state::<SharedStreaming>().inner().clone();
+            streaming::start_session_watchdog(app.handle().clone(), state);
+            // Warm Streamlink so the first watch doesn't pay Python/plugin cold-start.
+            std::thread::spawn(|| {
+                if let Some(path) = doctor::find_streamlink_path() {
+                    let mut cmd = std::process::Command::new(path);
+                    cmd.arg("--version")
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null());
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        cmd.creation_flags(0x0800_0000);
+                    }
+                    let _ = cmd.status();
+                }
+            });
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

@@ -1,0 +1,80 @@
+.about-version {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.changelog-dialog__panel {
+  width: min(42rem, 100%);
+  max-height: min(36rem, 82vh);
+}
+
+.changelog-dialog__header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.changelog-dialog__notes {
+  overflow: auto;
+  min-height: 0;
+}
+
+.changelog-dialog__section + .changelog-dialog__section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.changelog-dialog__version {
+  margin: 0 0 0.55rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.changelog-dialog__heading {
+  margin: 0.7rem 0 0.3rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.changelog-dialog__subheading {
+  margin: 0.55rem 0 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.changelog-dialog__list {
+  margin: 0.1rem 0 0.35rem;
+  padding: 0;
+  list-style: none;
+}
+
+.changelog-dialog__bullet {
+  position: relative;
+  margin: 0 0 0.28rem 1.05rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.changelog-dialog__bullet::before {
+  content: "•";
+  position: absolute;
+  left: -1.05rem;
+  color: var(--accent-light);
+}
+
+.changelog-dialog__paragraph {
+  margin: 0 0 0.45rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  text-wrap: pretty;
+}

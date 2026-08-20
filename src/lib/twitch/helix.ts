@@ -1,0 +1,365 @@
+import { invoke } from "../tauri";
+
+/**
+ * All Helix calls are proxied through the Rust `helix_fetch` command so the
+ * OAuth access token never exists in webview JS. Errors come back as strings
+ * like "helix 401: …" / "not logged in".
+ */
+
+export type HelixQuery = Record<string, string | number | undefined>;
+
+type QueryPairs = Array<[string, string]>;
+
+function toPairs(query?: HelixQuery): QueryPairs {
+  if (!query) return [];
+  const pairs: QueryPairs = [];
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") {
+      pairs.push([key, String(value)]);
+    }
+  }
+  return pairs;
+}
+
+async function helixFetchPairs<T>(path: string, pairs: QueryPairs): Promise<T> {
+  return invoke<T>("helix_fetch", { path, query: pairs });
+}
+
+export async function helixFetch<T>(
+  path: string,
+  query?: HelixQuery,
+): Promise<T> {
+  return helixFetchPairs<T>(path, toPairs(query));
+}
+
+export interface HelixPage<T> {
+  data: T[];
+  pagination?: { cursor?: string };
+}
+
+export interface HelixStream {
+  id: string;
+  user_id: string;
+  user_login: string;
+  user_name: string;
+  game_id: string;
+  game_name: string;
+  type: string;
+  title: string;
+  viewer_count: number;
+  started_at: string;
+  language: string;
+  thumbnail_url: string;
+  is_mature: boolean;
+  tags?: string[];
+}
+
+export interface HelixUser {
+  id: string;
+  login: string;
+  display_name: string;
+  profile_image_url: string;
+  description?: string;
+  broadcaster_type?: string;
+}
+
+export function isTwitchPartner(user?: HelixUser | null): boolean {
+  return user?.broadcaster_type === "partner";
+}
+
+export const STREAM_THUMBNAIL_REFRESH_MS = 60_000;
+/** Helix `streams/followed` accepts `first` up to 100. */
+export const FOLLOWED_STREAM_PAGE_SIZE = 100;
+
+/** Shared React Query options for live preview lists. */
+export const LIVE_STREAM_QUERY = {
+  refetchInterval: STREAM_THUMBNAIL_REFRESH_MS,
+  refetchOnMount: true as const,
+  staleTime: STREAM_THUMBNAIL_REFRESH_MS,
+};
+
+export function streamThumbnail(
+  url: string,
+  width = 440,
+  height = 248,
+  now = Date.now(),
+): string {
+  const sized = url
+    .replace("{width}", String(width))
+    .replace("{height}", String(height));
+  const bucket = Math.floor(now / STREAM_THUMBNAIL_REFRESH_MS);
+  const separator = sized.includes("?") ? "&" : "?";
+  return `${sized}${separator}t=${bucket}`;
+}
+
+export async function getFollowedStreams(
+  userId: string,
+  cursor?: string,
+): Promise<HelixPage<HelixStream>> {
+  return helixFetch<HelixPage<HelixStream>>("streams/followed", {
+    user_id: userId,
+    first: FOLLOWED_STREAM_PAGE_SIZE,
+    after: cursor,
+  });
+}
+
+export interface HelixFollowedChannel {
+  broadcaster_id: string;
+  broadcaster_login: string;
+  broadcaster_name: string;
+  followed_at: string;
+}
+
+export async function getFollowedChannels(
+  userId: string,
+  cursor?: string,
+): Promise<HelixPage<HelixFollowedChannel>> {
+  return helixFetch<HelixPage<HelixFollowedChannel>>("channels/followed", {
+    user_id: userId,
+    first: 100,
+    after: cursor,
+  });
+}
+
+/**
+ * Every channel login the user follows (paginated, capped at 1000) — used to
+ * rank followed channels above global search results in multistream.
+ */
+export async function getFollowedChannelLogins(userId: string): Promise<string[]> {
+  const logins: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 10; page += 1) {
+    const result: HelixPage<HelixFollowedChannel> = await getFollowedChannels(
+      userId,
+      cursor,
+    );
+    logins.push(...result.data.map((c) => c.broadcaster_login.toLowerCase()));
+    cursor = result.pagination?.cursor;
+    if (!cursor) break;
+  }
+  return logins;
+}
+
+function streamsQueryPairs(opts: {
+  cursor?: string;
+  gameId?: string;
+  languages?: string[];
+}): QueryPairs {
+  const pairs: QueryPairs = [["first", "25"]];
+  if (opts.gameId) pairs.push(["game_id", opts.gameId]);
+  if (opts.cursor) pairs.push(["after", opts.cursor]);
+  const langs = [
+    ...new Set(
+      (opts.languages ?? [])
+        .map((c) => c.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ].slice(0, 100);
+  for (const lang of langs) {
+    pairs.push(["language", lang]);
+  }
+  return pairs;
+}
+
+export async function getTopStreams(
+  cursor?: string,
+  languages?: string[],
+): Promise<HelixPage<HelixStream>> {
+  return helixFetchPairs<HelixPage<HelixStream>>(
+    "streams",
+    streamsQueryPairs({ cursor, languages }),
+  );
+}
+
+export interface HelixGame {
+  id: string;
+  name: string;
+  box_art_url: string;
+  viewer_count?: number;
+}
+
+export interface HelixChannel {
+  id: string;
+  broadcaster_login: string;
+  display_name: string;
+  game_id: string;
+  game_name: string;
+  title: string;
+  thumbnail_url: string;
+  is_live: boolean;
+}
+
+export interface HelixTeam {
+  id: string;
+  team_name: string;
+  team_display_name: string;
+  background_image_url: string | null;
+  thumbnail_url: string;
+}
+
+export function gameBoxArt(url: string, width = 285, height = 380): string {
+  const sized = `${width}x${height}`;
+  if (url.includes("{width}") || url.includes("{height}")) {
+    return url
+      .replace("{width}", String(width))
+      .replace("{height}", String(height));
+  }
+  // Helix search/categories returns a fixed tiny size (often 52x72) instead of
+  // the {width}x{height} template used by games/top.
+  return url.replace(/\d+x\d+(?=\.\w+)/, sized);
+}
+
+async function getStreamsByGameIds(gameIds: string[]): Promise<HelixStream[]> {
+  if (!gameIds.length) return [];
+  const streams: HelixStream[] = [];
+  for (let i = 0; i < gameIds.length; i += 100) {
+    const batch = gameIds.slice(i, i + 100);
+    const pairs: QueryPairs = batch.map((id) => ["game_id", id]);
+    pairs.push(["first", "100"]);
+    const page = await helixFetchPairs<HelixPage<HelixStream>>("streams", pairs);
+    streams.push(...page.data);
+  }
+  return streams;
+}
+
+export async function getTopGames(
+  cursor?: string,
+): Promise<HelixPage<HelixGame>> {
+  const page = await helixFetch<HelixPage<HelixGame>>("games/top", {
+    first: 25,
+    after: cursor,
+  });
+  const ids = page.data.map((game) => game.id).filter(Boolean);
+  if (!ids.length) return page;
+  const streams = await getStreamsByGameIds(ids);
+  const viewers = new Map<string, number>();
+  for (const stream of streams) {
+    viewers.set(stream.game_id, (viewers.get(stream.game_id) ?? 0) + stream.viewer_count);
+  }
+  return {
+    ...page,
+    data: page.data.map((game) => ({
+      ...game,
+      viewer_count: viewers.get(game.id) ?? 0,
+    })),
+  };
+}
+
+export async function getStreamsByGame(
+  gameId: string,
+  cursor?: string,
+  languages?: string[],
+): Promise<HelixPage<HelixStream>> {
+  return helixFetchPairs<HelixPage<HelixStream>>(
+    "streams",
+    streamsQueryPairs({ gameId, cursor, languages }),
+  );
+}
+
+export async function searchChannels(
+  query: string,
+  cursor?: string,
+): Promise<HelixPage<HelixChannel>> {
+  return helixFetch<HelixPage<HelixChannel>>("search/channels", {
+    query,
+    first: 25,
+    after: cursor,
+  });
+}
+
+export async function searchCategories(
+  query: string,
+  cursor?: string,
+): Promise<HelixPage<HelixGame>> {
+  return helixFetch<HelixPage<HelixGame>>("search/categories", {
+    query,
+    first: 25,
+    after: cursor,
+  });
+}
+
+export async function getChannelStreams(
+  userLogin: string,
+): Promise<HelixPage<HelixStream>> {
+  return helixFetch<HelixPage<HelixStream>>("streams", {
+    user_login: userLogin,
+    first: 1,
+  });
+}
+
+export async function getUsersByLogin(
+  logins: string[],
+): Promise<HelixPage<HelixUser>> {
+  const unique = [
+    ...new Set(
+      logins.map((login) => login.trim().toLowerCase()).filter(Boolean),
+    ),
+  ];
+  if (!unique.length) return { data: [] };
+  const data: HelixUser[] = [];
+  for (let i = 0; i < unique.length; i += 100) {
+    const batch = unique.slice(i, i + 100);
+    const page = await helixFetchPairs<HelixPage<HelixUser>>(
+      "users",
+      batch.map((login) => ["login", login]),
+    );
+    data.push(...page.data);
+  }
+  return { data };
+}
+
+export async function getChannelFollowerCount(
+  broadcasterId: string,
+): Promise<number> {
+  const page = await helixFetch<{ total?: number }>("channels/followers", {
+    broadcaster_id: broadcasterId,
+    first: 1,
+  });
+  return typeof page.total === "number" ? page.total : 0;
+}
+
+export async function getChannelTeams(
+  broadcasterId: string,
+): Promise<HelixPage<HelixTeam>> {
+  return helixFetch<HelixPage<HelixTeam>>("teams/channel", {
+    broadcaster_id: broadcasterId,
+  });
+}
+
+export interface HelixTeamMember {
+  user_id: string;
+  user_name: string;
+  user_login: string;
+}
+
+export interface HelixTeamDetail extends HelixTeam {
+  users?: HelixTeamMember[];
+  info?: string;
+}
+
+export async function getTeamByName(
+  name: string,
+): Promise<HelixTeamDetail | null> {
+  const page = await helixFetch<HelixPage<HelixTeamDetail>>("teams", {
+    name,
+  });
+  return page.data[0] ?? null;
+}
+
+export async function getStreamsByUserIds(
+  userIds: string[],
+): Promise<HelixStream[]> {
+  if (!userIds.length) return [];
+  const streams: HelixStream[] = [];
+  for (let i = 0; i < userIds.length; i += 100) {
+    const batch = userIds.slice(i, i + 100);
+    const pairs: QueryPairs = batch.map((id) => ["user_id", id]);
+    pairs.push(["first", String(Math.min(100, batch.length))]);
+    const page = await helixFetchPairs<HelixPage<HelixStream>>(
+      "streams",
+      pairs,
+    );
+    streams.push(...page.data);
+  }
+  return streams;
+}

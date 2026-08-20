@@ -1,0 +1,136 @@
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as Sentry from "@sentry/react";
+import { useTranslation } from "react-i18next";
+import { AppShell } from "./components/AppShell";
+import { ThemeProvider } from "./components/ThemeProvider";
+import {
+  AboutPage,
+  AuthBootstrap,
+  FollowedPage,
+  StreamsPage,
+  WatchingPage,
+} from "./pages/BrowsePages";
+import {
+  ChannelPage,
+  GameStreamsPage,
+  GamesPage,
+  SearchPage,
+  TeamPage,
+  TeamsSearchPage,
+} from "./pages/BrowseExtraPages";
+import { SettingsPage, SettingsBootstrap } from "./pages/SettingsPage";
+import { MultistreamPage } from "./pages/MultistreamPage";
+import { TauriGuardBanner } from "./components/TauriGuardBanner";
+import { DesktopChrome } from "./components/DesktopChrome";
+import { HotkeyProvider } from "./components/HotkeyProvider";
+import { DeepLinkBootstrap } from "./components/DeepLinkAndUpdaterBootstrap";
+import { StreamingBootstrap } from "./components/StreamingBootstrap";
+import { OnboardingWizard } from "./components/OnboardingWizard";
+import { LaunchErrorBanner } from "./components/LaunchErrorBanner";
+import { UpdateBanner } from "./components/UpdateBanner";
+import { RaidBanner } from "./components/RaidBanner";
+import {
+  ChannelPointsPollOverlay,
+  isPollOverlayWindow,
+} from "./components/ChannelPointsPollOverlay";
+import { SentryBootstrap } from "./lib/sentry";
+import "./styles/global.css";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+function AppRoutes() {
+  const { t } = useTranslation("errors");
+  return (
+    // One failing page must not white-screen the whole app; Sentry captures
+    // the exception (only when crash reports are enabled).
+    <Sentry.ErrorBoundary
+      fallback={
+        <p className="muted" role="alert" style={{ padding: "2rem" }}>
+          {t("generic")}
+        </p>
+      }
+    >
+      <Routes>
+        <Route path="/" element={<FollowedPage />} />
+        <Route path="/streams" element={<StreamsPage />} />
+        <Route path="/games" element={<GamesPage />} />
+        <Route path="/games/:gameId" element={<GameStreamsPage />} />
+        <Route path="/search" element={<SearchPage />} />
+        <Route path="/teams" element={<TeamsSearchPage />} />
+        <Route path="/channel/:login" element={<ChannelPage />} />
+        <Route path="/team/:teamName" element={<TeamPage />} />
+        <Route path="/watching" element={<WatchingPage />} />
+        <Route path="/multistream" element={<MultistreamPage />} />
+        <Route path="/settings/*" element={<SettingsPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Sentry.ErrorBoundary>
+  );
+}
+
+function isRaidOverlay() {
+  return new URLSearchParams(window.location.search).get("overlay") === "raid";
+}
+
+export default function App() {
+  if (isRaidOverlay()) {
+    return (
+      <ThemeProvider>
+        <SettingsBootstrap>
+          <RaidBanner />
+        </SettingsBootstrap>
+      </ThemeProvider>
+    );
+  }
+
+  if (isPollOverlayWindow()) {
+    return (
+      <ThemeProvider>
+        <SettingsBootstrap>
+          <ChannelPointsPollOverlay />
+        </SettingsBootstrap>
+      </ThemeProvider>
+    );
+  }
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <SettingsBootstrap>
+          <SentryBootstrap>
+            <AuthBootstrap>
+              <BrowserRouter>
+                <HotkeyProvider>
+                  <DeepLinkBootstrap>
+                    <StreamingBootstrap>
+                      <OnboardingWizard />
+                      <AppShell>
+                        <DesktopChrome />
+                        <TauriGuardBanner />
+                        <LaunchErrorBanner />
+                        <UpdateBanner />
+                        <RaidBanner />
+                        <ChannelPointsPollOverlay />
+                        <AppRoutes />
+                      </AppShell>
+                    </StreamingBootstrap>
+                  </DeepLinkBootstrap>
+                </HotkeyProvider>
+              </BrowserRouter>
+            </AuthBootstrap>
+          </SentryBootstrap>
+        </SettingsBootstrap>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
+}

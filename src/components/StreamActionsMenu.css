@@ -1,0 +1,66 @@
+.stream-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.stream-menu__trigger {
+  appearance: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.stream-menu__trigger:hover,
+.stream-menu__trigger[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.stream-menu:has(.stream-menu__panel) {
+  z-index: 20;
+}
+
+.stream-menu__panel {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 20;
+  min-width: 10.5rem;
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+.stream-menu__panel button,
+.stream-menu__panel a {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  text-decoration: none;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.stream-menu__panel button:hover,
+.stream-menu__panel a:hover {
+  background: var(--nav-hover);
+}

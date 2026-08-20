@@ -346,12 +346,17 @@ pub fn run() {
             // Warm Streamlink so the first watch doesn't pay Python/plugin cold-start.
             std::thread::spawn(|| {
                 if let Some(path) = doctor::find_streamlink_path() {
-                    let _ = std::process::Command::new(path)
-                        .arg("--version")
+                    let mut cmd = std::process::Command::new(path);
+                    cmd.arg("--version")
                         .stdin(std::process::Stdio::null())
                         .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status();
+                        .stderr(std::process::Stdio::null());
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        cmd.creation_flags(0x0800_0000);
+                    }
+                    let _ = cmd.status();
                 }
             });
             Ok(())

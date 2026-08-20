@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPresenceTargets,
   describeViewerPresenceStatus,
+  presenceSourceFromStream,
   prunePresenceMetadata,
   type PresenceMetadata,
   type PresenceSession,
@@ -46,7 +47,7 @@ describe("viewer presence lifecycle", () => {
     expect(pruned.stale).toBeUndefined();
   });
 
-  it("selects only ready running sessions and caps the request at two", () => {
+  it("selects every ready running session up to the layout cap", () => {
     const targets = buildPresenceTargets(sessions, metadata);
 
     expect(targets).toEqual([
@@ -62,6 +63,12 @@ describe("viewer presence lifecycle", () => {
         channelId: "202",
         broadcastId: "broadcast-two",
       },
+      {
+        sessionId: "three",
+        channelLogin: "three",
+        channelId: "303",
+        broadcastId: "broadcast-three",
+      },
     ]);
   });
 
@@ -72,7 +79,35 @@ describe("viewer presence lifecycle", () => {
       "two",
     ]);
 
-    expect(targets.map((target) => target.sessionId)).toEqual(["three", "one"]);
+    expect(targets.map((target) => target.sessionId)).toEqual([
+      "three",
+      "one",
+      "two",
+    ]);
+  });
+
+  it("caps presence workers at eight ready streams", () => {
+    const manySessions: PresenceSession[] = Array.from({ length: 9 }, (_, index) => ({
+      id: `s${index + 1}`,
+      running: true,
+      ready: true,
+    }));
+    const manyMetadata: PresenceMetadata = Object.fromEntries(
+      manySessions.map((session, index) => [
+        session.id,
+        {
+          channelLogin: session.id,
+          channelId: String(100 + index),
+          broadcastId: `broadcast-${session.id}`,
+        },
+      ]),
+    );
+
+    const targets = buildPresenceTargets(manySessions, manyMetadata);
+    expect(targets).toHaveLength(8);
+    expect(targets.map((target) => target.sessionId)).toEqual(
+      manySessions.slice(0, 8).map((session) => session.id),
+    );
   });
 
   it("ignores incomplete Twitch identifiers", () => {
@@ -88,6 +123,30 @@ describe("viewer presence lifecycle", () => {
     );
 
     expect(targets).toEqual([]);
+  });
+
+  it("builds presence metadata from a complete Helix stream", () => {
+    expect(
+      presenceSourceFromStream({
+        id: "broadcast-9",
+        user_id: "999",
+        user_login: "Alice",
+      }),
+    ).toEqual({
+      channelLogin: "alice",
+      channelId: "999",
+      broadcastId: "broadcast-9",
+    });
+  });
+
+  it("does not farm from a stub stream with empty Helix ids", () => {
+    expect(
+      presenceSourceFromStream({
+        id: "",
+        user_id: "",
+        user_login: "alice",
+      }),
+    ).toBeNull();
   });
 
   it("describes the exact failing backend protocol stage", () => {

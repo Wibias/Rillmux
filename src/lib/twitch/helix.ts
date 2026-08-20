@@ -149,6 +149,7 @@ export interface HelixGame {
   id: string;
   name: string;
   box_art_url: string;
+  viewer_count?: number;
 }
 
 export interface HelixChannel {
@@ -176,13 +177,40 @@ export function gameBoxArt(url: string, width = 144, height = 192): string {
     .replace("{height}", String(height));
 }
 
+async function getStreamsByGameIds(gameIds: string[]): Promise<HelixStream[]> {
+  if (!gameIds.length) return [];
+  const streams: HelixStream[] = [];
+  for (let i = 0; i < gameIds.length; i += 100) {
+    const batch = gameIds.slice(i, i + 100);
+    const pairs: QueryPairs = batch.map((id) => ["game_id", id]);
+    pairs.push(["first", "100"]);
+    const page = await helixFetchPairs<HelixPage<HelixStream>>("streams", pairs);
+    streams.push(...page.data);
+  }
+  return streams;
+}
+
 export async function getTopGames(
   cursor?: string,
 ): Promise<HelixPage<HelixGame>> {
-  return helixFetch<HelixPage<HelixGame>>("games/top", {
+  const page = await helixFetch<HelixPage<HelixGame>>("games/top", {
     first: 25,
     after: cursor,
   });
+  const ids = page.data.map((game) => game.id).filter(Boolean);
+  if (!ids.length) return page;
+  const streams = await getStreamsByGameIds(ids);
+  const viewers = new Map<string, number>();
+  for (const stream of streams) {
+    viewers.set(stream.game_id, (viewers.get(stream.game_id) ?? 0) + stream.viewer_count);
+  }
+  return {
+    ...page,
+    data: page.data.map((game) => ({
+      ...game,
+      viewer_count: viewers.get(game.id) ?? 0,
+    })),
+  };
 }
 
 export async function getStreamsByGame(

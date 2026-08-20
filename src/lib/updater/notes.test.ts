@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeUrl, parseReleaseNotes } from "./notes";
+import { isSafeUrl, parseReleaseNotes, recentChangelogSections } from "./notes";
 
 describe("parseReleaseNotes", () => {
   it("returns [] for empty notes", () => {
@@ -66,5 +66,44 @@ describe("isSafeUrl", () => {
     expect(isSafeUrl('https://example.com/"onclick=alert(1)')).toBe(false);
     expect(isSafeUrl("https://example.com/<script>")).toBe(false);
     expect(isSafeUrl("https://example.com/\t\n")).toBe(false);
+  });
+});
+
+describe("recentChangelogSections", () => {
+  it("returns the newest released versions and skips Unreleased", () => {
+    const markdown = [
+      "# Changelog",
+      "",
+      "## [Unreleased]",
+      "- pending",
+      "",
+      "## [0.4.1] — 2026-08-14",
+      "- one",
+      "",
+      "## [0.4.0] — 2026-08-09",
+      "- two",
+      "",
+      "## [0.3.1] — 2026-08-01",
+      "- three",
+      "",
+      "## [0.3.0] — 2026-08-01",
+      "- four",
+      "",
+      "## [0.2.1] — 2026-08-01",
+      "- five",
+      "",
+      "## [0.2.0] — 2026-07-30",
+      "- six",
+    ].join("\n");
+    const sections = recentChangelogSections(markdown, 5);
+    expect(sections.map((section) => section.heading)).toEqual([
+      "[0.4.1] — 2026-08-14",
+      "[0.4.0] — 2026-08-09",
+      "[0.3.1] — 2026-08-01",
+      "[0.3.0] — 2026-08-01",
+      "[0.2.1] — 2026-08-01",
+    ]);
+    expect(sections[0]?.body).toContain("- one");
+    expect(sections).toHaveLength(5);
   });
 });

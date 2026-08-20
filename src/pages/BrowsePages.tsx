@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { DoctorPanel } from "../components/DoctorPanel";
+import { ChangelogDialog } from "../components/ChangelogDialog";
 import { EmbeddedChat } from "../components/EmbeddedChat";
 import { LoadMore } from "../components/LoadMore";
 import { LoadingGrid } from "../components/LoadingGrid";
@@ -319,6 +320,7 @@ export function AboutPage() {
   const { t } = useTranslation("routes");
   const { status, version, error, check, install } = useUpdaterCheck();
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [showChangelog, setShowChangelog] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -349,13 +351,19 @@ export function AboutPage() {
           <h1>{t("aboutTitle")}</h1>
           <p className="page__lede">{t("aboutBlurb")}</p>
           {appVersion ? (
-            <p className="muted" style={{ marginTop: "0.35rem" }}>
+            <p className="muted about-version" style={{ marginTop: "0.35rem" }}>
               {t("aboutVersion", { version: appVersion })}
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => setShowChangelog(true)}
+              >
+                {t("viewChangelog")}
+              </button>
             </p>
           ) : null}
         </div>
       </header>
-      <p className="muted">{t("deepLinkHint")}</p>
       <div className="channel-header__actions" style={{ marginBottom: "1rem" }}>
         <button
           type="button"
@@ -382,6 +390,9 @@ export function AboutPage() {
         </p>
       ) : null}
       <DoctorPanel />
+      {showChangelog ? (
+        <ChangelogDialog onClose={() => setShowChangelog(false)} />
+      ) : null}
     </section>
   );
 }

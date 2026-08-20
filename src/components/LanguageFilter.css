@@ -38,12 +38,12 @@
 }
 
 .language-filter__clear {
-  border: 0;
-  background: transparent;
-  color: var(--accent, #9146ff);
+  border: 1px solid var(--accent);
+  background: var(--nav-active);
+  color: var(--text);
   cursor: pointer;
   font: inherit;
-  padding: 0;
+  padding: 0.2rem 0.55rem;`r`n  border-radius: 999px;
 }
 
 .language-filter__clear:disabled {
@@ -60,7 +60,7 @@
 
 .language-filter__option {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: 0.45rem;
   padding: 0.35rem 0.7rem;

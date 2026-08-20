@@ -73,7 +73,7 @@ export function LanguageFilter() {
             <strong>{t("languages")}</strong>
             <button
               type="button"
-              className="language-filter__clear"
+              className="button-secondary language-filter__clear"
               onClick={clear}
               disabled={!selected.length}
             >
@@ -92,7 +92,6 @@ export function LanguageFilter() {
                       onChange={() => toggle(lang.code)}
                     />
                     <span>{lang.label}</span>
-                    <span className="muted">{lang.code}</span>
                   </label>
                 </li>
               );

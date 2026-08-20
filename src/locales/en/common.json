@@ -47,6 +47,11 @@
   "raidBannerBody": "Following in {{seconds}}s…",
   "raidFollowNow": "Follow now",
   "raidStay": "Stay",
+  "pollVoteTitle": "{{channel}} poll",
+  "pollVoteCost": "{{cost}} points",
+  "pollVoteRemaining": "{{seconds}}s left",
+  "pollVoteDismiss": "Hide",
+  "pollVoted": "Voted",
   "languages": "Languages",
   "languagesAll": "All languages",
   "languagesClear": "Clear"

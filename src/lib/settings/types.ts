@@ -74,6 +74,8 @@ export interface AppSettings {
     disableAds: boolean;
     /** Send undocumented Twitch viewer-presence telemetry for ready sessions. */
     channelPoints: boolean;
+    /** Show Channel Points polls over chat and allow voting. Opt-in. */
+    channelPointsPolls: boolean;
     /** Start the next Streamlink process before stopping the previous one. */
     seamlessSwitch: boolean;
     /** Multistream grid when seamlessSwitch is off. */
@@ -129,7 +131,7 @@ export interface AppSettings {
   closeToTray?: boolean;
 }
 
-export const SETTINGS_SCHEMA_VERSION = 15;
+export const SETTINGS_SCHEMA_VERSION = 16;
 
 export const defaultHotkeys = (): HotkeySettings => ({
   refresh: "F5",
@@ -164,6 +166,7 @@ export const defaultSettings = (): AppSettings => ({
     lowLatency: false,
     disableAds: false,
     channelPoints: false,
+    channelPointsPolls: false,
     seamlessSwitch: true,
     multistreamLayout: DEFAULT_MULTISTREAM_LAYOUT,
     unevenMainSide: DEFAULT_UNEVEN_MAIN_SIDE,

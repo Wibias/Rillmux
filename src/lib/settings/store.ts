@@ -67,6 +67,8 @@ export function migrateSettings(raw: unknown): AppSettings {
       })(),
       linkedDock: input.streaming?.linkedDock ?? base.streaming.linkedDock,
       followRaids: input.streaming?.followRaids ?? base.streaming.followRaids,
+      channelPointsPolls:
+        input.streaming?.channelPointsPolls ?? base.streaming.channelPointsPolls,
       streamLanguages: (() => {
         const raw = input.streaming?.streamLanguages;
         if (!Array.isArray(raw)) return base.streaming.streamLanguages;

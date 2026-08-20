@@ -15,6 +15,7 @@ import {
 import type { RaidOutgoingEvent } from "./raid";
 import {
   buildPresenceTargets,
+  presenceSourceFromStream,
   prunePresenceMetadata,
   type PresenceMetadata,
 } from "./presence";
@@ -70,15 +71,33 @@ let presenceMetadata: PresenceMetadata = {};
 let lastPresenceSyncKey = "";
 
 function rememberPresence(sessionId: string, stream: HelixStream) {
-  if (!stream.id || !stream.user_id) {
+  const source = presenceSourceFromStream(stream);
+  if (!source) {
     delete presenceMetadata[sessionId];
     return;
   }
-  presenceMetadata[sessionId] = {
-    channelLogin: stream.user_login.toLowerCase(),
-    channelId: stream.user_id,
-    broadcastId: stream.id,
-  };
+  presenceMetadata[sessionId] = source;
+}
+
+async function ensurePresenceMetadata(
+  sessionId: string,
+  stream: HelixStream,
+) {
+  rememberPresence(sessionId, stream);
+  if (presenceMetadata[sessionId]) {
+    syncViewerPresence(true);
+    return;
+  }
+  try {
+    const page = await getChannelStreams(stream.user_login);
+    const live = page.data[0];
+    if (live) {
+      rememberPresence(sessionId, live);
+    }
+  } catch {
+    // Presence stays omitted until a later refresh can resolve IDs.
+  }
+  syncViewerPresence(true);
 }
 
 export function syncViewerPresence(force = false) {
@@ -418,7 +437,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           layout: currentLayout(),
         },
       });
-      rememberPresence(session.id, stream);
+      void ensurePresenceMetadata(session.id, stream);
       if (settings.gui.minimizeOnWatch && isTauri()) {
         void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
           void getCurrentWindow().minimize();
@@ -458,11 +477,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     const reserveChat = settings.chat.provider === "chatterino";
 
     const session = get().sessions.find(
-      (s) => s.running && s.channel.toLowerCase() === from,
+      (s) => s.channel.toLowerCase() === from,
     );
-    if (!session) {
-      return;
-    }
 
     // Resolve live Helix data when possible; fall back to a stub so we still jump.
     let target: HelixStream | null = null;
@@ -504,8 +520,10 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           : get().activeChatChannel,
     });
 
-    await invoke("stream_stop", { id: session.id });
-    await get().refresh();
+    if (session?.running) {
+      await invoke("stream_stop", { id: session.id });
+      await get().refresh();
+    }
 
     const launch = resolveChannelLaunch(settings, toLogin, {
       title: target.title,
@@ -545,10 +563,10 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           layout: currentLayout(),
         },
       });
-      rememberPresence(started.id, target);
+      void ensurePresenceMetadata(started.id, target);
       set((state) => ({
         sessions: [
-          ...state.sessions.filter((s) => s.id !== started.id && s.id !== session.id),
+          ...state.sessions.filter((s) => s.id !== started.id && s.id !== session?.id),
           started,
         ],
       }));

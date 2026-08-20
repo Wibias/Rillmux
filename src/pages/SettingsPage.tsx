@@ -314,6 +314,26 @@ export function SettingsPage() {
         <label className="settings__row settings__row--check">
           <input
             type="checkbox"
+            checked={settings.streaming.channelPointsPolls}
+            disabled={!settings.streaming.channelPoints}
+            onChange={(e) =>
+              setSettings({
+                streaming: {
+                  ...settings.streaming,
+                  channelPointsPolls: e.target.checked,
+                },
+              })
+            }
+          />
+          <span className="settings__check-text">
+            {t("settings:channelPointsPolls")}
+            <small className="muted">{t("settings:channelPointsPollsHint")}</small>
+          </span>
+        </label>
+
+        <label className="settings__row settings__row--check">
+          <input
+            type="checkbox"
             checked={settings.streaming.seamlessSwitch}
             onChange={(e) => {
               const seamless = e.target.checked;

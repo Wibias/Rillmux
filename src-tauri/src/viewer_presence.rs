@@ -21,7 +21,7 @@ const USER_AGENT_VALUE: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const MIN_SUCCESS_INTERVAL_SECS: u64 = 55;
 const MAX_SUCCESS_INTERVAL_SECS: u64 = 70;
-const MAX_WORKERS: usize = 2;
+const MAX_WORKERS: usize = 8;
 
 #[derive(Debug, Error)]
 pub enum ViewerPresenceError {
@@ -1203,11 +1203,26 @@ mod tests {
             target("three", "third"),
         ]);
 
-        assert_eq!(selected.len(), 2);
+        assert_eq!(selected.len(), 3);
         assert_eq!(selected[0].session_id, "one");
         assert_eq!(selected[0].channel_login, "example");
         assert_eq!(selected[1].session_id, "two");
         assert_eq!(selected[1].channel_login, "second_channel");
+        assert_eq!(selected[2].session_id, "three");
+        assert_eq!(selected[2].channel_login, "third");
+    }
+
+    #[test]
+    fn caps_presence_workers_at_layout_maximum() {
+        let selected = select_targets(
+            (1..=9)
+                .map(|index| target(&format!("s{index}"), &format!("channel{index}")))
+                .collect(),
+        );
+
+        assert_eq!(selected.len(), 8);
+        assert_eq!(selected[0].session_id, "s1");
+        assert_eq!(selected[7].session_id, "s8");
     }
 
     #[test]

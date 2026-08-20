@@ -283,6 +283,7 @@ export function MultistreamPage() {
               return (
                 <li
                   key={channel}
+                  draggable
                   className={[
                     "ms-slot",
                     dragIndex === index ? "ms-slot--dragging" : "",
@@ -292,6 +293,16 @@ export function MultistreamPage() {
                   ]
                     .filter(Boolean)
                     .join(" ")}
+                  onDragStart={(e) => {
+                    const target = e.target as HTMLElement;
+                    if (target.closest("button, a, input, select, textarea")) {
+                      e.preventDefault();
+                      return;
+                    }
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", channel);
+                    setDragIndex(index);
+                  }}
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = "move";
@@ -316,22 +327,7 @@ export function MultistreamPage() {
                     if (overIndex === index) setOverIndex(null);
                   }}
                 >
-                  <span
-                    className="ms-slot__handle"
-                    draggable
-                    onDragStart={(e) => {
-                      // HTML5 DnD requires payload data, otherwise Chromium
-                      // (WebView2) shows the "not-allowed" cursor.
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", channel);
-                      setDragIndex(index);
-                    }}
-                    onDragEnd={() => {
-                      setDragIndex(null);
-                      setOverIndex(null);
-                    }}
-                    aria-hidden
-                  >
+                  <span className="ms-slot__handle" aria-hidden>
                     ⋮⋮
                   </span>
                   <div className="ms-slot__meta">

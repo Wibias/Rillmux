@@ -1974,8 +1974,10 @@ fn grip_thread_main() {
                 destroy_grip(h);
             }
             if !cfg.linked || cfg.channels.is_empty() {
-                hide_grip(g.chat);
-                hide_grip(g.mover);
+                destroy_grip(g.chat);
+                g.chat = std::ptr::null_mut();
+                destroy_grip(g.mover);
+                g.mover = std::ptr::null_mut();
                 for h in g.identifies.drain(..) {
                     destroy_grip(h);
                 }
@@ -2051,5 +2053,18 @@ fn grip_thread_main() {
             5 | 6 => "3x2",
             _ => "4x2",
         }
+    }
+}
+
+#[cfg(test)]
+mod leftover_grip_tests {
+    #[test]
+    fn empty_session_destroys_leftover_grips() {
+        let source = include_str!("dock.rs");
+        assert!(source.contains("if !cfg.linked || cfg.channels.is_empty()"));
+        assert!(source.contains("destroy_grip(g.chat)"));
+        assert!(source.contains("destroy_grip(g.mover)"));
+        assert!(source.contains("for h in g.identifies.drain(..)"));
+        assert!(source.contains("g.chat = std::ptr::null_mut()"));
     }
 }

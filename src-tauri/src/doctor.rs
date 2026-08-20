@@ -2,6 +2,16 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd
+}
+
 const MIN_STREAMLINK_VERSION: &str = "8.0.0";
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,7 +87,7 @@ fn refresh_path_from_registry() {
 
 #[cfg(windows)]
 fn read_reg_path(key: &str, value: &str) -> Option<std::ffi::OsString> {
-    let output = Command::new("reg")
+    let output = hidden_command("reg")
         .args(["query", key, "/v", value])
         .output()
         .ok()?;
@@ -285,7 +295,7 @@ fn read_version(exec: &Path, args: &[&str]) -> Option<String> {
     if args.is_empty() {
         return None;
     }
-    let output = Command::new(exec).args(args).output().ok()?;
+    let output = hidden_command(exec).args(args).output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let line = text.lines().next().unwrap_or("").trim();
     if line.is_empty() {
@@ -348,6 +358,14 @@ pub fn run_doctor() -> DoctorReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn doctor_probes_hide_console_windows() {
+        let source = include_str!("doctor.rs");
+        assert!(source.contains("creation_flags(0x0800_0000)"));
+        assert!(source.contains("fn hidden_command"));
+        assert!(!source.contains("Command::new(\"reg\")"));
+    }
 
     #[test]
     fn doctor_report_has_min_version() {

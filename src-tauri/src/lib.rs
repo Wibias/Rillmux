@@ -17,7 +17,7 @@ mod viewer_presence;
 use auth::{AuthSession, DeviceCodeResponse};
 use doctor::DoctorReport;
 use std::sync::Arc;
-use streaming::{LaunchRequest, SharedStreaming, StreamSession, StreamingState};
+use streaming::{LaunchRequest, OverlayRect, SharedStreaming, StreamSession, StreamingState};
 use tauri::{AppHandle, Manager};
 
 #[tauri::command]
@@ -266,6 +266,11 @@ fn eventsub_sync(enabled: bool, channels: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn raid_overlay_place(from_channel: String) -> Option<OverlayRect> {
+    streaming::raid_overlay_host(&from_channel)
+}
+
+#[tauri::command]
 fn app_quit(app: AppHandle) {
     channel_points_realtime::clear();
     app.exit(0);
@@ -336,6 +341,7 @@ pub fn run() {
             dock_set_chat_fraction,
             dock_cycle_monitor,
             eventsub_sync,
+            raid_overlay_place,
             app_quit
         ])
         .setup(|app| {

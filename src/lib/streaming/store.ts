@@ -477,11 +477,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     const reserveChat = settings.chat.provider === "chatterino";
 
     const session = get().sessions.find(
-      (s) => s.running && s.channel.toLowerCase() === from,
+      (s) => s.channel.toLowerCase() === from,
     );
-    if (!session) {
-      return;
-    }
 
     // Resolve live Helix data when possible; fall back to a stub so we still jump.
     let target: HelixStream | null = null;
@@ -523,8 +520,10 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           : get().activeChatChannel,
     });
 
-    await invoke("stream_stop", { id: session.id });
-    await get().refresh();
+    if (session?.running) {
+      await invoke("stream_stop", { id: session.id });
+      await get().refresh();
+    }
 
     const launch = resolveChannelLaunch(settings, toLogin, {
       title: target.title,
@@ -567,7 +566,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       void ensurePresenceMetadata(started.id, target);
       set((state) => ({
         sessions: [
-          ...state.sessions.filter((s) => s.id !== started.id && s.id !== session.id),
+          ...state.sessions.filter((s) => s.id !== started.id && s.id !== session?.id),
           started,
         ],
       }));

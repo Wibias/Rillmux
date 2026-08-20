@@ -74,7 +74,21 @@ function AppRoutes() {
   );
 }
 
+function isRaidOverlay() {
+  return new URLSearchParams(window.location.search).get("overlay") === "raid";
+}
+
 export default function App() {
+  if (isRaidOverlay()) {
+    return (
+      <ThemeProvider>
+        <SettingsBootstrap>
+          <RaidBanner />
+        </SettingsBootstrap>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>

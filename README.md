@@ -33,7 +33,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 | [Rust](https://rustup.rs/) stable | Tauri backend |
 | [mpv](https://mpv.io/installation/) (recommended) | **No official Windows installer.** Open PowerShell (Win → type `PowerShell` → Enter), then run `winget install -e --id shinchiro.mpv`. Or Scoop. Or portable: download `mpv-x86_64-….7z` from [shinchiro builds](https://github.com/shinchiro/mpv-winbuild-cmake/releases), extract, point Settings at `mpv.exe` (keep `ffmpeg.exe` / DLLs beside it). |
 | Streamlink | Bundled in **release** installers; for local unsigned builds use system install or `npm run streamlink:fetch` |
-| [Chatterino7](https://github.com/SevenTV/chatterino7) | Optional external chat (SevenTV fork). Stock Chatterino 2 still launches if found, but **Chatterino7 is recommended** for: **7TV name paints**, **7TV personal emotes**, **7TV animated profile avatars**, and **4× images (7TV and FFZ)**. Install: `winget install -e --id SevenTV.Chatterino7` or [releases](https://github.com/SevenTV/chatterino7/releases/latest). |
+| [Chatterino7](https://github.com/SevenTV/chatterino7) | Optional external chat. Stock Chatterino 2 still launches if found, but **Chatterino7 is recommended** for: **7TV name paints**, **7TV personal emotes**, **7TV animated profile avatars**, and **4× images (7TV and FFZ)**. Install: `winget install -e --id SevenTV.Chatterino7` or [releases](https://github.com/SevenTV/chatterino7/releases/latest). |
 
 ## Develop
 

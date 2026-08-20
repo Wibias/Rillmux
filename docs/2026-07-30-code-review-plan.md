@@ -93,7 +93,7 @@ The prioritized execution plan is at the bottom.
 - **Evidence:** `src-tauri/src/auth/mod.rs:110-119`.
 - **Problem:** The fallback client ID `phiay4sq36lfv9zu7cbqwz2ndnesfd8` is the
   *upstream* streamlink-twitch-gui application's ID. Client IDs for public
-  OAuth clients are not secrets, but this fork's releases should use its own
+  OAuth clients are not secrets, but this project's releases should use its own
   registered application (rate limits, revocation, and ToS are per-app).
 - **Fix:** Register a Twitch application for this project, inject its ID via
   `TWITCH_CLIENT_ID`/`VITE_TWITCH_CLIENT_ID` in CI (secrets already exist in

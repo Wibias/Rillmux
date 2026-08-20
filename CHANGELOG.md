@@ -117,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- External chat target is **[Chatterino7](https://github.com/SevenTV/chatterino7)** (SevenTV fork): doctor/setup links, install commands, and docs recommend it for 7TV name paints, personal emotes, animated avatars, and 4× 7TV/FFZ images. Stock Chatterino 2 still works if installed
+- External chat target is **[Chatterino7](https://github.com/SevenTV/chatterino7)**: doctor/setup links, install commands, and docs recommend it for 7TV name paints, personal emotes, animated avatars, and 4× 7TV/FFZ images. Stock Chatterino 2 still works if installed
 - Seamless off turns linked dock on (and the reverse); chat width is configurable when the dock reserves space for Chatterino7
 - Docked mpv uses `--keep-open=yes` so the offline goodbye screen can show before quit
 

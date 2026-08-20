@@ -2156,7 +2156,7 @@ fn raise_poll_overlay() {
     const SWP_SHOWWINDOW: u32 = 0x0040;
     const SWP_NOACTIVATE: u32 = 0x0010;
     const SW_SHOWNA: i32 = 8;
-    let ptr = hwnd.0 as *mut core::ffi::c_void;
+    let ptr = hwnd.0;
     if ptr.is_null() {
         return;
     }

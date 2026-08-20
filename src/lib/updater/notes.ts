@@ -53,3 +53,31 @@ export function parseReleaseNotes(
   }
   return blocks;
 }
+
+export interface ChangelogSection {
+  heading: string;
+  body: string;
+}
+
+/** Keep a Changelog sections, newest first, skipping Unreleased. */
+export function recentChangelogSections(
+  markdown: string | null | undefined,
+  limit = 5,
+): ChangelogSection[] {
+  if (!markdown) return [];
+  const matches = [...markdown.matchAll(/^## \[([^\]]+)\][^\n]*$/gm)];
+  const sections: ChangelogSection[] = [];
+  for (let i = 0; i < matches.length; i += 1) {
+    const match = matches[i];
+    const version = match[1]?.trim() ?? "";
+    if (!version || version.toLowerCase() === "unreleased") continue;
+    const start = (match.index ?? 0) + match[0].length;
+    const end = matches[i + 1]?.index ?? markdown.length;
+    sections.push({
+      heading: match[0].replace(/^##\s+/, "").trim(),
+      body: markdown.slice(start, end).trim(),
+    });
+    if (sections.length >= limit) break;
+  }
+  return sections;
+}

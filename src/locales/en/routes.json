@@ -5,7 +5,7 @@
   "followedLoginRequired": "Log in to see streams from channels you follow.",
   "streamsTitle": "Top streams",
   "streamsLede": "Currently popular on Twitch.",
-  "gamesTitle": "Top games",
+  "gamesTitle": "Top categories",
   "gamesLede": "Browse categories.",
   "searchTitle": "Search",
   "searchLede": "Channels and categories.",
@@ -71,5 +71,6 @@
   "channelOverrideQuality": "Quality for this channel",
   "channelOverrideSave": "Save override",
   "channelOverrideClear": "Clear override",
-  "deepLinkHint": "Deep links use stg://watch/<login>"
+  "viewChangelog": "View changelog",
+  "changelogTitle": "Changelog"
 }

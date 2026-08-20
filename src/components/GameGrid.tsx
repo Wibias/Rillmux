@@ -25,6 +25,9 @@ export function GameGrid({ games }: GameGridProps) {
             />
           </span>
           <span className="game-card__name">{game.name}</span>
+          {typeof game.viewer_count === "number" ? (
+            <span className="game-card__viewers">{game.viewer_count.toLocaleString()} viewers</span>
+          ) : null}
         </Link>
       ))}
     </div>

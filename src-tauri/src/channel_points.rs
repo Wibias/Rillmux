@@ -18,8 +18,7 @@ const CHANNEL_POINTS_CONTEXT_HASHES: [&str; 2] = [
 ];
 const CLAIM_COMMUNITY_POINTS_HASH: &str =
     "46aaeebe02c99afdf4fc97c7c0cba964124bf6b0af229395f1f6d1feed05b3d0";
-const VOTE_POLL_HASH: &str =
-    "6b21d6e5c8c6c8d6f0c0c6e6a0b0d0e0f0a1b2c3d4e5f60718293a4b5c6d7e8";
+const VOTE_POLL_HASH: &str = "6b21d6e5c8c6c8d6f0c0c6e6a0b0d0e0f0a1b2c3d4e5f60718293a4b5c6d7e8";
 const CLIENT_VERSION_TTL: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Error)]
@@ -300,11 +299,18 @@ fn u64_field(value: &Value, key: &str) -> u64 {
 }
 
 fn parse_active_poll(channel: &Value) -> Option<ChannelPointsPoll> {
-    let poll = ["/activePoll", "/polls/0", "/communityPointsSettings/activePoll"]
-        .into_iter()
-        .find_map(|path| channel.pointer(path))
-        .or_else(|| channel.get("activePoll"))?;
-    let id = poll.get("id").and_then(Value::as_str).filter(|v| !v.is_empty())?;
+    let poll = [
+        "/activePoll",
+        "/polls/0",
+        "/communityPointsSettings/activePoll",
+    ]
+    .into_iter()
+    .find_map(|path| channel.pointer(path))
+    .or_else(|| channel.get("activePoll"))?;
+    let id = poll
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())?;
     let status = poll
         .get("status")
         .and_then(Value::as_str)
@@ -340,7 +346,10 @@ fn parse_active_poll(channel: &Value) -> Option<ChannelPointsPoll> {
         .into_iter()
         .flatten()
         .filter_map(|choice| {
-            let id = choice.get("id").and_then(Value::as_str).filter(|v| !v.is_empty())?;
+            let id = choice
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())?;
             let title = choice
                 .get("title")
                 .and_then(Value::as_str)
@@ -349,10 +358,8 @@ fn parse_active_poll(channel: &Value) -> Option<ChannelPointsPoll> {
             Some(ChannelPointsPollChoice {
                 id: id.to_string(),
                 title,
-                votes: u64_field(choice, "votes")
-                    .max(u64_field(choice, "totalVotes")),
-                points: u64_field(choice, "points")
-                    .max(u64_field(choice, "totalPoints")),
+                votes: u64_field(choice, "votes").max(u64_field(choice, "totalVotes")),
+                points: u64_field(choice, "points").max(u64_field(choice, "totalPoints")),
                 total_voters: u64_field(choice, "totalVoters"),
             })
         })
@@ -543,8 +550,13 @@ pub async fn vote_poll(
     }
     let client_version = current_client_version().await;
     let payload = vote_poll_payload(poll_id.trim(), choice_id.trim(), cost.min(1_000_000));
-    let (status, body) =
-        post_web_gql(&payload, &channel_login, &points_auth.token, &client_version).await?;
+    let (status, body) = post_web_gql(
+        &payload,
+        &channel_login,
+        &points_auth.token,
+        &client_version,
+    )
+    .await?;
     if !status.is_success() {
         return Err(ChannelPointsError::Message(format!(
             "Twitch rejected the poll vote (HTTP {status})"

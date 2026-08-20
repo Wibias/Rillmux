@@ -14,22 +14,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] — 2026-08-20
 
+Covers browse, Channel Points, and the desktop shell since 0.4.1. The window title is still Streamlink Twitch GUI; **Rillmux** is the public repo.
+
 ### Added
 
-- Live stream thumbnails refresh every minute and cache-bust so previews update in WebView2
-- Channel Points presence now covers every ready Streamlink session, up to 8 streams
+- Followed **list and grid** views, search (`Ctrl+K`), sort (viewers, uptime, name), hide mature, and pagination that fills the window
+- **Pinned favourites** on Followed (pin from the stream menu)
+- Stream **actions menu**: watch, pin, channel page, open on Twitch, copy URL
+- Live thumbnails refresh every minute and cache-bust so WebView2 actually shows a new preview
+- Channel Points presence on every ready Streamlink session, up to 8 streams
 - Raid Follow/Stay prompt overlays mpv or Chatterino instead of the hidden app window
-- Opt-in Channel Points poll overlay over chat
-- Horizontal Settings tabs
-- About **View changelog** dialog with the last five releases
-- Category viewer counts on the Categories page
+- Opt-in Channel Points **polls and predictions** over chat (live Hermes updates; vote or predict from the overlay)
+- Settings split into sections: Interface, Streaming, Player, Chat, Notifications, Hotkeys, Channels, Other
+- About **View changelog** (last five releases) plus a setup check for Streamlink, mpv, and Chatterino
+- Category viewer counts; search category box art at 285×380 instead of Helix’s tiny 52×72 thumbs
+- Device Code on login is copyable
+- Player install help (winget / Scoop / download) for mpv, VLC, MPC-HC, and PotPlayer
+- Frameless window with Windows 11 caption buttons (HTML controls if the overlay is unavailable)
+- Short ledes under page titles on browse pages
 
 ### Changed
 
-- Settings no longer shows a Streamlink executable picker in Streaming
-- Bonus claims sit left of Website auth
-- Language filter hides locale codes and makes Clear more visible
 - Browse **Games** is now **Categories**
+- Minimum window size is 1024×700
+- Settings no longer shows a Streamlink executable picker under Streaming
+- Bonus claims sit left of Website auth
+- Language filter hides locale codes and makes Clear easier to see
+- Followed, go-live notifications, and Multistream share one Helix followed-streams query (100 per page, refreshed every minute)
+- Poll/prediction UI follows Hermes; GraphQL is a 60s fallback on the host window only
+- Viewer presence updates from session events (30s status fallback); Channel Points balance refresh is throttled to 15s
+- Idle watching uses less CPU: dock/session watchdogs sleep when the layout is stable, Watching no longer polls the session list every 4s, HLS playlist lines are ignored after playback starts, and stopping a stream no longer blocks other sessions while the process exits
+- Poll overlay only repositions when chat actually moved
 
 ### Fixed
 
@@ -189,7 +204,7 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
 [Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.0...HEAD
-[0.5.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.5.0
+[0.5.0]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.0
 [0.3.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.3.1

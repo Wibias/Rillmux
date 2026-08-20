@@ -1,39 +1,61 @@
 # Rillmux
 
-Windows desktop Twitch browser for [Streamlink](https://streamlink.github.io/), built with **Tauri 2 + React + TypeScript**.
+Windows Twitch browser for [Streamlink](https://streamlink.github.io/). Log in, see who’s live, start the stream in your player, and keep chat next to the video.
 
-Browse live Twitch channels, launch them in your player via Streamlink, and keep chat nearby — without the old NW.js / Ember stack. The previous application lives in [`legacy/`](legacy/) for reference.
+The window title is still **Streamlink Twitch GUI**. Rillmux is this repository.
 
-This project continues the Tauri rewrite previously published as [`Wibias/streamlink-twitch-gui`](https://github.com/Wibias/streamlink-twitch-gui). That repository is archived. The original NW.js app is [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui).
+![Followed live channels, grid view](docs/screenshots/followed.png)
 
-## Features (v0.5)
+mpv on the left, [Chatterino7](https://github.com/SevenTV/chatterino7) on the right:
 
-- Twitch login (OAuth **Device Code** flow) with tokens in the OS keyring
-- **Twitch Website auth** for authenticated playback; experimental **Channel Points** (viewer presence, balance, auto-claim rewards) when enabled in Settings
-- Followed / top streams, categories with viewer counts, search, channel pages, teams (search by name)
-- Browse language filter on top/category streams; follow outgoing raids with an overlay on mpv/Chatterino
+![A live stream in mpv with Chatterino docked](docs/screenshots/watching.jpg)
+
+Settings is split into sections rather than one long page:
+
+![Interface settings](docs/screenshots/settings.png)
+
+About includes **View changelog** and a setup check once Streamlink, mpv, and Chatterino have been found:
+
+![About page with setup check results](docs/screenshots/about.png)
+
+## What it does
+
+- Twitch login (OAuth Device Code); tokens live in the OS keyring
+- **Website auth** for Streamlink playback; experimental **Channel Points** (presence, bonus claims, polls, predictions) when you turn that on in Settings
+- Followed (list or grid, search, pins, hide mature), top streams, categories with viewer counts, search, channel pages, teams
+- Language filter on top/category streams
+- Follow outgoing raids from a prompt over mpv or Chatterino
 - Streamlink launch (bundled in release builds, or the system install)
-- Watching list with live Streamlink status and seamless channel switching
-- Embedded chat (default) or [Chatterino7](https://github.com/SevenTV/chatterino7) / browser
-- Settings: quality, low latency, ad filter, player, hotkeys, per-channel overrides, tray
-- Desktop notifications when followed channels go live (global opt-out + per-channel mute)
+- Watching list with Streamlink status; optional seamless channel switch
+- Embedded chat by default, or Chatterino7 / a browser
+- Quality, low latency, ad filter, player, hotkeys, per-channel overrides, tray
+- Desktop notifications when followed channels go live (global off switch + per-channel mute)
 - First-run setup wizard (Streamlink → player → optional login)
-- Auto-updater (Tauri) + `stg://` deep links
+- Auto-updater and `stg://` deep links
 - Optional Sentry crash reports (opt-out in Settings)
 
-See [CHANGELOG.md](CHANGELOG.md) for release notes.
+Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
 | Need | Notes |
 |------|--------|
-| Windows 10/11 | Primary and only supported desktop target for this rewrite |
+| Windows 10/11 | Only supported desktop target |
 | [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) | Usually already installed |
 | [Node.js](https://nodejs.org/) 20+ | Develop / CI |
 | [Rust](https://rustup.rs/) stable | Tauri backend |
-| [mpv](https://mpv.io/installation/) (recommended) | **No official Windows installer.** Open PowerShell (Win → type `PowerShell` → Enter), then run `winget install -e --id shinchiro.mpv`. Or Scoop. Or portable: download `mpv-x86_64-….7z` from [shinchiro builds](https://github.com/shinchiro/mpv-winbuild-cmake/releases), extract, point Settings at `mpv.exe` (keep `ffmpeg.exe` / DLLs beside it). |
-| Streamlink | Bundled in **release** installers; for local unsigned builds use system install or `npm run streamlink:fetch` |
-| [Chatterino7](https://github.com/SevenTV/chatterino7) | Optional external chat. Stock Chatterino 2 still launches if found, but **Chatterino7 is recommended** for: **7TV name paints**, **7TV personal emotes**, **7TV animated profile avatars**, and **4× images (7TV and FFZ)**. Install: `winget install -e --id SevenTV.Chatterino7` or [releases](https://github.com/SevenTV/chatterino7/releases/latest). |
+| [mpv](https://mpv.io/installation/) (recommended) | No official Windows installer. In PowerShell: `winget install -e --id shinchiro.mpv`. Or Scoop. Or portable: download `mpv-x86_64-….7z` from [shinchiro builds](https://github.com/shinchiro/mpv-winbuild-cmake/releases), extract, point Settings at `mpv.exe` (keep `ffmpeg.exe` / DLLs beside it). |
+| Streamlink | Bundled in **release** installers. For local unsigned builds use a system install or `npm run streamlink:fetch` |
+| [Chatterino7](https://github.com/SevenTV/chatterino7) | Optional external chat. Stock Chatterino 2 still launches if found. Chatterino7 is the one that gets 7TV name paints, personal emotes, animated avatars, and 4× 7TV/FFZ images. `winget install -e --id SevenTV.Chatterino7` or [releases](https://github.com/SevenTV/chatterino7/releases/latest). |
+
+## Install
+
+1. Open [Releases](https://github.com/Wibias/Rillmux/releases).
+2. Download the NSIS (`.exe`) or MSI installer.
+3. If SmartScreen warns (“Unknown publisher”), that is expected until an Authenticode certificate is configured — **More info → Run anyway**, or ship builds signed with your own OV/EV cert (see below).
+4. On first launch, finish the setup wizard (Streamlink / player / optional login).
+
+Deep links: `stg://watch/<channel-login>`.
 
 ## Develop
 
@@ -42,36 +64,27 @@ npm install
 npm run tauri:dev
 ```
 
-- `npm run tauri:dev` — desktop app (Vite + Tauri). **Use this** for login / Streamlink.
-- `npm run dev` — Vite only in a browser; no Tauri APIs.
+- `npm run tauri:dev` — desktop app (Vite + Tauri). Use this for login and Streamlink.
+- `npm run dev` — Vite only in a browser; no Tauri APIs, so Followed/Helix stay empty.
 - `npm test` — unit tests
 - `npm run streamlink:fetch` — download a Windows Streamlink build into `src-tauri/resources/streamlink/` (gitignored binaries)
 
-Twitch Client ID for local builds: set `TWITCH_CLIENT_ID` / `VITE_TWITCH_CLIENT_ID`, or rely on the documented env fallback for tryouts. Production releases use your own public Twitch application (Device Code / public client).
-
-## Install (releases)
-
-1. Open [Releases](https://github.com/Wibias/Rillmux/releases).
-2. Download the NSIS (`.exe`) or MSI installer.
-3. If Windows SmartScreen warns (“Unknown publisher”), that is expected until an Authenticode certificate is configured — choose **More info → Run anyway**, or prefer builds signed with your OV/EV cert (see below).
-4. On first launch, complete the setup wizard (Streamlink / player / optional login).
-
-Deep links: `stg://watch/<channel-login>`.
+Twitch Client ID for local builds: set `TWITCH_CLIENT_ID` / `VITE_TWITCH_CLIENT_ID`, or use the documented env fallback for tryouts. Production releases need your own public Twitch application (Device Code / public client).
 
 ## Release (maintainers)
 
-Version is kept in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.0**).
+Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.0**).
 
-**Quality gates:** pushes to `master` require a PR with green Windows CI (`frontend` + `rust`). A local `pre-push` hook runs the same checks (`npm run ci`). Skip the hook only in emergencies with `SKIP_CI_HOOK=1`. The Release workflow re-runs those checks before building installers.
+Pushes to `main` or `master` expect a PR with green Windows CI (`frontend` + `rust`). A local `pre-push` hook runs `npm run ci`. Skip it only with `SKIP_CI_HOOK=1`. The Release workflow runs those checks again before building installers.
 
 ```bash
 git tag v0.5.0
 git push origin v0.5.0
 ```
 
-That runs [`.github/workflows/release.yml`](.github/workflows/release.yml): fetch Streamlink → `tauri build` (NSIS + MSI + updater signatures) → GitHub Release with auto-generated notes. Keep the curated narrative in [CHANGELOG.md](CHANGELOG.md) in sync when you cut a version.
+That runs [`.github/workflows/release.yml`](.github/workflows/release.yml): fetch Streamlink → `tauri build` (NSIS + MSI + updater signatures) → GitHub Release with auto-generated notes. Keep the narrative in [CHANGELOG.md](CHANGELOG.md) in sync when you cut a version.
 
-You can also run the workflow manually (**Actions → Release → Run workflow**) for a dry-run; artifacts upload without creating a Release unless the ref is a `v*` tag.
+You can also run the workflow by hand (**Actions → Release → Run workflow**) as a dry-run; artifacts upload without creating a Release unless the ref is a `v*` tag.
 
 ### Required GitHub Actions secrets
 
@@ -88,7 +101,7 @@ Updater public key lives in `src-tauri/tauri.conf.json` → `plugins.updater.pub
 
 ### Optional: Windows Authenticode (SmartScreen)
 
-SmartScreen warnings go away only with a **real** code-signing certificate (OV/EV from a public CA, or Azure Trusted Signing). Self-signed certs do **not** fix SmartScreen.
+SmartScreen warnings go away only with a **real** code-signing certificate (OV/EV from a public CA, or Azure Trusted Signing). Self-signed certs do not fix SmartScreen.
 
 When you have a `.pfx`:
 
@@ -99,9 +112,13 @@ When you have a `.pfx`:
    - `WINDOWS_CERTIFICATE_THUMBPRINT` — SHA1 thumbprint of the cert (no spaces)
 3. Release CI imports the PFX into the runner store and sets Tauri’s `bundle.windows` signing fields for that build only.
 
-Without those secrets, releases still build; installers are simply unsigned.
+Without those secrets, releases still build; installers are unsigned.
 
 Timestamp server used when signing: `http://timestamp.digicert.com`.
+
+## Lineage
+
+This is the Tauri rewrite that used to live at [`Wibias/streamlink-twitch-gui`](https://github.com/Wibias/streamlink-twitch-gui) (archived). The original NW.js app is [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui). The old frontend is under [`legacy/`](legacy/) for reference.
 
 ## License
 

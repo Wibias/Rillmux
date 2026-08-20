@@ -9,6 +9,9 @@ import { LoadingGrid } from "../components/LoadingGrid";
 import { LanguageFilter } from "../components/LanguageFilter";
 import { PageRefreshButton } from "../components/PageRefreshButton";
 import { StreamGrid } from "../components/StreamGrid";
+import { PageSubbar } from "../components/AppShell";
+import { SearchIcon } from "../components/FollowedIcons";
+import { TeamsIcon } from "../components/NavIcons";
 import { useAuthStore } from "../lib/auth/store";
 import { useWatchingStore } from "../lib/streaming/store";
 import { useSettingsStore } from "../lib/settings/store";
@@ -52,18 +55,18 @@ export function GamesPage() {
 
   return (
     <section className="page">
-      <header className="page__header">
-        <div>
-          <h1>{t("routes:gamesTitle")}</h1>
-          <p className="page__lede">{t("routes:gamesLede")}</p>
-        </div>
-        {loggedIn ? (
-          <PageRefreshButton
-            refreshing={refreshing}
-            onRefresh={() => void query.refetch()}
-          />
-        ) : null}
-      </header>
+      <PageSubbar
+        title={t("routes:gamesTitle")}
+        lede={t("routes:gamesLede")}
+        actions={
+          loggedIn ? (
+            <PageRefreshButton
+              refreshing={refreshing}
+              onRefresh={() => void query.refetch()}
+            />
+          ) : undefined
+        }
+      />
       {!loggedIn && !authLoading ? (
         <p className="muted">{t("routes:followedLoginRequired")}</p>
       ) : null}
@@ -172,12 +175,10 @@ export function SearchPage() {
 
   return (
     <section className="page">
-      <header className="page__header">
-        <div>
-          <h1>{t("routes:searchTitle")}</h1>
-          <p className="page__lede">{t("routes:searchLede")}</p>
-        </div>
-      </header>
+      <PageSubbar
+        title={t("routes:searchTitle")}
+        lede={t("routes:searchLede")}
+      />
 
       <form
         className="search-hero"
@@ -205,9 +206,14 @@ export function SearchPage() {
       ) : null}
 
       {!submitted && loggedIn ? (
-        <div className="empty-panel">
-          <strong>{t("routes:searchIdleTitle")}</strong>
-          <p className="muted">{t("routes:searchIdleBody")}</p>
+        <div className="empty-panel empty-panel--hero">
+          <span className="empty-panel__icon" aria-hidden>
+            <SearchIcon size={48} />
+          </span>
+          <div>
+            <strong>{t("routes:searchIdleTitle")}</strong>
+            <p className="muted">{t("routes:searchIdleBody")}</p>
+          </div>
         </div>
       ) : null}
 
@@ -277,12 +283,10 @@ export function TeamsSearchPage() {
 
   return (
     <section className="page">
-      <header className="page__header">
-        <div>
-          <h1>{t("routes:teamsTitle")}</h1>
-          <p className="page__lede">{t("routes:teamsLede")}</p>
-        </div>
-      </header>
+      <PageSubbar
+        title={t("routes:teamsTitle")}
+        lede={t("routes:teamsLede")}
+      />
 
       <form
         className="search-hero"
@@ -291,15 +295,20 @@ export function TeamsSearchPage() {
           void lookup(q);
         }}
       >
-        <input
-          type="search"
-          className="search-hero__input"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={t("routes:teamsPlaceholder")}
-          aria-label={t("routes:teamsTitle")}
-          autoFocus
-        />
+        <label className="search-hero__field">
+          <span className="search-hero__icon">
+            <SearchIcon />
+          </span>
+          <input
+            type="search"
+            className="search-hero__input"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={t("routes:teamsPlaceholder")}
+            aria-label={t("routes:teamsTitle")}
+            autoFocus
+          />
+        </label>
         <button type="submit" disabled={!loggedIn || !q.trim() || busy}>
           {busy ? t("common:loading") : t("common:search")}
         </button>
@@ -310,9 +319,14 @@ export function TeamsSearchPage() {
       ) : null}
 
       {!submitted && loggedIn ? (
-        <div className="empty-panel">
-          <strong>{t("routes:teamsIdleTitle")}</strong>
-          <p className="muted">{t("routes:teamsIdleBody")}</p>
+        <div className="empty-panel empty-panel--hero empty-panel--dashed">
+          <span className="empty-panel__icon empty-panel__icon--circle" aria-hidden>
+            <TeamsIcon size={22} />
+          </span>
+          <div>
+            <strong>{t("routes:teamsIdleTitle")}</strong>
+            <p className="muted">{t("routes:teamsIdleBody")}</p>
+          </div>
         </div>
       ) : null}
 

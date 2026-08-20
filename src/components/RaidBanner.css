@@ -28,7 +28,7 @@
   margin: 0;
   height: 100%;
   box-sizing: border-box;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 html:has(.raid-banner--overlay),

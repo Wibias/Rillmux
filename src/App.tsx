@@ -30,7 +30,10 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { LaunchErrorBanner } from "./components/LaunchErrorBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { RaidBanner } from "./components/RaidBanner";
-import { ChannelPointsPollOverlay } from "./components/ChannelPointsPollOverlay";
+import {
+  ChannelPointsPollOverlay,
+  isPollOverlayWindow,
+} from "./components/ChannelPointsPollOverlay";
 import { SentryBootstrap } from "./lib/sentry";
 import "./styles/global.css";
 
@@ -85,6 +88,16 @@ export default function App() {
       <ThemeProvider>
         <SettingsBootstrap>
           <RaidBanner />
+        </SettingsBootstrap>
+      </ThemeProvider>
+    );
+  }
+
+  if (isPollOverlayWindow()) {
+    return (
+      <ThemeProvider>
+        <SettingsBootstrap>
+          <ChannelPointsPollOverlay />
         </SettingsBootstrap>
       </ThemeProvider>
     );

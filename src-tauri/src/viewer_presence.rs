@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+use tauri::{AppHandle, Emitter};
 use url::Url;
 
 use crate::http::shared_client;
@@ -38,7 +39,7 @@ pub struct ViewerPresenceTarget {
     pub broadcast_id: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewerPresenceWorkerStatus {
     pub session_id: String,
@@ -76,6 +77,18 @@ pub struct ViewerPresenceState {
 }
 
 pub type SharedViewerPresence = Arc<ViewerPresenceState>;
+
+static APP: OnceLock<AppHandle> = OnceLock::new();
+
+pub fn init(app: AppHandle) {
+    let _ = APP.set(app);
+}
+
+fn emit_presence_changed() {
+    if let Some(app) = APP.get() {
+        let _ = app.emit("viewer-presence-changed", ());
+    }
+}
 
 impl ViewerPresenceState {
     pub fn new() -> Self {
@@ -330,21 +343,26 @@ fn set_diagnostic(
     error: Option<String>,
     success_unix_ms: Option<u64>,
 ) {
-    if let Ok(mut diagnostics) = state.diagnostics.lock() {
+    let changed = if let Ok(mut diagnostics) = state.diagnostics.lock() {
         let previous_success = diagnostics
             .get(&target.session_id)
             .and_then(|current| current.last_success_unix_ms);
-        diagnostics.insert(
-            target.session_id.clone(),
-            ViewerPresenceWorkerStatus {
-                session_id: target.session_id.clone(),
-                channel_login: target.channel_login.clone(),
-                last_stage: stage.to_string(),
-                last_http_status: status,
-                last_error: error,
-                last_success_unix_ms: success_unix_ms.or(previous_success),
-            },
-        );
+        let next = ViewerPresenceWorkerStatus {
+            session_id: target.session_id.clone(),
+            channel_login: target.channel_login.clone(),
+            last_stage: stage.to_string(),
+            last_http_status: status,
+            last_error: error,
+            last_success_unix_ms: success_unix_ms.or(previous_success),
+        };
+        let changed = diagnostics.get(&target.session_id) != Some(&next);
+        diagnostics.insert(target.session_id.clone(), next);
+        changed
+    } else {
+        false
+    };
+    if changed {
+        emit_presence_changed();
     }
 }
 

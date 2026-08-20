@@ -12,6 +12,7 @@ import {
   layoutCapacity,
   type MultistreamLayout,
 } from "./layout";
+import { nextSessionStatus, sessionStatusPatch } from "./status";
 import type { RaidOutgoingEvent } from "./raid";
 import {
   buildPresenceTargets,
@@ -309,7 +310,21 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     const sessions = await invoke<StreamSession[]>("stream_list");
     syncSlotsFromSessions(sessions);
     const hadSessions = get().sessions.length > 0;
-    set({ sessions });
+    const previous = get().sessions;
+    set({
+      sessions: sessions.map((session) => {
+        const prev = previous.find((item) => item.id === session.id);
+        if (!prev) return session;
+        return {
+          ...session,
+          ...nextSessionStatus(prev, {
+            phase: session.phase ?? "info",
+            ready: session.ready ?? false,
+            status: session.status ?? "",
+          }),
+        };
+      }),
+    });
     presenceMetadata = prunePresenceMetadata(presenceMetadata, sessions);
     const active = get().activeChatChannel;
     if (active && !sessions.some((s) => s.channel === active)) {
@@ -332,22 +347,22 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
   },
 
   applyStatus: (payload) => {
+    const session = get().sessions.find((item) => item.id === payload.id);
+    if (!session) return;
+    const { next, changed, becameReady } = sessionStatusPatch(session, {
+      phase: payload.phase,
+      ready: payload.ready,
+      status: payload.status,
+    });
+    if (!changed) return;
     set((state) => ({
-      sessions: state.sessions.map((session) =>
-        session.id === payload.id
-          ? {
-              ...session,
-              status: payload.status,
-              phase: payload.phase,
-              ready: payload.ready,
-            }
-          : session,
+      sessions: state.sessions.map((item) =>
+        item.id === payload.id ? { ...item, ...next } : item,
       ),
     }));
-    if (payload.ready) {
+    if (becameReady) {
       scheduleLayoutAfterReady();
     }
-    syncViewerPresence();
   },
 
   watchStream: async (stream) => {
@@ -590,8 +605,13 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     if (channel) {
       set((state) => ({
         slotChannels: state.slotChannels.filter((c) => c !== channel),
+        activeChatChannel:
+          state.activeChatChannel?.toLowerCase() === channel
+            ? null
+            : state.activeChatChannel,
       }));
     }
+    lastChatSyncKey = "";
     await get().refresh();
     afterSessionsChanged();
   },

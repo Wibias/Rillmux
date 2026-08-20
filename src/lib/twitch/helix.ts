@@ -51,6 +51,7 @@ export interface HelixStream {
   language: string;
   thumbnail_url: string;
   is_mature: boolean;
+  tags?: string[];
 }
 
 export interface HelixUser {
@@ -58,15 +59,23 @@ export interface HelixUser {
   login: string;
   display_name: string;
   profile_image_url: string;
+  description?: string;
+  broadcaster_type?: string;
+}
+
+export function isTwitchPartner(user?: HelixUser | null): boolean {
+  return user?.broadcaster_type === "partner";
 }
 
 export const STREAM_THUMBNAIL_REFRESH_MS = 60_000;
+/** Helix `streams/followed` accepts `first` up to 100. */
+export const FOLLOWED_STREAM_PAGE_SIZE = 100;
 
 /** Shared React Query options for live preview lists. */
 export const LIVE_STREAM_QUERY = {
   refetchInterval: STREAM_THUMBNAIL_REFRESH_MS,
-  refetchOnMount: "always" as const,
-  staleTime: 0,
+  refetchOnMount: true as const,
+  staleTime: STREAM_THUMBNAIL_REFRESH_MS,
 };
 
 export function streamThumbnail(
@@ -89,7 +98,7 @@ export async function getFollowedStreams(
 ): Promise<HelixPage<HelixStream>> {
   return helixFetch<HelixPage<HelixStream>>("streams/followed", {
     user_id: userId,
-    first: 25,
+    first: FOLLOWED_STREAM_PAGE_SIZE,
     after: cursor,
   });
 }
@@ -188,10 +197,16 @@ export interface HelixTeam {
   thumbnail_url: string;
 }
 
-export function gameBoxArt(url: string, width = 144, height = 192): string {
-  return url
-    .replace("{width}", String(width))
-    .replace("{height}", String(height));
+export function gameBoxArt(url: string, width = 285, height = 380): string {
+  const sized = `${width}x${height}`;
+  if (url.includes("{width}") || url.includes("{height}")) {
+    return url
+      .replace("{width}", String(width))
+      .replace("{height}", String(height));
+  }
+  // Helix search/categories returns a fixed tiny size (often 52x72) instead of
+  // the {width}x{height} template used by games/top.
+  return url.replace(/\d+x\d+(?=\.\w+)/, sized);
 }
 
 async function getStreamsByGameIds(gameIds: string[]): Promise<HelixStream[]> {
@@ -275,10 +290,32 @@ export async function getChannelStreams(
 export async function getUsersByLogin(
   logins: string[],
 ): Promise<HelixPage<HelixUser>> {
-  return helixFetchPairs<HelixPage<HelixUser>>(
-    "users",
-    logins.map((login) => ["login", login]),
-  );
+  const unique = [
+    ...new Set(
+      logins.map((login) => login.trim().toLowerCase()).filter(Boolean),
+    ),
+  ];
+  if (!unique.length) return { data: [] };
+  const data: HelixUser[] = [];
+  for (let i = 0; i < unique.length; i += 100) {
+    const batch = unique.slice(i, i + 100);
+    const page = await helixFetchPairs<HelixPage<HelixUser>>(
+      "users",
+      batch.map((login) => ["login", login]),
+    );
+    data.push(...page.data);
+  }
+  return { data };
+}
+
+export async function getChannelFollowerCount(
+  broadcasterId: string,
+): Promise<number> {
+  const page = await helixFetch<{ total?: number }>("channels/followers", {
+    broadcaster_id: broadcasterId,
+    first: 1,
+  });
+  return typeof page.total === "number" ? page.total : 0;
 }
 
 export async function getChannelTeams(

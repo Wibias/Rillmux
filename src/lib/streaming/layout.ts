@@ -75,6 +75,25 @@ export function isUnevenLayout(layout: MultistreamLayout): boolean {
   return layout === "2plus1" || layout === "3plus1";
 }
 
+/** Shrink a partially filled preset the same way the dock retile pass does. */
+export function effectiveLayout(
+  count: number,
+  preset: MultistreamLayout,
+): MultistreamLayout {
+  const n = Math.max(0, count);
+  if (preset === "3plus1" && n >= 2) return "3plus1";
+  if (preset === "2plus1" && n >= 2) return "2plus1";
+  if (preset === "8x1" && n >= 2) return "8x1";
+  if ((preset === "1x2" || preset === "1x3" || preset === "1x4") && n >= 2) {
+    return preset;
+  }
+  if (n <= 1) return "1";
+  if (n === 2) return "2";
+  if (n <= 4) return "2x2";
+  if (n <= 6) return "3x2";
+  return "4x2";
+}
+
 function layoutGrid(layout: MultistreamLayout): { cols: number; rows: number } {
   switch (layout) {
     case "1":
@@ -98,6 +117,10 @@ function layoutGrid(layout: MultistreamLayout): { cols: number; rows: number } {
     case "2plus1":
     case "3plus1":
       return { cols: 2, rows: 2 };
+    default: {
+      const _exhaustive: never = layout;
+      return _exhaustive;
+    }
   }
 }
 
@@ -115,9 +138,10 @@ export function computePresetTileFractions(
   const n = Math.max(0, Math.min(count, cap, MAX_MULTISTREAMS));
   const videoW = reserveChat ? 1 - CHAT_WIDTH_FRACTION : 1;
   const out: Array<{ x: number; y: number; w: number; h: number }> = [];
+  const gridLayout = effectiveLayout(n, layout);
 
-  if (layout === "3plus1" || layout === "2plus1") {
-    const stackN = layout === "2plus1" ? 2 : 3;
+  if (gridLayout === "3plus1" || gridLayout === "2plus1") {
+    const stackN = gridLayout === "2plus1" ? 2 : 3;
     const mainFrac = 2 / 3;
     if (mainSide === "left" || mainSide === "right") {
       const mainW = videoW * mainFrac;
@@ -156,7 +180,7 @@ export function computePresetTileFractions(
     return out;
   }
 
-  const { cols, rows } = layoutGrid(layout);
+  const { cols, rows } = layoutGrid(gridLayout);
   const cellW = videoW / cols;
   const cellH = 1 / rows;
   for (let i = 0; i < n; i++) {

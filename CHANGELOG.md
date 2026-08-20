@@ -188,7 +188,7 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/streamlink-twitch-gui/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.0...HEAD
 [0.5.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.0

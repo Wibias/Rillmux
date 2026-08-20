@@ -7,8 +7,12 @@
 
 .authbar--compact {
   margin-bottom: 0;
-  align-items: flex-end;
-  min-height: 1.7rem;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 0;
 }
 
 .authbar__user,
@@ -31,15 +35,49 @@
   font-weight: 600;
 }
 
+.authbar__code-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
 .authbar__code {
+  appearance: none;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   padding: 0.2rem 0.45rem;
+  min-height: 0;
   background: var(--bg-sunken);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.authbar__code:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.authbar__copied {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.35rem);
+  transform: translateX(-50%);
+  padding: 0.22rem 0.45rem;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
 
 .authbar__error {
@@ -48,11 +86,25 @@
   font-size: 0.8rem;
 }
 
-.authbar--compact .button-secondary,
-.authbar--compact > button {
+.authbar--compact .button-secondary {
   min-height: 1.7rem;
   padding: 0.18rem 0.55rem;
   font-size: 0.78rem;
+}
+
+.authbar--compact .authbar__playback-toggle {
+  min-height: 1.45rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--bg-sunken);
+  color: var(--text);
+}
+
+.authbar--compact .authbar__playback-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .authbar__playback {

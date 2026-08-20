@@ -98,6 +98,18 @@ export function buildPresenceTargets(
     .slice(0, MAX_MULTISTREAMS);
 }
 
+export const PRESENCE_STATUS_FALLBACK_MS = 30_000;
+export const POINTS_REFRESH_INTERVAL_MS = 15_000;
+
+export function shouldRefreshChannelPoints(
+  lastMs: number,
+  nowMs: number,
+  running: boolean,
+): boolean {
+  if (running) return false;
+  return nowMs - lastMs >= POINTS_REFRESH_INTERVAL_MS;
+}
+
 export function describeViewerPresenceStatus(
   status: ViewerPresenceStatus | null,
 ): string {

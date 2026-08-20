@@ -7,12 +7,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use thiserror::Error;
 use uuid::Uuid;
 
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 
 use crate::doctor::{find_chatterino_path, find_mpv_path, find_streamlink_path, which_on_path};
 
@@ -24,8 +26,42 @@ static CHATTERINO_PATH_CACHE: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new()
 
 /// How long the player window must be continuously missing (window-title
 /// heuristic) before a session is treated as closed and Streamlink is killed.
-/// The watchdog ticks every 1.5 s, so 40 s ≈ 26 consecutive misses.
+/// Title scans run only for sessions without an owned mpv process; the
+/// watchdog otherwise waits on duplicated process handles.
 const MPV_MISSING_GRACE: Duration = Duration::from_secs(40);
+
+pub(crate) fn dock_watchdog_interval_ms(dock_active: bool, needs_fast_tick: bool) -> u64 {
+    if !dock_active {
+        500
+    } else if needs_fast_tick {
+        100
+    } else {
+        400
+    }
+}
+
+pub(crate) fn dock_watchdog_needs_fast_tick(
+    group_minimized: bool,
+    any_iconic: bool,
+    any_zoomed: bool,
+    focus_changed: bool,
+    popup_changed: bool,
+    hwnds_changed: bool,
+) -> bool {
+    group_minimized || any_iconic || any_zoomed || focus_changed || popup_changed || hwnds_changed
+}
+
+pub(crate) fn session_title_scan_needed(owns_player_process: bool) -> bool {
+    !owns_player_process
+}
+
+pub(crate) fn session_watchdog_timeout_ms(session_count: usize) -> u64 {
+    if session_count == 0 {
+        2500
+    } else {
+        1500
+    }
+}
 
 fn streamlink_cache() -> &'static Mutex<Option<StreamlinkCacheEntry>> {
     STREAMLINK_PATH_CACHE.get_or_init(|| Mutex::new(None))
@@ -555,7 +591,7 @@ pub fn launch_chatterino_for_channels(channels: &[String]) -> Result<String, Str
         .collect::<Vec<_>>()
         .join(";");
     // Replace previous owned instance so channel list stays in sync.
-    close_owned_chatterino();
+    close_owned_chatterino_wait(Duration::from_millis(400));
     launch_chatterino_with_path(&path, &list, true)?;
     Ok(path.to_string_lossy().into_owned())
 }
@@ -570,6 +606,10 @@ fn normalize_layout(layout: Option<&str>) -> String {
 
 /// Kill the Chatterino process we spawned (never unrelated user windows).
 pub fn close_owned_chatterino() {
+    close_owned_chatterino_wait(Duration::from_millis(1500));
+}
+
+fn close_owned_chatterino_wait(timeout: Duration) {
     let pid = owned_chatterino_pid()
         .lock()
         .ok()
@@ -581,11 +621,11 @@ pub fn close_owned_chatterino() {
     {
         // Prefer WM_CLOSE so Chatterino can flush settings (e.g. currentVersion
         // for the changelog prompt). Fall back to TerminateProcess.
-        soft_close_pid(pid, Duration::from_millis(1500));
+        soft_close_pid(pid, timeout);
     }
     #[cfg(not(windows))]
     {
-        let _ = pid;
+        let _ = (pid, timeout);
     }
 }
 
@@ -889,8 +929,12 @@ fn start_dock_visibility_watchdog() {
         // often miss borderless mpv (iconic rect is ~160x28), so without a
         // cache the watchdog never observes IsIconic and never syncs.
         let mut cached: Vec<*mut core::ffi::c_void> = Vec::new();
+        let mut last_hwnd_count = 0usize;
+        let mut last_focus: Option<DockFocusKind> = None;
+        let mut last_popup = false;
+        let mut sleep_ms = 100u64;
         loop {
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(sleep_ms));
             let cfg = crate::dock::snapshot();
             // Sync whenever the dock is active (linked grips and/or reserved chat).
             let dock_active = !cfg.channels.is_empty() && (cfg.linked || cfg.reserve_chat);
@@ -905,6 +949,10 @@ fn start_dock_visibility_watchdog() {
                     grips_elevated = false;
                 }
                 cached.clear();
+                last_hwnd_count = 0;
+                last_focus = None;
+                last_popup = false;
+                sleep_ms = dock_watchdog_interval_ms(false, false);
                 continue;
             }
             let found = dock_member_hwnds(&cfg.channels, cfg.reserve_chat);
@@ -922,11 +970,30 @@ fn start_dock_visibility_watchdog() {
                 cached.clone()
             };
             if hwnds.is_empty() {
+                sleep_ms = dock_watchdog_interval_ms(true, true);
                 continue;
             }
             let any_iconic = hwnds.iter().any(|&h| is_hwnd_iconic(h));
             let any_zoomed = hwnds.iter().any(|&h| is_hwnd_zoomed(h));
             let any_restored = hwnds.iter().any(|&h| is_hwnd_restored(h));
+            let focus = if cfg.linked {
+                Some(dock_focus_kind(&hwnds))
+            } else {
+                None
+            };
+            let has_popup = cfg.linked && cfg.reserve_chat && chatterino_has_overlay_popup();
+            let needs_fast = dock_watchdog_needs_fast_tick(
+                group_minimized,
+                any_iconic,
+                any_zoomed,
+                focus != last_focus,
+                has_popup != last_popup,
+                hwnds.len() != last_hwnd_count,
+            );
+            last_focus = focus;
+            last_popup = has_popup;
+            last_hwnd_count = hwnds.len();
+            sleep_ms = dock_watchdog_interval_ms(true, needs_fast);
 
             if !group_minimized && any_iconic {
                 DOCK_GROUP_MINIMIZED.store(true, Ordering::SeqCst);
@@ -934,6 +1001,7 @@ fn start_dock_visibility_watchdog() {
                 minimize_dock_group(&hwnds);
                 group_minimized = true;
                 grips_elevated = false;
+                sleep_ms = dock_watchdog_interval_ms(true, true);
                 continue;
             }
             if group_minimized {
@@ -947,6 +1015,7 @@ fn start_dock_visibility_watchdog() {
                     grips_elevated = true; // Sync elevates; track that here.
                                            // Refresh cache from live finds after restore/retile.
                     cached = dock_member_hwnds(&cfg.channels, cfg.reserve_chat);
+                    sleep_ms = dock_watchdog_interval_ms(true, true);
                     continue;
                 }
                 // Chatterino (or a new mpv) may appear after the group was
@@ -958,6 +1027,7 @@ fn start_dock_visibility_watchdog() {
                     .collect();
                 if !stragglers.is_empty() {
                     minimize_dock_group(&stragglers);
+                    sleep_ms = dock_watchdog_interval_ms(true, true);
                 }
                 continue;
             }
@@ -975,10 +1045,11 @@ fn start_dock_visibility_watchdog() {
             // foreign app — never demote on a failed title scan (that buried
             // the bars under the stream).
             if cfg.linked {
-                match dock_focus_kind(&hwnds) {
+                match focus.unwrap_or(DockFocusKind::Unknown) {
                     DockFocusKind::DockOrApp | DockFocusKind::Unknown => {
                         // Re-elevate even when already tracked as elevated.
                         crate::dock::raise_grips();
+                        raise_poll_overlay();
                         grips_elevated = true;
                     }
                     DockFocusKind::Foreign => {
@@ -994,7 +1065,6 @@ fn start_dock_visibility_watchdog() {
             // grips used to be TOPMOST and sliced through them. Hide seam grips
             // while a secondary Chatterino window is visible.
             if cfg.linked && cfg.reserve_chat {
-                let has_popup = chatterino_has_overlay_popup();
                 if has_popup && !seam_suppressed {
                     crate::dock::suppress_seam_grips();
                     seam_suppressed = true;
@@ -1327,6 +1397,42 @@ pub fn raid_overlay_host(from_channel: &str) -> Option<OverlayRect> {
 #[cfg(not(windows))]
 pub fn raid_overlay_host(_from_channel: &str) -> Option<OverlayRect> {
     None
+}
+
+/// Full owned-Chatterino window, else the reserved dock chat strip.
+#[cfg(windows)]
+pub fn poll_overlay_chat_host() -> Option<OverlayRect> {
+    owned_chatterino_pid()
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .and_then(find_main_window_for_pid)
+        .and_then(overlay_rect_from_hwnd)
+        .or_else(overlay_rect_from_reserved_chat)
+}
+
+#[cfg(not(windows))]
+pub fn poll_overlay_chat_host() -> Option<OverlayRect> {
+    None
+}
+
+#[cfg(windows)]
+fn overlay_rect_from_reserved_chat() -> Option<OverlayRect> {
+    if !crate::dock::snapshot().reserve_chat {
+        return None;
+    }
+    let chat = crate::dock::chat_video_split(true)?.1?;
+    let width = chat.width();
+    let height = chat.height();
+    if width < 80 || height < 40 {
+        return None;
+    }
+    Some(OverlayRect {
+        x: chat.left,
+        y: chat.top,
+        width,
+        height,
+    })
 }
 
 /// Monotonic counter serializing layout_watching retile threads (latest wins).
@@ -2018,6 +2124,63 @@ fn move_hwnd_to(hwnd: *mut core::ffi::c_void, rect: WinRect, expand_dwm: bool) {
     }
 }
 
+/// Keep the poll/prediction overlay above Chatterino. Dock raises chat with
+/// HWND_TOP on a timer, which otherwise buries a separate overlay window.
+#[cfg(windows)]
+fn raise_poll_overlay() {
+    let Some(app) = DOCK_APP.get() else {
+        return;
+    };
+    let Some(win) = app.get_webview_window("poll-overlay") else {
+        return;
+    };
+    let Ok(hwnd) = win.hwnd() else {
+        return;
+    };
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SetWindowPos(
+            hwnd: *mut core::ffi::c_void,
+            after: *mut core::ffi::c_void,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+        fn ShowWindow(hwnd: *mut core::ffi::c_void, cmd: i32) -> i32;
+    }
+    const HWND_TOPMOST: isize = -1;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_SHOWWINDOW: u32 = 0x0040;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SW_SHOWNA: i32 = 8;
+    let ptr = hwnd.0 as *mut core::ffi::c_void;
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        ShowWindow(ptr, SW_SHOWNA);
+        SetWindowPos(
+            ptr,
+            HWND_TOPMOST as *mut core::ffi::c_void,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn raise_poll_overlay() {}
+
+pub fn raise_poll_overlay_window() {
+    raise_poll_overlay();
+}
+
 #[cfg(windows)]
 fn raise_hwnd(hwnd: *mut core::ffi::c_void, foreground: bool) {
     #[link(name = "user32")]
@@ -2101,6 +2264,7 @@ fn raise_dock_windows(channels: &[String], reserve_chat: bool) {
     }
     // Grips above players, still not global TOPMOST.
     crate::dock::raise_grips();
+    raise_poll_overlay();
 }
 
 /// Largest top-level window owned by `pid` (our spawned Chatterino only).
@@ -2294,10 +2458,21 @@ fn display_status(raw: &str) -> String {
     }
 }
 
+/// After the player is up, HLS playlist noise must not wake the UI.
+fn should_forward_status(already_ready: bool, phase: &str, _ready: bool) -> bool {
+    match phase {
+        "ended" | "error" | "ads" => true,
+        "ready" => !already_ready,
+        _ => !already_ready,
+    }
+}
+
 fn classify_line(line: &str) -> (&'static str, bool) {
     let lower = line.to_lowercase();
     if lower.contains("pre-roll ads") {
         ("ads", false)
+    } else if is_fatal_streamlink_error(line) {
+        ("error", false)
     } else if lower.contains("player:")
         || lower.contains("starting player")
         || lower.contains("writing to player")
@@ -2306,8 +2481,6 @@ fn classify_line(line: &str) -> (&'static str, bool) {
         // means Streamlink began fetching — it must NOT mark the session
         // ready (layout, handoff and the missing-window grace all key off it).
         ("ready", true)
-    } else if lower.contains("[error]") || lower.contains(" error:") || lower.contains("error: ") {
-        ("error", false)
     } else if lower.contains("opening stream")
         || lower.contains("available streams")
         || lower.contains("found matching plugin")
@@ -2318,9 +2491,23 @@ fn classify_line(line: &str) -> (&'static str, bool) {
     }
 }
 
+fn is_fatal_streamlink_error(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    if lower.contains("[cli][error]") {
+        return true;
+    }
+    let display = display_status(line).to_lowercase();
+    display.starts_with("error:") || display.starts_with("error ")
+}
+
 fn update_session_status(state: &StreamingState, id: &str, status: &str, phase: &str, ready: bool) {
     if let Ok(mut map) = state.inner.lock() {
         if let Some(session) = map.get_mut(id) {
+            // HLS "Low latency streaming…" / playlist reload errors must not
+            // replace Playing or clear ready after the player has started.
+            if session.info.ready && !ready && phase != "ended" {
+                return;
+            }
             session.info.status = status.to_string();
             session.info.phase = phase.to_string();
             if ready && !session.info.ready {
@@ -2456,6 +2643,15 @@ fn spawn_output_readers(
                 }
                 let status = display_status(trimmed);
                 let (phase, ready) = classify_line(trimmed);
+                let already_ready = state
+                    .inner
+                    .lock()
+                    .ok()
+                    .and_then(|map| map.get(&id).map(|session| session.info.ready))
+                    .unwrap_or(false);
+                if !should_forward_status(already_ready, phase, ready) {
+                    continue;
+                }
                 // Mirror loading phases ("Waiting for pre-roll ads…",
                 // resolving, errors) onto the idle player's OSD — show-text
                 // repaints immediately and replaces the previous message.
@@ -2981,7 +3177,8 @@ pub fn prune_dead_sessions(state: &StreamingState) -> Result<bool, StreamError> 
         // negatives (renamed window, Unicode title, DWM timing). Never kill a
         // stream on a single miss: require the player window to be missing
         // continuously for MPV_MISSING_GRACE before treating it as closed.
-        let window_missing = session.info.ready
+        let window_missing = session_title_scan_needed(session.player.is_some())
+            && session.info.ready
             && session
                 .ready_at
                 .map(|t| t.elapsed() > Duration::from_secs(8))
@@ -3037,7 +3234,12 @@ pub fn prune_dead_sessions(state: &StreamingState) -> Result<bool, StreamError> 
 /// Background poll so closing mpv updates sessions without waiting for the UI refresh.
 pub fn start_session_watchdog(app: AppHandle, state: SharedStreaming) {
     thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(1500));
+        let count = state.inner.lock().map(|map| map.len()).unwrap_or(0);
+        let timeout_ms = session_watchdog_timeout_ms(count);
+        #[cfg(windows)]
+        wait_session_processes(&state, timeout_ms as u32);
+        #[cfg(not(windows))]
+        thread::sleep(Duration::from_millis(timeout_ms));
         match prune_dead_sessions(&state) {
             Ok(true) => {
                 let _ = app.emit("stream-sessions-changed", ());
@@ -3046,6 +3248,77 @@ pub fn start_session_watchdog(app: AppHandle, state: SharedStreaming) {
             Err(_) => {}
         }
     });
+}
+
+#[cfg(windows)]
+fn wait_session_processes(state: &StreamingState, timeout_ms: u32) {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+        fn DuplicateHandle(
+            source_process: *mut core::ffi::c_void,
+            source: *mut core::ffi::c_void,
+            target_process: *mut core::ffi::c_void,
+            target: *mut *mut core::ffi::c_void,
+            desired: u32,
+            inherit: i32,
+            options: u32,
+        ) -> i32;
+        fn GetCurrentProcess() -> *mut core::ffi::c_void;
+        fn WaitForMultipleObjects(
+            count: u32,
+            handles: *const *mut core::ffi::c_void,
+            wait_all: i32,
+            millis: u32,
+        ) -> u32;
+    }
+    const DUPLICATE_SAME_ACCESS: u32 = 0x0000_0002;
+    let duplicates: Vec<*mut core::ffi::c_void> = {
+        let Ok(map) = state.inner.lock() else {
+            thread::sleep(Duration::from_millis(timeout_ms as u64));
+            return;
+        };
+        let process = unsafe { GetCurrentProcess() };
+        let mut duplicates = Vec::new();
+        let mut push_dup = |source: *mut core::ffi::c_void| {
+            if source.is_null() {
+                return;
+            }
+            let mut dup = std::ptr::null_mut();
+            let ok = unsafe {
+                DuplicateHandle(
+                    process,
+                    source,
+                    process,
+                    &mut dup,
+                    0,
+                    0,
+                    DUPLICATE_SAME_ACCESS,
+                )
+            };
+            if ok != 0 && !dup.is_null() {
+                duplicates.push(dup);
+            }
+        };
+        for session in map.values() {
+            push_dup(session.child.as_raw_handle());
+            if let Some(player) = &session.player {
+                push_dup(player.child.as_raw_handle());
+            }
+        }
+        duplicates
+    };
+    if duplicates.is_empty() {
+        thread::sleep(Duration::from_millis(timeout_ms as u64));
+        return;
+    }
+    let count = duplicates.len().min(64) as u32;
+    unsafe {
+        WaitForMultipleObjects(count, duplicates.as_ptr(), 0, timeout_ms);
+        for handle in duplicates {
+            CloseHandle(handle);
+        }
+    }
 }
 
 fn mpv_window_alive(channel: &str) -> bool {
@@ -3060,15 +3333,35 @@ fn mpv_window_alive(channel: &str) -> bool {
     }
 }
 
+fn wait_child_timeout(child: &mut Child, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.try_wait();
+                return;
+            }
+        }
+    }
+}
+
 pub fn stop_stream(state: &StreamingState, id: &str) -> Result<(), StreamError> {
-    let mut map = state
-        .inner
-        .lock()
-        .map_err(|_| StreamError::Message("streaming state poisoned".into()))?;
-    if let Some(mut session) = map.remove(id) {
+    let session = {
+        let mut map = state
+            .inner
+            .lock()
+            .map_err(|_| StreamError::Message("streaming state poisoned".into()))?;
+        map.remove(id)
+    };
+    if let Some(mut session) = session {
         let channel = session.info.channel.clone();
         let _ = session.child.kill();
-        let _ = session.child.wait();
+        wait_child_timeout(&mut session.child, Duration::from_secs(2));
         // Streamlink exit leaves the player orphaned; with --loop-file=inf it
         // keeps replaying the buffer instead of closing. The job kills the
         // whole tree; title-based closing is the fallback.
@@ -3078,8 +3371,11 @@ pub fn stop_stream(state: &StreamingState, id: &str) -> Result<(), StreamError> 
         close_fast_player(&mut session.player, true);
         close_player_windows_for_channel(&channel);
     }
-    let empty = map.is_empty();
-    drop(map);
+    let empty = state
+        .inner
+        .lock()
+        .map(|map| map.is_empty())
+        .unwrap_or(false);
     if empty {
         close_owned_chatterino();
         crate::dock::clear_session();
@@ -3088,18 +3384,23 @@ pub fn stop_stream(state: &StreamingState, id: &str) -> Result<(), StreamError> 
 }
 
 pub fn stop_all(state: &StreamingState) -> Result<(), StreamError> {
-    let mut map = state
-        .inner
-        .lock()
-        .map_err(|_| StreamError::Message("streaming state poisoned".into()))?;
-    let channels: Vec<String> = map.values().map(|s| s.info.channel.clone()).collect();
-    for (_, mut session) in map.drain() {
+    let sessions: Vec<_> = {
+        let mut map = state
+            .inner
+            .lock()
+            .map_err(|_| StreamError::Message("streaming state poisoned".into()))?;
+        map.drain().map(|(_, session)| session).collect()
+    };
+    let channels: Vec<String> = sessions
+        .iter()
+        .map(|session| session.info.channel.clone())
+        .collect();
+    for mut session in sessions {
         let _ = session.child.kill();
-        let _ = session.child.wait();
+        wait_child_timeout(&mut session.child, Duration::from_secs(2));
         terminate_job(&mut session.job);
         close_fast_player(&mut session.player, true);
     }
-    drop(map);
     for channel in channels {
         close_player_windows_for_channel(&channel);
     }
@@ -3231,10 +3532,71 @@ mod tests {
     }
 
     #[test]
+    fn low_latency_line_is_info_not_ready() {
+        let (phase, ready) =
+            classify_line("[cli][info] Low latency streaming (HLS live edge: 2)");
+        assert_eq!(phase, "info");
+        assert!(!ready);
+    }
+
+    #[test]
+    fn hls_reload_error_is_not_fatal() {
+        let (phase, ready) =
+            classify_line("[stream.hls][error] Failed to reload playlist: Unable to open URL");
+        assert_eq!(phase, "info");
+        assert!(!ready);
+    }
+
+    #[test]
+    fn cli_error_is_fatal() {
+        let (phase, ready) = classify_line("[cli][error] Failed to start player: mpv");
+        assert_eq!(phase, "error");
+        assert!(!ready);
+    }
+
+    #[test]
+    fn error_prefix_is_fatal() {
+        let (phase, ready) =
+            classify_line("error: No playable streams found on this URL: twitch.tv/foo");
+        assert_eq!(phase, "error");
+        assert!(!ready);
+    }
+
+    #[test]
+    fn ready_session_drops_hls_noise() {
+        assert!(!should_forward_status(true, "info", false));
+        assert!(!should_forward_status(true, "ready", true));
+        assert!(should_forward_status(true, "ended", false));
+        assert!(should_forward_status(true, "error", false));
+        assert!(should_forward_status(false, "info", false));
+        assert!(should_forward_status(false, "ready", true));
+    }
+
+    #[test]
     fn channel_and_quality_validation() {
         // mpv_window_title strips anything outside [a-z0-9_-].
         assert_eq!(mpv_window_title("Some_Channel-1"), "stgui-some_channel-1");
         assert_eq!(mpv_window_title("äöü"), "stgui-stream");
+    }
+
+    #[test]
+    fn dock_watchdog_idles_when_focus_and_layout_are_stable() {
+        assert_eq!(dock_watchdog_interval_ms(false, false), 500);
+        assert_eq!(dock_watchdog_interval_ms(true, true), 100);
+        assert_eq!(dock_watchdog_interval_ms(true, false), 400);
+        assert!(dock_watchdog_needs_fast_tick(true, false, false, false, false, false));
+        assert!(dock_watchdog_needs_fast_tick(false, false, true, false, false, false));
+        assert!(!dock_watchdog_needs_fast_tick(
+            false, false, false, false, false, false
+        ));
+    }
+
+    #[test]
+    fn session_watchdog_skips_title_scans_when_mpv_process_is_owned() {
+        assert!(!session_title_scan_needed(true));
+        assert!(session_title_scan_needed(false));
+        assert_eq!(session_watchdog_timeout_ms(0), 2500);
+        assert_eq!(session_watchdog_timeout_ms(3), 1500);
     }
 
     #[test]

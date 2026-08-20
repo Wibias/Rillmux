@@ -19,6 +19,7 @@ use doctor::DoctorReport;
 use std::sync::Arc;
 use streaming::{LaunchRequest, OverlayRect, SharedStreaming, StreamSession, StreamingState};
 use tauri::{AppHandle, Manager};
+use tauri_plugin_window_controls::{TitleBarColors, WindowControlsExt};
 
 #[tauri::command]
 async fn get_doctor_report() -> Result<DoctorReport, String> {
@@ -142,10 +143,18 @@ fn viewer_presence_status(
 #[tauri::command]
 async fn channel_points_refresh(
     channel_login: String,
+    include_poll: Option<bool>,
 ) -> Result<channel_points::ChannelPointsSnapshot, String> {
-    channel_points::refresh(&channel_login)
+    channel_points::refresh(&channel_login, include_poll.unwrap_or(false))
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn channel_points_cached(
+    channel_login: String,
+) -> Option<channel_points::ChannelPointsSnapshot> {
+    channel_points::cached_snapshot(&channel_login)
 }
 
 #[tauri::command]
@@ -156,6 +165,18 @@ async fn channel_points_vote_poll(
     cost: u64,
 ) -> Result<channel_points::ChannelPointsSnapshot, String> {
     channel_points::vote_poll(&channel_login, &poll_id, &choice_id, cost)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn channel_points_vote_prediction(
+    channel_login: String,
+    event_id: String,
+    outcome_id: String,
+    points: u64,
+) -> Result<channel_points::ChannelPointsSnapshot, String> {
+    channel_points::vote_prediction(&channel_login, &event_id, &outcome_id, points)
         .await
         .map_err(|e| e.to_string())
 }
@@ -187,8 +208,15 @@ async fn stream_start(
 }
 
 #[tauri::command]
-fn stream_list(state: tauri::State<'_, SharedStreaming>) -> Result<Vec<StreamSession>, String> {
-    streaming::list_sessions(&state).map_err(|e| e.to_string())
+async fn stream_list(
+    state: tauri::State<'_, SharedStreaming>,
+) -> Result<Vec<StreamSession>, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        streaming::list_sessions(&state).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -283,6 +311,19 @@ fn raid_overlay_place(from_channel: String) -> Option<OverlayRect> {
 }
 
 #[tauri::command]
+async fn poll_overlay_place() -> Option<OverlayRect> {
+    tauri::async_runtime::spawn_blocking(streaming::poll_overlay_chat_host)
+        .await
+        .ok()
+        .flatten()
+}
+
+#[tauri::command]
+fn poll_overlay_raise() {
+    streaming::raise_poll_overlay_window();
+}
+
+#[tauri::command]
 fn app_quit(app: AppHandle) {
     channel_points_realtime::clear();
     app.exit(0);
@@ -305,6 +346,38 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
+fn enable_main_title_bar_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
+    window
+        .set_title_bar_overlay(true)
+        .map_err(|e| e.to_string())?;
+    window
+        .set_title_bar_height(32)
+        .map_err(|e| e.to_string())?;
+    let light = TitleBarColors {
+        symbol: Some("#0e0e10".into()),
+        hover: Some("#00000014".into()),
+        pressed: Some("#0000000a".into()),
+        ..Default::default()
+    };
+    let dark = TitleBarColors {
+        symbol: Some("#efeff1".into()),
+        hover: Some("#ffffff14".into()),
+        pressed: Some("#ffffff0a".into()),
+        ..Default::default()
+    };
+    window
+        .set_title_bar_colors(light, dark)
+        .map_err(|e| e.to_string())
+}
+
+/// Inject native Win11 caption buttons into the frameless main window.
+/// Called from the webview after `__TAURI_INTERNALS__` exists so the overlay
+/// script does not bail out on a too-early eval.
+#[tauri::command]
+fn enable_title_bar_overlay(window: tauri::WebviewWindow) -> Result<(), String> {
+    enable_main_title_bar_overlay(&window)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _sentry_guard = init_sentry();
@@ -321,6 +394,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_controls::init())
         .manage(streaming)
         .manage(viewer_presence)
         .invoke_handler(tauri::generate_handler![
@@ -340,7 +415,9 @@ pub fn run() {
             viewer_presence_sync,
             viewer_presence_status,
             channel_points_refresh,
+            channel_points_cached,
             channel_points_vote_poll,
+            channel_points_vote_prediction,
             helix_fetch,
             stream_start,
             stream_list,
@@ -355,11 +432,21 @@ pub fn run() {
             dock_cycle_monitor,
             eventsub_sync,
             raid_overlay_place,
-            app_quit
+            poll_overlay_place,
+            poll_overlay_raise,
+            app_quit,
+            enable_title_bar_overlay
         ])
         .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+                let _ = window.set_shadow(true);
+                let _ = enable_main_title_bar_overlay(&window);
+            }
             streaming::init_dock(app.handle().clone());
             eventsub::init(app.handle().clone());
+            channel_points_realtime::init(app.handle().clone());
+            viewer_presence::init(app.handle().clone());
             let state = app.state::<SharedStreaming>().inner().clone();
             streaming::start_session_watchdog(app.handle().clone(), state);
             // Warm Streamlink so the first watch doesn't pay Python/plugin cold-start.

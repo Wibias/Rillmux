@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../lib/settings/store";
@@ -16,17 +16,18 @@ import type {
   ThemeMode,
 } from "../lib/settings/types";
 import { defaultMpvPresets, describeMpvPresets } from "../lib/settings/mpv";
-import {
-  MPV_PORTABLE_URL,
-  MPV_SCOOP,
-  MPV_WINGET,
-} from "../lib/settings/mpv";
-import { MPV_INSTALL_URL } from "../lib/doctor";
+import { playerInstallGuide } from "../lib/settings/playerInstall";
 import { eventToHotkey, normalizeHotkey } from "../lib/hotkeys";
+import { toggleMutedFollowed } from "../lib/notifications/followedLive";
 import { isTauri } from "../lib/tauri";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open } from "@tauri-apps/plugin-dialog";
 import { syncViewerPresence, useWatchingStore } from "../lib/streaming/store";
-import { SETTINGS_TABS, settingsTabFromPath } from "../lib/settings/tabs";
+import {
+  SETTINGS_TABS,
+  settingsTabFromPath,
+  settingsTabLabelKey,
+} from "../lib/settings/tabs";
 import "./SettingsPage.css";
 import "../components/SetupHelp.css";
 
@@ -36,6 +37,17 @@ async function openExternal(url: string) {
     return;
   }
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+async function pickExecutablePath(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Programs", extensions: ["exe"] }],
+  });
+  if (Array.isArray(selected)) return selected[0] ?? null;
+  return selected;
 }
 
 const QUALITY_PRESETS = [
@@ -55,6 +67,111 @@ function isPresetQuality(quality: string): boolean {
   return (QUALITY_PRESETS as readonly string[]).includes(quality);
 }
 
+const PLAYER_INSTALL_PORTABLE_KEYS = {
+  mpv: "settings:playerInstallPortable",
+  vlc: "settings:playerInstallPortableVlc",
+  mpc: "settings:playerInstallPortableMpc",
+  potplayer: "settings:playerInstallPortablePot",
+} as const satisfies Record<
+  Exclude<PlayerId, "custom">,
+  `settings:${string}`
+>;
+
+function PlayerInstallHelp({
+  guide,
+  children,
+}: {
+  guide: ReturnType<typeof playerInstallGuide>;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation(["settings"]);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const menuId = `${useId()}-player-install`;
+  const guideId = guide?.id ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!guideId) setOpen(false);
+  }, [guideId]);
+
+  return (
+    <div className="settings__control settings__control--player" ref={rootRef}>
+      {guide ? (
+        <button
+          type="button"
+          className="settings__help"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-controls={menuId}
+          aria-label={t("settings:playerInstallTitle", { player: guide.name })}
+          title={t("settings:playerInstallTitle", { player: guide.name })}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span aria-hidden="true">?</span>
+        </button>
+      ) : null}
+      {children}
+      {guide && open ? (
+        <div
+          id={menuId}
+          className="settings__help-menu"
+          role="dialog"
+          aria-label={t("settings:playerInstallTitle", { player: guide.name })}
+        >
+          <p className="settings__help-menu-title">
+            {t("settings:playerInstallTitle", { player: guide.name })}
+          </p>
+          <p className="setup-help__body muted">
+            {t("settings:playerInstallOpenShell")}
+          </p>
+          <div className="setup-help__cmds">
+            <div>
+              <span className="muted">{t("settings:playerInstallWinget")}</span>
+              <code>{guide.winget}</code>
+            </div>
+            <div>
+              <span className="muted">{t("settings:playerInstallScoop")}</span>
+              <code>{guide.scoop}</code>
+            </div>
+          </div>
+            <div className="setup-help__footer">
+            <p className="setup-help__body muted">
+              {t(PLAYER_INSTALL_PORTABLE_KEYS[guide.id])}
+            </p>
+            <div className="setup-help__actions">
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => void openExternal(guide.downloadUrl)}
+              >
+                {t("settings:playerInstallDownloadLink")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { t } = useTranslation(["routes", "settings", "common"]);
   const settings = useSettingsStore((s) => s.settings);
@@ -68,6 +185,7 @@ export function SettingsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [newChannelLogin, setNewChannelLogin] = useState("");
   const [newChannelQuality, setNewChannelQuality] = useState("");
+  const [newMutedLogin, setNewMutedLogin] = useState("");
 
   const qualityIsCustom = !isPresetQuality(settings.streaming.quality);
   const channelEntries = Object.entries(settings.channels);
@@ -97,24 +215,40 @@ export function SettingsPage() {
         <h1>{t("routes:settingsTitle")}</h1>
       </header>
 
-      <div className="settings__tabs" role="tablist" aria-label={t("routes:settingsTitle")}>
+      <div className="settings__layout">
+        <div
+          className="settings__nav"
+          role="tablist"
+          aria-label={t("routes:settingsTitle")}
+        >
         {SETTINGS_TABS.map((tab) => (
           <button
             key={tab}
             type="button"
             role="tab"
+            id={`settings-tab-${tab}`}
+            aria-controls="settings-panel"
             aria-selected={activeTab === tab}
             className={activeTab === tab ? "settings__tab is-active" : "settings__tab"}
             onClick={() => navigate(`/settings/${tab}`)}
           >
-            {t(`settings:tab${tab[0]!.toUpperCase()}${tab.slice(1)}`)}
+            {t(`settings:${settingsTabLabelKey(tab)}`)}
           </button>
         ))}
-      </div>
+        </div>
+
+        <div className="settings__main">
+          <h2 className="settings__heading" id="settings-panel-title">
+            {t(`settings:${settingsTabLabelKey(activeTab)}`)}
+          </h2>
 
       {activeTab === "interface" ? (
-      <fieldset className="settings__group">
-        <legend>{t("settings:gui")}</legend>
+      <div
+        className="settings__group"
+        role="tabpanel"
+        id="settings-panel"
+        aria-labelledby="settings-panel-title"
+      >
 
         <div className="settings__row">
           <div className="settings__label">
@@ -198,20 +332,37 @@ export function SettingsPage() {
             </button>
           </div>
         </div>
-      </fieldset>
+      </div>
       ) : null}
 
       {activeTab === "streaming" ? (
-      <fieldset className="settings__group">
-        <legend>{t("settings:streaming")}</legend>
-
-
-
-        <div className="settings__row settings__row--stack">
+      <div
+        className="settings__group"
+        role="tabpanel"
+        id="settings-panel"
+        aria-labelledby="settings-panel-title"
+      >
+        <div className="settings__row settings__row--quality">
           <div className="settings__label">
             <span>{t("settings:quality")}</span>
           </div>
-          <div className="settings__control">
+          <div className="settings__control settings__control--quality">
+            <input
+              className="input"
+              value={qualityIsCustom ? settings.streaming.quality : ""}
+              disabled={!qualityIsCustom}
+              tabIndex={qualityIsCustom ? 0 : -1}
+              onChange={(e) =>
+                setSettings({
+                  streaming: {
+                    ...settings.streaming,
+                    quality: e.target.value,
+                  },
+                })
+              }
+              placeholder="720p,720p60"
+              aria-label={t("settings:qualityCustom")}
+            />
             <select
               value={qualityIsCustom ? "custom" : settings.streaming.quality}
               onChange={(e) => {
@@ -234,22 +385,6 @@ export function SettingsPage() {
               ))}
               <option value="custom">{t("settings:qualityCustom")}</option>
             </select>
-            <input
-              className="input"
-              value={qualityIsCustom ? settings.streaming.quality : ""}
-              disabled={!qualityIsCustom}
-              tabIndex={qualityIsCustom ? 0 : -1}
-              onChange={(e) =>
-                setSettings({
-                  streaming: {
-                    ...settings.streaming,
-                    quality: e.target.value,
-                  },
-                })
-              }
-              placeholder="720p,720p60"
-              aria-label={t("settings:qualityCustom")}
-            />
           </div>
         </div>
 
@@ -364,8 +499,8 @@ export function SettingsPage() {
 
         {!settings.streaming.seamlessSwitch ? (
           <label className="settings__row">
-            <span>
-              {t("settings:multistreamLayout")}
+            <span className="settings__label">
+              <span>{t("settings:multistreamLayout")}</span>
               <small className="muted">{t("settings:multistreamLayoutHint")}</small>
             </span>
             <select
@@ -399,8 +534,8 @@ export function SettingsPage() {
         (settings.streaming.multistreamLayout === "2plus1" ||
           settings.streaming.multistreamLayout === "3plus1") ? (
           <label className="settings__row">
-            <span>
-              {t("settings:unevenMainSide")}
+            <span className="settings__label">
+              <span>{t("settings:unevenMainSide")}</span>
               <small className="muted">{t("settings:unevenMainSideHint")}</small>
             </span>
             <select
@@ -475,8 +610,8 @@ export function SettingsPage() {
 
         {settings.streaming.linkedDock ? (
           <label className="settings__row">
-            <span>
-              {t("settings:chatWidthFraction")}
+            <span className="settings__label">
+              <span>{t("settings:chatWidthFraction")}</span>
               <small className="muted">{t("settings:chatWidthFractionHint")}</small>
             </span>
             <input
@@ -527,79 +662,83 @@ export function SettingsPage() {
           </span>
         </label>
 
-        <label className="settings__row settings__row--check">
-          <input
-            type="checkbox"
-            checked={settings.streaming.webbrowserHeadless}
-            onChange={(e) =>
-              setSettings({
-                streaming: {
-                  ...settings.streaming,
-                  webbrowserHeadless: e.target.checked,
-                },
-              })
-            }
-          />
-          <span className="settings__check-text">
-            {t("settings:webbrowserHeadless")}
-          </span>
-        </label>
-
-        <div className="settings__row">
-          <div className="settings__label">
-            <span>{t("settings:retryStreams")}</span>
-          </div>
-          <div className="settings__control">
+        <div className="settings__row settings__row--pair">
+          <label className="settings__pair settings__pair--check">
             <input
-              className="input"
-              type="number"
-              min={0}
-              value={settings.streaming.retryStreams}
+              type="checkbox"
+              checked={settings.streaming.webbrowserHeadless}
               onChange={(e) =>
                 setSettings({
                   streaming: {
                     ...settings.streaming,
-                    retryStreams: Number(e.target.value) || 0,
+                    webbrowserHeadless: e.target.checked,
                   },
                 })
               }
             />
+            <span className="settings__check-text">
+              {t("settings:webbrowserHeadless")}
+            </span>
+          </label>
+          <div className="settings__pair">
+            <div className="settings__label">
+              <span>{t("settings:retryStreams")}</span>
+            </div>
+            <div className="settings__control">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={settings.streaming.retryStreams}
+                onChange={(e) =>
+                  setSettings({
+                    streaming: {
+                      ...settings.streaming,
+                      retryStreams: Number(e.target.value) || 0,
+                    },
+                  })
+                }
+              />
+            </div>
+          </div>
+          <div className="settings__pair">
+            <div className="settings__label">
+              <span>{t("settings:retryMax")}</span>
+            </div>
+            <div className="settings__control">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={settings.streaming.retryMax}
+                onChange={(e) =>
+                  setSettings({
+                    streaming: {
+                      ...settings.streaming,
+                      retryMax: Number(e.target.value) || 0,
+                    },
+                  })
+                }
+              />
+            </div>
           </div>
         </div>
-
-        <div className="settings__row">
-          <div className="settings__label">
-            <span>{t("settings:retryMax")}</span>
-          </div>
-          <div className="settings__control">
-            <input
-              className="input"
-              type="number"
-              min={0}
-              value={settings.streaming.retryMax}
-              onChange={(e) =>
-                setSettings({
-                  streaming: {
-                    ...settings.streaming,
-                    retryMax: Number(e.target.value) || 0,
-                  },
-                })
-              }
-            />
-          </div>
-        </div>
-      </fieldset>
+      </div>
       ) : null}
 
       {activeTab === "player" ? (
-      <fieldset className="settings__group">
-        <legend>{t("settings:player")}</legend>
+      <div
+        className="settings__group"
+        role="tabpanel"
+        id="settings-panel"
+        aria-labelledby="settings-panel-title"
+      >
 
         <div className="settings__row">
           <div className="settings__label">
             <span>{t("settings:playerId")}</span>
           </div>
-          <div className="settings__control">
+          <PlayerInstallHelp guide={playerInstallGuide(settings.player.id)}>
             <select
               value={settings.player.id}
               onChange={(e) =>
@@ -617,67 +756,42 @@ export function SettingsPage() {
               <option value="potplayer">PotPlayer</option>
               <option value="custom">{t("settings:chatCustom")}</option>
             </select>
-          </div>
+          </PlayerInstallHelp>
         </div>
-
-        {settings.player.id === "mpv" ? (
-          <div className="settings__row settings__row--stack">
-            <div className="settings__label">
-              <span>{t("settings:playerInstallTitle")}</span>
-            </div>
-            <div className="settings__control">
-              <div className="setup-help setup-help--settings">
-                <p className="setup-help__body muted">
-                  {t("settings:playerInstallOpenShell")}
-                </p>
-                <div className="setup-help__cmds">
-                  <div>
-                    <span className="muted">{t("settings:playerInstallWinget")}</span>
-                    <code>{MPV_WINGET}</code>
-                  </div>
-                  <div>
-                    <span className="muted">{t("settings:playerInstallScoop")}</span>
-                    <code>{MPV_SCOOP}</code>
-                  </div>
-                </div>
-                <p className="setup-help__body muted">
-                  {t("settings:playerInstallPortable")}
-                </p>
-                <div className="setup-help__actions">
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    onClick={() => void openExternal(MPV_PORTABLE_URL)}
-                  >
-                    {t("settings:playerInstallPortableLink")}
-                  </button>
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    onClick={() => void openExternal(MPV_INSTALL_URL)}
-                  >
-                    {t("settings:playerInstallSources")}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
 
         <div className="settings__row">
           <div className="settings__label">
             <span>{t("settings:playerCustomPath")}</span>
+            <small className="muted">{t("settings:playerCustomPathHint")}</small>
           </div>
-          <div className="settings__control">
+          <div className="settings__control settings__control--row settings__control--path">
             <input
               className="input"
               value={settings.player.customPath}
+              disabled={settings.player.id !== "custom"}
+              tabIndex={settings.player.id === "custom" ? 0 : -1}
               onChange={(e) =>
                 setSettings({
                   player: { ...settings.player, customPath: e.target.value },
                 })
               }
+              aria-label={t("settings:playerCustomPath")}
             />
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={settings.player.id !== "custom"}
+              onClick={() => {
+                void pickExecutablePath().then((path) => {
+                  if (!path) return;
+                  setSettings({
+                    player: { ...settings.player, customPath: path },
+                  });
+                });
+              }}
+            >
+              {t("settings:browseFile")}
+            </button>
           </div>
         </div>
 
@@ -803,15 +917,20 @@ export function SettingsPage() {
             {t("settings:playerNoClose")}
           </span>
         </label>
-      </fieldset>
+      </div>
       ) : null}
 
       {activeTab === "chat" ? (
-      <fieldset className="settings__group">
-        <legend>{t("settings:chat")}</legend>
+      <div
+        className="settings__group"
+        role="tabpanel"
+        id="settings-panel"
+        aria-labelledby="settings-panel-title"
+      >
         <div className="settings__row">
           <div className="settings__label">
             <span>{t("settings:chatProvider")}</span>
+            <small className="muted">{t("settings:chatProviderHint")}</small>
           </div>
           <div className="settings__control">
             <select
@@ -831,15 +950,19 @@ export function SettingsPage() {
               <option value="chrome">{t("settings:chatChrome")}</option>
               <option value="custom">{t("settings:chatCustom")}</option>
             </select>
-            <p className="muted">{t("settings:chatProviderHint")}</p>
           </div>
         </div>
-      </fieldset>
+      </div>
       ) : null}
 
       {activeTab === "notifications" ? (
-      <fieldset className="settings__group">
-        <legend>{t("settings:notifications")}</legend>
+      <div
+        className="settings__section"
+        role="tabpanel"
+        id="settings-panel"
+        aria-labelledby="settings-panel-title"
+      >
+      <div className="settings__group">
         <label className="settings__row settings__row--check">
           <input
             type="checkbox"
@@ -858,46 +981,79 @@ export function SettingsPage() {
             <small className="muted">{t("settings:followedOnlineHint")}</small>
           </span>
         </label>
-        <div className="settings__row settings__row--stack">
-          <div className="settings__label">
-            <span>{t("settings:mutedFollowed")}</span>
-            <small className="muted">{t("settings:mutedFollowedHint")}</small>
-          </div>
-          {settings.notifications.mutedFollowed.length === 0 ? (
-            <p className="muted">{t("settings:mutedFollowedEmpty")}</p>
-          ) : (
-            <ul className="settings__muted-list">
-              {settings.notifications.mutedFollowed.map((login) => (
-                <li key={login} className="settings__muted-item">
-                  <Link to={`/channel/${login}`}>{login}</Link>
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    onClick={() =>
-                      setSettings({
-                        notifications: {
-                          ...settings.notifications,
-                          mutedFollowed:
-                            settings.notifications.mutedFollowed.filter(
-                              (m) => m !== login,
-                            ),
-                        },
-                      })
-                    }
-                  >
-                    {t("settings:mutedFollowedUnmute")}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+        <p className="muted settings__hint">{t("settings:mutedFollowedHint")}</p>
+        <div className="settings__row settings__row--add">
+          <input
+            className="input"
+            value={newMutedLogin}
+            placeholder={t("settings:channelLogin")}
+            onChange={(e) => setNewMutedLogin(e.target.value)}
+            aria-label={t("settings:channelLogin")}
+          />
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => {
+              const login = newMutedLogin.trim().toLowerCase();
+              if (!login) return;
+              setSettings({
+                notifications: {
+                  ...settings.notifications,
+                  mutedFollowed: toggleMutedFollowed(
+                    settings.notifications.mutedFollowed,
+                    login,
+                    false,
+                  ),
+                },
+              });
+              setNewMutedLogin("");
+            }}
+          >
+            {t("settings:mutedFollowedAdd")}
+          </button>
         </div>
-      </fieldset>
+      </div>
+        {settings.notifications.mutedFollowed.length === 0 ? (
+          <p className="muted settings__empty">{t("settings:mutedFollowedEmpty")}</p>
+        ) : (
+          <ul className="settings__channel-list">
+            {settings.notifications.mutedFollowed.map((login) => (
+              <li key={login} className="settings__channel-item">
+                <Link className="settings__channel-login" to={`/channel/${login}`}>
+                  {login}
+                </Link>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() =>
+                    setSettings({
+                      notifications: {
+                        ...settings.notifications,
+                        mutedFollowed: toggleMutedFollowed(
+                          settings.notifications.mutedFollowed,
+                          login,
+                          true,
+                        ),
+                      },
+                    })
+                  }
+                >
+                  {t("settings:mutedFollowedUnmute")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       ) : null}
 
       {activeTab === "hotkeys" ? (
-      <fieldset className="settings__group">
-        <legend>{t("settings:hotkeys")}</legend>
+      <div
+        className="settings__group"
+        role="tabpanel"
+        id="settings-panel"
+        aria-labelledby="settings-panel-title"
+      >
         <p className="muted settings__hint">{t("settings:hotkeysHint")}</p>
         {(
           [
@@ -918,67 +1074,39 @@ export function SettingsPage() {
                 className="input"
                 readOnly
                 value={settings.hotkeys[key]}
-                placeholder="—"
+                placeholder="-"
                 onKeyDown={captureHotkey(key)}
                 aria-label={t(`settings:${labelKey}`)}
               />
             </div>
           </div>
         ))}
-      </fieldset>
+      </div>
       ) : null}
 
       {activeTab === "channels" ? (
-      <fieldset className="settings__group">
-        <legend>{t("settings:channels")}</legend>
-        <p className="muted settings__hint">{t("settings:channelsHint")}</p>
-        {channelEntries.length === 0 ? (
-          <p className="muted">{t("settings:channelEmpty")}</p>
-        ) : (
-          channelEntries.map(([login, override]) => (
-            <div className="settings__row" key={login}>
-              <div className="settings__label">
-                <span>{login}</span>
-              </div>
-              <div className="settings__control settings__control--row">
-                <input
-                  className="input"
-                  value={override.quality ?? ""}
-                  placeholder={t("settings:useGlobal")}
-                  onChange={(e) =>
-                    setChannelOverride(login, {
-                      quality: e.target.value || undefined,
-                    })
-                  }
-                  aria-label={`${login} ${t("settings:channelQuality")}`}
-                />
-                <button
-                  type="button"
-                  className="button-secondary"
-                  onClick={() => setChannelOverride(login, null)}
-                >
-                  {t("settings:channelRemove")}
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-        <div className="settings__row">
-          <div className="settings__label">
-            <span>{t("settings:channelAdd")}</span>
-          </div>
-          <div className="settings__control settings__control--row">
+      <div
+        className="settings__section"
+        role="tabpanel"
+        id="settings-panel"
+        aria-labelledby="settings-panel-title"
+      >
+        <div className="settings__group">
+          <p className="muted settings__hint">{t("settings:channelsHint")}</p>
+          <div className="settings__row settings__row--add">
             <input
               className="input"
               value={newChannelLogin}
               placeholder={t("settings:channelLogin")}
               onChange={(e) => setNewChannelLogin(e.target.value)}
+              aria-label={t("settings:channelLogin")}
             />
             <input
               className="input"
               value={newChannelQuality}
               placeholder={t("settings:channelQuality")}
               onChange={(e) => setNewChannelQuality(e.target.value)}
+              aria-label={t("settings:channelQuality")}
             />
             <button
               type="button"
@@ -997,12 +1125,45 @@ export function SettingsPage() {
             </button>
           </div>
         </div>
-      </fieldset>
+        {channelEntries.length === 0 ? (
+          <p className="muted settings__empty">{t("settings:channelEmpty")}</p>
+        ) : (
+          <ul className="settings__channel-list">
+            {channelEntries.map(([login, override]) => (
+              <li className="settings__channel-item" key={login}>
+                <span className="settings__channel-login">{login}</span>
+                <input
+                  className="input"
+                  value={override.quality ?? ""}
+                  placeholder={t("settings:useGlobal")}
+                  onChange={(e) =>
+                    setChannelOverride(login, {
+                      quality: e.target.value || undefined,
+                    })
+                  }
+                  aria-label={`${login} ${t("settings:channelQuality")}`}
+                />
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => setChannelOverride(login, null)}
+                >
+                  {t("settings:channelRemove")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       ) : null}
 
       {activeTab === "general" ? (
-      <fieldset className="settings__group">
-        <legend>{t("settings:main")}</legend>
+      <div
+        className="settings__group"
+        role="tabpanel"
+        id="settings-panel"
+        aria-labelledby="settings-panel-title"
+      >
         <label className="settings__row settings__row--check">
           <input
             type="checkbox"
@@ -1057,8 +1218,10 @@ export function SettingsPage() {
             />
           </div>
         </div>
-      </fieldset>
+      </div>
       ) : null}
+        </div>
+      </div>
     </section>
   );
 }

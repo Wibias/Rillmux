@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, isTauri } from "../lib/tauri";
+import { CopyableDeviceCode } from "./CopyableDeviceCode";
 
 interface ChannelPointsClaimAuthStatus {
   configured: boolean;
@@ -129,7 +130,7 @@ export function ChannelPointsClaimAuth({
         <div className="authbar__playback-panel">
           <strong>Channel Points bonus claims</strong>
           <p className="muted">Enter this code on Twitch:</p>
-          <code className="authbar__code">{device.userCode}</code>
+          <CopyableDeviceCode code={device.userCode} />
           <button
             type="button"
             className="button-secondary"

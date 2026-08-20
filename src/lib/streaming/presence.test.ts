@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  POINTS_REFRESH_INTERVAL_MS,
+  PRESENCE_STATUS_FALLBACK_MS,
   buildPresenceTargets,
   describeViewerPresenceStatus,
   presenceSourceFromStream,
   prunePresenceMetadata,
+  shouldRefreshChannelPoints,
   type PresenceMetadata,
   type PresenceSession,
 } from "./presence";
@@ -169,5 +172,15 @@ describe("viewer presence lifecycle", () => {
     ).toBe(
       "one: playback-token HTTP 401 — Twitch rejected the playback-token request",
     );
+  });
+});
+
+describe("channel points status timing", () => {
+  it("does not poll presence every few seconds; balance stays on a slower cadence", () => {
+    expect(PRESENCE_STATUS_FALLBACK_MS).toBeGreaterThanOrEqual(30_000);
+    expect(POINTS_REFRESH_INTERVAL_MS).toBeGreaterThanOrEqual(15_000);
+    expect(shouldRefreshChannelPoints(0, 14_999, false)).toBe(false);
+    expect(shouldRefreshChannelPoints(0, 15_000, false)).toBe(true);
+    expect(shouldRefreshChannelPoints(10_000, 20_000, true)).toBe(false);
   });
 });

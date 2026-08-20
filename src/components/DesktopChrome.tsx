@@ -1,11 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
 import { invoke, isTauri } from "../lib/tauri";
+import { useFollowedLiveStreams } from "../lib/browse/useFollowedLive";
 import { useAuthStore } from "../lib/auth/store";
 import { useSettingsStore } from "../lib/settings/store";
-import { getFollowedStreams } from "../lib/twitch/helix";
-import { shouldNotifyFollowedLive } from "../lib/notifications/followedLive";
+import {
+  liveFollowedLogins,
+  newlyLiveFollowedLogins,
+  shouldNotifyFollowedLive,
+} from "../lib/notifications/followedLive";
 
 /**
  * Desktop-only chrome: tray icon, close-to-tray, followed-live notifications.
@@ -20,7 +23,8 @@ export function DesktopChrome() {
     (s) => s.settings.notifications.mutedFollowed,
   );
   const hydrated = useSettingsStore((s) => s.hydrated);
-  const session = useAuthStore((s) => s.session);
+  const userId = useAuthStore((s) => s.session?.userId);
+  const { streams, loggedIn } = useFollowedLiveStreams();
   const knownLive = useRef<Set<string>>(new Set());
   const primed = useRef(false);
   const closeToTrayRef = useRef(closeToTray);
@@ -101,27 +105,14 @@ export function DesktopChrome() {
     };
   }, [hydrated, t]);
 
-  const followedQuery = useQuery({
-    queryKey: ["followed-streams-notify", session?.userId],
-    enabled:
-      isTauri() &&
-      notifyFollowed &&
-      Boolean(session?.loggedIn && session.userId),
-    queryFn: () => getFollowedStreams(session!.userId!),
-    refetchInterval: 60_000,
-    staleTime: 30_000,
-  });
-
   useEffect(() => {
     primed.current = false;
     knownLive.current = new Set();
-  }, [session?.userId]);
+  }, [userId]);
 
   useEffect(() => {
-    if (!notifyFollowed || !followedQuery.data) return;
-    const next = new Set(
-      followedQuery.data.data.map((s) => s.user_login.toLowerCase()),
-    );
+    if (!notifyFollowed || !loggedIn) return;
+    const next = liveFollowedLogins(streams);
 
     if (!primed.current) {
       knownLive.current = next;
@@ -129,14 +120,13 @@ export function DesktopChrome() {
       return;
     }
 
-    const newlyLive = [...next]
-      .filter((login) => !knownLive.current.has(login))
-      .filter((login) =>
+    const newlyLive = newlyLiveFollowedLogins(knownLive.current, next).filter(
+      (login) =>
         shouldNotifyFollowedLive(login, {
           followedOnline: notifyFollowed,
           mutedFollowed,
         }),
-      );
+    );
     knownLive.current = next;
 
     if (!newlyLive.length || !isTauri()) return;
@@ -155,7 +145,7 @@ export function DesktopChrome() {
       if (!granted) return;
 
       for (const login of newlyLive.slice(0, 3)) {
-        const stream = followedQuery.data.data.find(
+        const stream = streams.find(
           (s) => s.user_login.toLowerCase() === login,
         );
         sendNotification({
@@ -166,7 +156,7 @@ export function DesktopChrome() {
         });
       }
     })();
-  }, [followedQuery.data, mutedFollowed, notifyFollowed, t]);
+  }, [loggedIn, mutedFollowed, notifyFollowed, streams, t]);
 
   return null;
 }

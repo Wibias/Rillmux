@@ -41,7 +41,7 @@ describe("parseReleaseNotes", () => {
 
 describe("isSafeUrl", () => {
   it("allows https and http", () => {
-    expect(isSafeUrl("https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.5.0")).toBe(true);
+    expect(isSafeUrl("https://github.com/Wibias/Rillmux/releases/tag/v0.5.0")).toBe(true);
     expect(isSafeUrl("http://example.com/x")).toBe(true);
     expect(isSafeUrl("https://example.com/a?b=c#d")).toBe(true);
   });

@@ -1,17 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { PageSubbar } from "../components/AppShell";
+import {
+  ChevronRightIcon,
+  GripIcon,
+  InfoIcon,
+  SearchIcon,
+  VerifiedBadge,
+} from "../components/FollowedIcons";
 import { useAuthStore } from "../lib/auth/store";
+import { formatViewers } from "../lib/browse/format";
+import { useFollowedLiveStreams } from "../lib/browse/useFollowedLive";
 import { useSettingsStore } from "../lib/settings/store";
 import { useWatchingStore, type StreamSession } from "../lib/streaming/store";
 import {
+  watchingPhase,
+  watchingStatusText,
+} from "../lib/streaming/status";
+import { moveItemAt, slotHitY, slotIndexFromClientY, slotShiftY } from "../lib/streaming/reorder";
+import {
   getFollowedChannelLogins,
-  getFollowedStreams,
-  LIVE_STREAM_QUERY,
+  getUsersByLogin,
+  isTwitchPartner,
   searchChannels,
   streamThumbnail,
   type HelixChannel,
   type HelixStream,
+  type HelixUser,
 } from "../lib/twitch/helix";
 import {
   isMultistreamLayout,
@@ -70,6 +86,22 @@ export function MultistreamPage() {
   const [debounced, setDebounced] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const liveRef = useRef<HTMLUListElement>(null);
+  const slotsRef = useRef<HTMLUListElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  const dragIndexRef = useRef<number | null>(null);
+  const overIndexRef = useRef<number | null>(null);
+  const dragStartYRef = useRef(0);
+  const slotDraggingRef = useRef(false);
+  const pointerRef = useRef({ x: 0, y: 0 });
+  const dragMetricsRef = useRef<{
+    grabX: number;
+    grabY: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const dragStrideRef = useRef(0);
+  const slotLayoutRef = useRef<Array<{ top: number; bottom: number }>>([]);
 
   useEffect(() => {
     void refresh();
@@ -97,12 +129,7 @@ export function MultistreamPage() {
     queryFn: () => searchChannels(debounced),
   });
 
-  const followedLive = useQuery({
-    queryKey: ["multistream-followed-live", userId],
-    enabled: loggedIn && Boolean(userId) && debounced.length < 2,
-    queryFn: () => getFollowedStreams(userId!),
-    ...LIVE_STREAM_QUERY,
-  });
+  const followedLive = useFollowedLiveStreams();
 
   const sessionByChannel = useMemo(() => {
     const map = new Map<string, StreamSession>();
@@ -111,6 +138,20 @@ export function MultistreamPage() {
     }
     return map;
   }, [sessions]);
+
+  const slotUsersQuery = useQuery({
+    queryKey: ["multistream-slot-users", slotChannels],
+    enabled: slotChannels.length > 0,
+    queryFn: async () => {
+      const page = await getUsersByLogin(slotChannels);
+      const record: Record<string, HelixUser> = {};
+      for (const user of page.data) {
+        record[user.login.toLowerCase()] = user;
+      }
+      return record;
+    },
+  });
+  const slotUsers = slotUsersQuery.data ?? {};
 
   const runningCount = sessions.filter((s) => s.running).length;
   const cap = layoutCapacity(
@@ -135,6 +176,99 @@ export function MultistreamPage() {
   const isAdded = (login: string) =>
     slotChannels.includes(login.toLowerCase());
 
+  const positionGhost = () => {
+    const ghost = ghostRef.current;
+    const metrics = dragMetricsRef.current;
+    if (!ghost || !metrics) return;
+    ghost.style.width = `${metrics.width}px`;
+    ghost.style.transform = `translate(${pointerRef.current.x - metrics.grabX}px, ${pointerRef.current.y - metrics.grabY}px)`;
+  };
+
+  useLayoutEffect(() => {
+    if (dragIndex === null) return;
+    positionGhost();
+  }, [dragIndex]);
+
+  const endSlotDrag = (pointerId: number, target: HTMLLIElement) => {
+    if (dragIndexRef.current === null) return;
+    if (target.hasPointerCapture(pointerId)) {
+      target.releasePointerCapture(pointerId);
+    }
+    const from = dragIndexRef.current;
+    const to = overIndexRef.current;
+    const moved = slotDraggingRef.current;
+    dragIndexRef.current = null;
+    overIndexRef.current = null;
+    slotDraggingRef.current = false;
+    dragMetricsRef.current = null;
+    dragStrideRef.current = 0;
+    slotLayoutRef.current = [];
+    setDragIndex(null);
+    setOverIndex(null);
+    if (moved && from !== null && to !== null && from !== to) {
+      reorderSlots(moveItemAt(slotChannels, from, to));
+    }
+  };
+
+  const onSlotPointerDown = (
+    event: PointerEvent<HTMLLIElement>,
+    index: number,
+  ) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, select, textarea")) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const rect = event.currentTarget.getBoundingClientRect();
+    pointerRef.current = { x: event.clientX, y: event.clientY };
+    dragMetricsRef.current = {
+      grabX: event.clientX - rect.left,
+      grabY: event.clientY - rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+    dragIndexRef.current = index;
+    overIndexRef.current = index;
+    dragStartYRef.current = event.clientY;
+    slotDraggingRef.current = false;
+  };
+
+  const onSlotPointerMove = (event: PointerEvent<HTMLLIElement>) => {
+    if (dragIndexRef.current === null) return;
+    pointerRef.current = { x: event.clientX, y: event.clientY };
+    if (!slotDraggingRef.current) {
+      if (Math.abs(event.clientY - dragStartYRef.current) < 5) return;
+      slotDraggingRef.current = true;
+      const list = slotsRef.current;
+      if (list) {
+        const rects = [
+          ...list.querySelectorAll<HTMLElement>("[data-ms-slot]"),
+        ].map((el) => {
+          const row = el.getBoundingClientRect();
+          return { top: row.top, bottom: row.bottom };
+        });
+        slotLayoutRef.current = rects;
+        dragStrideRef.current =
+          rects.length >= 2
+            ? rects[1]!.top - rects[0]!.top
+            : (rects[0]?.bottom ?? 0) - (rects[0]?.top ?? 0);
+      }
+      setDragIndex(dragIndexRef.current);
+      setOverIndex(overIndexRef.current);
+    }
+    positionGhost();
+    const metrics = dragMetricsRef.current;
+    const layout = slotLayoutRef.current;
+    if (!metrics || !layout.length) return;
+    const next = slotIndexFromClientY(
+      layout,
+      slotHitY(event.clientY, metrics.grabY, metrics.height),
+    );
+    if (next === null || next === overIndexRef.current) return;
+    overIndexRef.current = next;
+    setOverIndex(next);
+  };
+
   const renderResult = (ch: HelixChannel) => {
     const added = isAdded(ch.broadcaster_login);
     return (
@@ -151,11 +285,11 @@ export function MultistreamPage() {
           <strong>
             {ch.display_name}
             {ch.is_live ? (
-              <span className="badge badge--live" style={{ marginLeft: "0.5rem" }}>
+              <span className="badge badge--live ms-result__live">
                 {t("multistream:live")}
               </span>
             ) : (
-              <span className="muted" style={{ marginLeft: "0.5rem" }}>
+              <span className="muted ms-result__live">
                 {t("multistream:offline")}
               </span>
             )}
@@ -180,37 +314,48 @@ export function MultistreamPage() {
   if (!multi) {
     return (
       <section className="page">
-        <header className="page__header">
-          <div>
-            <h1>{t("multistream:title")}</h1>
-            <p className="page__lede">{t("multistream:lede")}</p>
-          </div>
-        </header>
+        <PageSubbar
+          title={t("multistream:title")}
+          lede={t("multistream:lede")}
+        />
         <p className="muted">{t("multistream:seamlessNote")}</p>
       </section>
     );
   }
 
+  const draggingChannel =
+    dragIndex !== null ? slotChannels[dragIndex] : undefined;
+  const draggingSession = draggingChannel
+    ? sessionByChannel.get(draggingChannel)
+    : undefined;
+  const draggingUser = draggingChannel
+    ? slotUsers[draggingChannel]
+    : undefined;
+  const draggingPhase = watchingPhase(draggingSession?.phase);
+  const draggingStatus = draggingSession
+    ? watchingStatusText(draggingPhase, draggingSession.status, t)
+    : "";
+
   return (
     <section className="page">
-      <header className="page__header">
-        <div>
-          <h1>{t("multistream:title")}</h1>
-          <p className="page__lede">{t("multistream:lede")}</p>
-        </div>
-        {sessions.length ? (
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => void stopAll()}
-          >
-            {t("multistream:stopAll")}
-          </button>
-        ) : null}
-      </header>
+      <PageSubbar
+        title={t("multistream:title")}
+        lede={t("multistream:lede")}
+        actions={
+          sessions.length ? (
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => void stopAll()}
+            >
+              {t("multistream:stopAll")}
+            </button>
+          ) : undefined
+        }
+      />
 
       <div className="ms-section">
-        <label className="settings__row" style={{ maxWidth: "22rem" }}>
+        <label className="ms-layout-row">
           <span>{t("multistream:layoutLabel")}</span>
           <select
             value={settings.streaming.multistreamLayout}
@@ -237,7 +382,7 @@ export function MultistreamPage() {
           </select>
         </label>
         {isUnevenLayout(settings.streaming.multistreamLayout) ? (
-          <label className="settings__row" style={{ maxWidth: "22rem" }}>
+          <label className="ms-layout-row">
             <span>{t("settings:unevenMainSide")}</span>
             <select
               value={settings.streaming.unevenMainSide}
@@ -275,76 +420,81 @@ export function MultistreamPage() {
         {!slotChannels.length ? (
           <p className="muted">{t("multistream:currentEmpty")}</p>
         ) : (
-          <ul className="ms-slots">
+          <>
+          <ul
+            className={["ms-slots", dragIndex !== null ? "ms-slots--dragging" : ""]
+              .filter(Boolean)
+              .join(" ")}
+            ref={slotsRef}
+          >
             {slotChannels.map((channel, index) => {
               const s = sessionByChannel.get(channel);
+              const user = slotUsers[channel];
+              const phase = watchingPhase(s?.phase);
+              const status = watchingStatusText(phase, s?.status, t);
               const chatActive =
                 (activeChatChannel ?? slotChannels[0]) === channel;
+              const shift =
+                dragIndex !== null && overIndex !== null
+                  ? slotShiftY(
+                      index,
+                      dragIndex,
+                      overIndex,
+                      dragStrideRef.current,
+                    )
+                  : 0;
               return (
                 <li
                   key={channel}
-                  draggable
+                  data-ms-slot={index}
                   className={[
                     "ms-slot",
-                    dragIndex === index ? "ms-slot--dragging" : "",
-                    overIndex === index && dragIndex !== index
-                      ? "ms-slot--dragover"
-                      : "",
+                    dragIndex === index ? "ms-slot--placeholder" : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
-                  onDragStart={(e) => {
-                    const target = e.target as HTMLElement;
-                    if (target.closest("button, a, input, select, textarea")) {
-                      e.preventDefault();
-                      return;
-                    }
-                    e.dataTransfer.effectAllowed = "move";
-                    e.dataTransfer.setData("text/plain", channel);
-                    setDragIndex(index);
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    setOverIndex(index);
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (dragIndex !== null && dragIndex !== index) {
-                      const next = [...slotChannels];
-                      const [moved] = next.splice(dragIndex, 1);
-                      next.splice(index, 0, moved!);
-                      reorderSlots(next);
-                    }
-                    setDragIndex(null);
-                    setOverIndex(null);
-                  }}
-                  onDragEnd={() => {
-                    setDragIndex(null);
-                    setOverIndex(null);
-                  }}
-                  onDragLeave={() => {
-                    if (overIndex === index) setOverIndex(null);
-                  }}
+                  style={
+                    dragIndex !== null
+                      ? { transform: `translateY(${shift}px)` }
+                      : undefined
+                  }
+                  onPointerDown={(event) => onSlotPointerDown(event, index)}
+                  onPointerMove={onSlotPointerMove}
+                  onPointerUp={(event) =>
+                    endSlotDrag(event.pointerId, event.currentTarget)
+                  }
+                  onPointerCancel={(event) =>
+                    endSlotDrag(event.pointerId, event.currentTarget)
+                  }
+                  onDragStart={(event) => event.preventDefault()}
                 >
                   <span className="ms-slot__handle" aria-hidden>
-                    ⋮⋮
+                    <GripIcon />
                   </span>
+                  {user?.profile_image_url ? (
+                    <img
+                      src={user.profile_image_url}
+                      alt=""
+                      className="ms-slot__avatar"
+                      draggable={false}
+                    />
+                  ) : (
+                    <span className="ms-slot__avatar ms-slot__avatar--empty" />
+                  )}
                   <div className="ms-slot__meta">
-                    <div>
-                      <span className="muted">#{index + 1} </span>
-                      <strong>{s?.channel ?? channel}</strong>
-                      {s ? (
-                        <span className="muted">
-                          {" "}
-                          · {s.quality}
-                          {s.game ? ` · ${s.game}` : ""}
-                        </span>
+                    <div className="ms-slot__title">
+                      <strong>{user?.display_name ?? s?.channel ?? channel}</strong>
+                      {isTwitchPartner(user) ? <VerifiedBadge /> : null}
+                      {s?.game ? (
+                        <span className="muted"> • {s.game}</span>
                       ) : null}
                     </div>
-                    {s?.status ? (
-                      <p className="ms-slot__status" title={s.status}>
-                        {s.status}
+                    {status ? (
+                      <p
+                        className={`ms-slot__status ms-slot__status--${phase}`}
+                        title={s?.status}
+                      >
+                        {status}
                       </p>
                     ) : null}
                   </div>
@@ -391,9 +541,51 @@ export function MultistreamPage() {
               );
             })}
           </ul>
+          {dragIndex !== null && draggingChannel ? (
+            <div
+              ref={ghostRef}
+              className="ms-slot ms-slot-ghost"
+              aria-hidden
+            >
+              <span className="ms-slot__handle">
+                <GripIcon />
+              </span>
+              {draggingUser?.profile_image_url ? (
+                <img
+                  src={draggingUser.profile_image_url}
+                  alt=""
+                  className="ms-slot__avatar"
+                  draggable={false}
+                />
+              ) : (
+                <span className="ms-slot__avatar ms-slot__avatar--empty" />
+              )}
+              <div className="ms-slot__meta">
+                <div className="ms-slot__title">
+                  <strong>
+                    {draggingUser?.display_name ??
+                      draggingSession?.channel ??
+                      draggingChannel}
+                  </strong>
+                  {isTwitchPartner(draggingUser) ? <VerifiedBadge /> : null}
+                  {draggingSession?.game ? (
+                    <span className="muted"> • {draggingSession.game}</span>
+                  ) : null}
+                </div>
+                {draggingStatus ? (
+                  <p
+                    className={`ms-slot__status ms-slot__status--${draggingPhase}`}
+                  >
+                    {draggingStatus}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          </>
         )}
         {chatProvider === "chatterino" && slotChannels.length ? (
-          <p className="muted" style={{ marginTop: "0.5rem" }}>
+          <p className="muted ms-chatterino-note">
             {t("multistream:chatterinoNote")}
           </p>
         ) : null}
@@ -407,33 +599,43 @@ export function MultistreamPage() {
           <p className="muted">{t("multistream:loginRequired")}</p>
         ) : (
           <>
-            <input
-              type="search"
-              className="search-hero__input"
-              style={{ maxWidth: "26rem", marginBottom: "0.75rem" }}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("multistream:searchPlaceholder")}
-              aria-label={t("multistream:searchTitle")}
-            />
+            <label className="ms-search">
+              <span className="ms-search__icon">
+                <SearchIcon />
+              </span>
+              <input
+                type="search"
+                className="search-hero__input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("multistream:searchPlaceholder")}
+                aria-label={t("multistream:searchTitle")}
+              />
+            </label>
             {debounced.length < 2 ? (
               <>
                 <p className="muted">{t("multistream:searchMinChars")}</p>
                 <div className="ms-divider">
                   {t("multistream:followedLiveTitle")}
                 </div>
-                {followedLive.data?.data.length ? (
-                  <ul className="ms-live-grid">
-                    {followedLive.data.data.map((s) => {
+                {followedLive.streams.length ? (
+                  <div className="ms-live-scroller">
+                    <ul className="ms-live-grid" ref={liveRef}>
+                    {followedLive.streams.map((s) => {
                       const added = isAdded(s.user_login);
                       return (
                         <li key={s.id} className="ms-live-card">
-                          <img
-                            src={streamThumbnail(s.thumbnail_url, 320, 180)}
-                            alt=""
-                            className="ms-live-card__thumb"
-                            loading="lazy"
-                          />
+                          <div className="ms-live-card__media">
+                            <img
+                              src={streamThumbnail(s.thumbnail_url, 320, 180)}
+                              alt=""
+                              className="ms-live-card__thumb"
+                              loading="lazy"
+                            />
+                            <span className="badge badge--live ms-live-card__live">
+                              {t("routes:liveBadge")}
+                            </span>
+                          </div>
                           <div className="ms-live-card__row">
                             <span className="ms-live-card__name">
                               {s.user_name}
@@ -454,13 +656,30 @@ export function MultistreamPage() {
                           <span className="ms-result__title">
                             {s.game_name}
                           </span>
+                          <span className="ms-live-card__viewers">
+                            {formatViewers(s.viewer_count)} viewers
+                          </span>
                         </li>
                       );
                     })}
-                  </ul>
+                    </ul>
+                    <button
+                      type="button"
+                      className="ms-live-scroller__next"
+                      aria-label={t("routes:followedPageNext")}
+                      onClick={() =>
+                        liveRef.current?.scrollBy({
+                          left: 280,
+                          behavior: "smooth",
+                        })
+                      }
+                    >
+                      <ChevronRightIcon />
+                    </button>
+                  </div>
                 ) : (
                   <p className="muted">
-                    {followedLive.isLoading
+                    {followedLive.query.isLoading
                       ? t("common:loading")
                       : t("multistream:followedEmpty")}
                   </p>
@@ -497,6 +716,10 @@ export function MultistreamPage() {
           </>
         )}
       </div>
+      <p className="ms-footnote">
+        <InfoIcon />
+        <span>{t("multistream:layoutHint")}</span>
+      </p>
     </section>
   );
 }

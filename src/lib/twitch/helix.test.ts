@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  FOLLOWED_STREAM_PAGE_SIZE,
   LIVE_STREAM_QUERY,
   STREAM_THUMBNAIL_REFRESH_MS,
+  gameBoxArt,
   streamThumbnail,
 } from "./helix";
 
@@ -37,10 +39,44 @@ describe("streamThumbnail", () => {
   });
 });
 
+describe("gameBoxArt", () => {
+  it("fills the Helix width/height template", () => {
+    expect(
+      gameBoxArt(
+        "https://static-cdn.jtvnw.net/ttv-boxart/Fortnite-{width}x{height}.jpg",
+      ),
+    ).toBe("https://static-cdn.jtvnw.net/ttv-boxart/Fortnite-285x380.jpg");
+  });
+
+  it("upsizes the fixed thumbnail from search/categories", () => {
+    expect(
+      gameBoxArt(
+        "https://static-cdn.jtvnw.net/ttv-boxart/Fortnite-52x72.jpg",
+      ),
+    ).toBe("https://static-cdn.jtvnw.net/ttv-boxart/Fortnite-285x380.jpg");
+  });
+
+  it("accepts an explicit size", () => {
+    expect(
+      gameBoxArt(
+        "https://static-cdn.jtvnw.net/ttv-boxart/512710-52x72.jpg",
+        144,
+        192,
+      ),
+    ).toBe("https://static-cdn.jtvnw.net/ttv-boxart/512710-144x192.jpg");
+  });
+});
+
 describe("LIVE_STREAM_QUERY", () => {
-  it("refetches mounted live lists every minute", () => {
+  it("keeps the last live page for a minute, then refreshes in the background", () => {
     expect(LIVE_STREAM_QUERY.refetchInterval).toBe(STREAM_THUMBNAIL_REFRESH_MS);
-    expect(LIVE_STREAM_QUERY.refetchOnMount).toBe("always");
-    expect(LIVE_STREAM_QUERY.staleTime).toBe(0);
+    expect(LIVE_STREAM_QUERY.refetchOnMount).toBe(true);
+    expect(LIVE_STREAM_QUERY.staleTime).toBe(STREAM_THUMBNAIL_REFRESH_MS);
+  });
+});
+
+describe("FOLLOWED_STREAM_PAGE_SIZE", () => {
+  it("asks Helix for the maximum followed-live page", () => {
+    expect(FOLLOWED_STREAM_PAGE_SIZE).toBe(100);
   });
 });

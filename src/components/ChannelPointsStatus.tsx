@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../lib/settings/store";
 import {
   describeViewerPresenceStatus,
+  PRESENCE_STATUS_FALLBACK_MS,
+  shouldRefreshChannelPoints,
   type ViewerPresenceStatus,
 } from "../lib/streaming/presence";
 import { invoke, isTauri } from "../lib/tauri";
@@ -14,8 +17,6 @@ interface ChannelPointsSnapshot {
   claimHttpStatus?: number | null;
   claimError?: string | null;
 }
-
-const POINTS_REFRESH_INTERVAL_MS = 15_000;
 
 export function ChannelPointsStatus({ compact = false }: { compact?: boolean }) {
   const enabled = useSettingsStore(
@@ -59,8 +60,11 @@ export function ChannelPointsStatus({ compact = false }: { compact?: boolean }) 
 
       const now = Date.now();
       if (
-        pointsRefreshRunning.current ||
-        now - lastPointsRefresh.current < POINTS_REFRESH_INTERVAL_MS
+        !shouldRefreshChannelPoints(
+          lastPointsRefresh.current,
+          now,
+          pointsRefreshRunning.current,
+        )
       ) {
         return;
       }
@@ -121,14 +125,32 @@ export function ChannelPointsStatus({ compact = false }: { compact?: boolean }) 
     };
 
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 3_000);
+    let unlistenPresence: (() => void) | undefined;
+    let unlistenPubsub: (() => void) | undefined;
+    void listen("viewer-presence-changed", () => {
+      void refresh();
+    }).then((fn) => {
+      unlistenPresence = fn;
+    });
+    void listen("channel-points-pubsub", () => {
+      void refresh();
+    }).then((fn) => {
+      unlistenPubsub = fn;
+    });
+    const timer = window.setInterval(
+      () => void refresh(),
+      PRESENCE_STATUS_FALLBACK_MS,
+    );
     return () => {
       active = false;
       window.clearInterval(timer);
+      unlistenPresence?.();
+      unlistenPubsub?.();
     };
   }, [enabled]);
 
   if (!enabled) return null;
+  if (compact && !error) return null;
 
   const presenceSummary = error
     ? `Channel Points diagnostics failed: ${error}`

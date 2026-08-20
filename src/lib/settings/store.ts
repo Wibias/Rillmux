@@ -11,6 +11,11 @@ import {
   isMultistreamLayout,
   isUnevenMainSide,
 } from "../streaming/layout";
+import {
+  isFollowedPageSize,
+  isFollowedSort,
+  isFollowedView,
+} from "../browse/followedList";
 
 interface SettingsState {
   settings: AppSettings;
@@ -95,6 +100,30 @@ export function migrateSettings(raw: unknown): AppSettings {
       closeToTray:
         input.gui?.closeToTray ?? input.closeToTray ?? base.gui.closeToTray,
       onboardingDone: input.gui?.onboardingDone ?? base.gui.onboardingDone,
+      followedView: isFollowedView(input.gui?.followedView)
+        ? input.gui.followedView
+        : base.gui.followedView,
+      followedSort: isFollowedSort(input.gui?.followedSort)
+        ? input.gui.followedSort
+        : base.gui.followedSort,
+      followedPageSize: isFollowedPageSize(input.gui?.followedPageSize)
+        ? input.gui.followedPageSize
+        : base.gui.followedPageSize,
+      hideMatureFollowed: Boolean(
+        input.gui?.hideMatureFollowed ?? base.gui.hideMatureFollowed,
+      ),
+      pinnedFollowed: (() => {
+        const raw = input.gui?.pinnedFollowed;
+        if (!Array.isArray(raw)) return base.gui.pinnedFollowed;
+        return [
+          ...new Set(
+            raw
+              .filter((c): c is string => typeof c === "string")
+              .map((c) => c.trim().toLowerCase())
+              .filter(Boolean),
+          ),
+        ].slice(0, 50);
+      })(),
     },
     notifications: {
       ...base.notifications,

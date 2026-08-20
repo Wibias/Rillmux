@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  followedStreamsQueryKey,
+  liveFollowedLogins,
+  newlyLiveFollowedLogins,
   shouldNotifyFollowedLive,
   toggleMutedFollowed,
 } from "./followedLive";
@@ -33,5 +36,23 @@ describe("toggleMutedFollowed", () => {
     expect(toggleMutedFollowed(["forsen", "xqc"], "forsen", true)).toEqual([
       "xqc",
     ]);
+  });
+});
+
+describe("followed live query sharing", () => {
+  it("uses the Followed page query key so tray notifications reuse that cache", () => {
+    expect(followedStreamsQueryKey("45537718")).toEqual([
+      "followed-streams",
+      "45537718",
+    ]);
+  });
+
+  it("notifies only logins that were not already live", () => {
+    const previous = liveFollowedLogins([{ user_login: "Forsen" }]);
+    const next = liveFollowedLogins([
+      { user_login: "Forsen" },
+      { user_login: "xQc" },
+    ]);
+    expect(newlyLiveFollowedLogins(previous, next)).toEqual(["xqc"]);
   });
 });

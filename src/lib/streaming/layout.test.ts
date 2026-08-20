@@ -74,6 +74,15 @@ describe("computePresetTileFractions", () => {
     expect(tiles[1]!.x).toBe(0);
   });
 
+  it("expands a leftover 1x2 stream to the full video area", () => {
+    const tiles = computePresetTileFractions("1x2", 1, false);
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]!.x).toBe(0);
+    expect(tiles[0]!.y).toBe(0);
+    expect(tiles[0]!.w).toBe(1);
+    expect(tiles[0]!.h).toBe(1);
+  });
+
   it("stacks 1x3 vertically (one column, three rows)", () => {
     const tiles = computePresetTileFractions("1x3", 3, false);
     expect(tiles).toHaveLength(3);
@@ -101,13 +110,14 @@ describe("computePresetTileFractions", () => {
     expect(tiles[1]!.y).toBeCloseTo(1 / 3);
   });
 
-  it("keeps 2x2 cell shape even with only two streams", () => {
+  it("shrinks 2x2 with two streams to a side-by-side row", () => {
     const tiles = computePresetTileFractions("2x2", 2, false);
     expect(tiles).toHaveLength(2);
     expect(tiles[0]!.w).toBeCloseTo(0.5);
-    expect(tiles[0]!.h).toBeCloseTo(0.5);
+    expect(tiles[0]!.h).toBe(1);
     expect(tiles[1]!.x).toBeCloseTo(0.5);
     expect(tiles[1]!.y).toBe(0);
+    expect(tiles[1]!.h).toBe(1);
   });
 });
 

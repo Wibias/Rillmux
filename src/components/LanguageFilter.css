@@ -22,7 +22,7 @@
   flex-direction: column;
   background: var(--surface, var(--bg-elevated, #1a1a1e));
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   overflow: hidden;
 }
@@ -43,7 +43,8 @@
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  padding: 0.2rem 0.55rem;`r`n  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
 }
 
 .language-filter__clear:disabled {

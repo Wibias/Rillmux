@@ -19,6 +19,7 @@
   "followedLiveTitle": "Live channels you follow",
   "followedEmpty": "No live followed channels right now.",
   "loginRequired": "Log in to rank your followed channels first.",
+  "layoutHint": "Channels you add will appear in the layout above. Reorder streams by dragging the tiles.",
   "add": "Add",
   "added": "Added",
   "live": "Live",

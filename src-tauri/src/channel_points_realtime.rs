@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
+use tauri::{AppHandle, Emitter};
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -56,6 +57,18 @@ fn state() -> &'static RealtimeState {
         changed: Notify::new(),
         started: AtomicBool::new(false),
     })
+}
+
+static APP: OnceLock<AppHandle> = OnceLock::new();
+
+pub fn init(app: AppHandle) {
+    let _ = APP.set(app);
+}
+
+fn emit_frontend(event: &'static str) {
+    if let Some(app) = APP.get() {
+        let _ = app.emit(event, ());
+    }
 }
 
 pub async fn sync(
@@ -129,6 +142,7 @@ pub async fn sync(
 }
 
 pub fn clear() {
+    crate::channel_points::clear_poll_cache();
     let realtime = state();
     if let Ok(mut desired) = realtime.desired.lock() {
         *desired = None;
@@ -229,6 +243,7 @@ fn mark_ready(generation: u64) {
         }
         realtime.ready.store(true, Ordering::Release);
         realtime.changed.notify_waiters();
+        emit_frontend("viewer-presence-changed");
     }
 }
 
@@ -240,6 +255,7 @@ fn mark_not_ready(generation: u64, error: Option<String>) {
             *last_error = error;
         }
         realtime.changed.notify_waiters();
+        emit_frontend("viewer-presence-changed");
     }
 }
 
@@ -276,6 +292,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         return Ok(());
     }
     mark_ready(generation);
+    subscribe_poll_topics(&mut socket, &desired.channel_ids).await;
 
     let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
     keepalive.tick().await;
@@ -310,6 +327,11 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
                             if value.get("type").and_then(Value::as_str) == Some("reconnect") {
                                 return Err("Hermes requested reconnect".into());
                             }
+                            if let Some((topic, message)) = pubsub_topic_and_message(&value) {
+                                if crate::channel_points::ingest_pubsub(&topic, &message) {
+                                    emit_frontend("channel-points-pubsub");
+                                }
+                            }
                         }
                     }
                     _ => {}
@@ -317,6 +339,57 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
             }
         }
     }
+}
+
+async fn subscribe_poll_topics(socket: &mut HermesSocket, channel_ids: &[String]) {
+    for channel_id in channel_ids {
+        let topic = format!("polls.{channel_id}");
+        let _ = send_subscription(socket, &topic).await;
+        let predictions = format!("predictions-channel-v1.{channel_id}");
+        let _ = send_subscription(socket, &predictions).await;
+    }
+}
+
+fn json_value(value: &Value) -> Value {
+    match value {
+        Value::String(text) => serde_json::from_str(text).unwrap_or_else(|_| value.clone()),
+        other => other.clone(),
+    }
+}
+
+fn pubsub_topic_and_message(value: &Value) -> Option<(String, Value)> {
+    if value.get("type").and_then(Value::as_str) == Some("MESSAGE") {
+        let topic = value.pointer("/data/topic")?.as_str()?.to_string();
+        let message = value
+            .pointer("/data/message")
+            .map(json_value)
+            .unwrap_or_else(|| value.clone());
+        return Some((topic, message));
+    }
+    if let Some(pubsub) = value.pointer("/notification/pubsub") {
+        return pubsub_topic_and_message(&json_value(pubsub)).or_else(|| {
+            let topic = json_value(pubsub)
+                .get("topic")
+                .and_then(Value::as_str)
+                .map(str::to_string)?;
+            let message = json_value(pubsub)
+                .get("message")
+                .map(json_value)
+                .unwrap_or_else(|| json_value(pubsub));
+            Some((topic, message))
+        });
+    }
+    if let Some(data) = value.pointer("/notification/data") {
+        return pubsub_topic_and_message(data).or_else(|| {
+            let topic = data.get("topic").and_then(Value::as_str)?.to_string();
+            let message = data
+                .get("message")
+                .map(json_value)
+                .unwrap_or_else(|| data.clone());
+            Some((topic, message))
+        });
+    }
+    None
 }
 
 async fn send_json(socket: &mut HermesSocket, value: Value) -> Result<(), String> {
@@ -512,5 +585,25 @@ mod tests {
     fn unix_epoch_date_conversion_is_correct() {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(20_000), (2024, 10, 4));
+    }
+
+    #[test]
+    fn extracts_poll_topic_from_hermes_notification() {
+        let notification = json!({
+            "type": "notification",
+            "notification": {
+                "pubsub": {
+                    "type": "MESSAGE",
+                    "data": {
+                        "topic": "polls.123",
+                        "message": "{\"type\":\"POLL_UPDATE\",\"data\":{\"poll\":{\"poll_id\":\"p1\"}}}"
+                    }
+                }
+            }
+        });
+        let (topic, message) = pubsub_topic_and_message(&notification).expect("topic");
+        assert_eq!(topic, "polls.123");
+        assert_eq!(message["type"], "POLL_UPDATE");
+        assert_eq!(message["data"]["poll"]["poll_id"], "p1");
     }
 }

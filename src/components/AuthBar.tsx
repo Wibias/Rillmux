@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../lib/auth/store";
+import { CopyableDeviceCode } from "./CopyableDeviceCode";
 import { ChannelPointsClaimAuth } from "./ChannelPointsClaimAuth";
 import { ChannelPointsStatus } from "./ChannelPointsStatus";
 import { TwitchWebsiteAuth } from "./TwitchWebsiteAuth";
@@ -28,8 +29,8 @@ export function AuthBar({ compact = false }: { compact?: boolean }) {
       {error ? <p className="authbar__error">{error}</p> : null}
       {device ? (
         <div className="authbar__device">
-          <p>{t("authDevicePrompt", { code: device.userCode })}</p>
-          <code className="authbar__code">{device.userCode}</code>
+          <p>{t("authDevicePrompt")}</p>
+          <CopyableDeviceCode code={device.userCode} />
           <button
             type="button"
             className="button-secondary"
@@ -39,7 +40,7 @@ export function AuthBar({ compact = false }: { compact?: boolean }) {
           </button>
         </div>
       ) : null}
-      {session?.loggedIn ? (
+      {session?.loggedIn && !compact ? (
         <>
           <div className="authbar__user">
             {session.profileImageUrl ? (
@@ -66,7 +67,13 @@ export function AuthBar({ compact = false }: { compact?: boolean }) {
           <TwitchWebsiteAuth compact={compact} />
           <ChannelPointsStatus compact={compact} />
         </>
-      ) : !device ? (
+      ) : session?.loggedIn ? (
+        <>
+          <TwitchWebsiteAuth compact={compact} />
+          <ChannelPointsClaimAuth compact={compact} />
+          <ChannelPointsStatus compact={compact} />
+        </>
+      ) : !device && !compact ? (
         <button
           type="button"
           onClick={() => void startLogin()}

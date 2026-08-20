@@ -9,7 +9,7 @@
  *
  * Usage: node scripts/generate-updater-manifest.mjs <tag> [owner/repo]
  *   tag        e.g. v0.1.0 (or 0.1.0)
- *   owner/repo defaults to $GITHUB_REPOSITORY, then Wibias/streamlink-twitch-gui
+ *   owner/repo defaults to $GITHUB_REPOSITORY, then Wibias/Rillmux
  */
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -25,7 +25,7 @@ if (!tag) {
 }
 const version = tag.replace(/^v/, "");
 const repo =
-  process.argv[3] ?? process.env.GITHUB_REPOSITORY ?? "Wibias/streamlink-twitch-gui";
+  process.argv[3] ?? process.env.GITHUB_REPOSITORY ?? "Wibias/Rillmux";
 
 /**
  * Extract the CHANGELOG.md section for this release (Keep a Changelog

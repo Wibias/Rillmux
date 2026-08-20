@@ -1,10 +1,10 @@
-# Streamlink Twitch GUI (rewrite)
+# Rillmux
 
-Windows desktop Twitch browser for [Streamlink](https://streamlink.github.io/), rewritten with **Tauri 2 + React + TypeScript**.
+Windows desktop Twitch browser for [Streamlink](https://streamlink.github.io/), built with **Tauri 2 + React + TypeScript**.
 
 Browse live Twitch channels, launch them in your player via Streamlink, and keep chat nearby — without the old NW.js / Ember stack. The previous application lives in [`legacy/`](legacy/) for reference.
 
-Upstream project: [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui).
+This project continues the Tauri rewrite previously published as [`Wibias/streamlink-twitch-gui`](https://github.com/Wibias/streamlink-twitch-gui). That repository is archived. The original NW.js app is [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui).
 
 ## Features (v0.5)
 
@@ -51,7 +51,7 @@ Twitch Client ID for local builds: set `TWITCH_CLIENT_ID` / `VITE_TWITCH_CLIENT_
 
 ## Install (releases)
 
-1. Open [Releases](https://github.com/Wibias/streamlink-twitch-gui/releases).
+1. Open [Releases](https://github.com/Wibias/Rillmux/releases).
 2. Download the NSIS (`.exe`) or MSI installer.
 3. If Windows SmartScreen warns (“Unknown publisher”), that is expected until an Authenticode certificate is configured — choose **More info → Run anyway**, or prefer builds signed with your OV/EV cert (see below).
 4. On first launch, complete the setup wizard (Streamlink / player / optional login).

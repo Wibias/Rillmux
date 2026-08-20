@@ -9,6 +9,11 @@ import {
   type MultistreamLayout,
   type UnevenMainSide,
 } from "../streaming/layout";
+import type {
+  FollowedPageSize,
+  FollowedSort,
+  FollowedView,
+} from "../browse/followedList";
 
 export type { MpvPresetSettings } from "./mpv";
 export type { MultistreamLayout } from "../streaming/layout";
@@ -115,6 +120,12 @@ export interface AppSettings {
     onboardingDone: boolean;
     /** Allow stg://watch/<login> deep links to start streams (off = navigate only). */
     deepLinkAutoWatch: boolean;
+    followedView: FollowedView;
+    followedSort: FollowedSort;
+    followedPageSize: FollowedPageSize;
+    /** Lowercase logins pinned to the top of Followed. */
+    pinnedFollowed: string[];
+    hideMatureFollowed: boolean;
   };
   notifications: {
     followedOnline: boolean;
@@ -131,7 +142,7 @@ export interface AppSettings {
   closeToTray?: boolean;
 }
 
-export const SETTINGS_SCHEMA_VERSION = 16;
+export const SETTINGS_SCHEMA_VERSION = 17;
 
 export const defaultHotkeys = (): HotkeySettings => ({
   refresh: "F5",
@@ -187,6 +198,11 @@ export const defaultSettings = (): AppSettings => ({
     minimizeOnWatch: false,
     onboardingDone: false,
     deepLinkAutoWatch: false,
+    followedView: "grid",
+    followedSort: "viewers-desc",
+    followedPageSize: 24,
+    pinnedFollowed: [],
+    hideMatureFollowed: false,
   },
   notifications: {
     followedOnline: true,

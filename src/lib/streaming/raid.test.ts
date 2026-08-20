@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { enqueueRaid, raidDedupeKey, type RaidOutgoingEvent } from "./raid";
+import { enqueueRaid, raidDedupeKey, raidOverlayRect, type RaidOutgoingEvent } from "./raid";
 
 const base = (over: Partial<RaidOutgoingEvent> = {}): RaidOutgoingEvent => ({
   fromChannel: "alice",
@@ -38,5 +38,30 @@ describe("raid helpers", () => {
     );
     expect(q).toHaveLength(2);
     expect(q.map((e) => e.fromChannel)).toEqual(["alice", "carol"]);
+  });
+it("keeps a queued raid when the source session ends", () => {
+    const queue = enqueueRaid([], base());
+    expect(queue).toHaveLength(1);
+    expect(queue[0].fromChannel).toBe("alice");
+  });
+
+  it("places the overlay on the player, then chat, then the main window", () => {
+    expect(
+      raidOverlayRect(
+        { x: 10, y: 20, width: 800, height: 450 },
+        { x: 810, y: 20, width: 300, height: 450 },
+        { x: 0, y: 0, width: 1280, height: 800 },
+      ),
+    ).toEqual({ x: 26, y: 36, width: 420, height: 92 });
+    expect(
+      raidOverlayRect(
+        null,
+        { x: 810, y: 20, width: 300, height: 450 },
+        { x: 0, y: 0, width: 1280, height: 800 },
+      ),
+    ).toEqual({ x: 826, y: 36, width: 268, height: 92 });
+    expect(
+      raidOverlayRect(null, null, { x: 40, y: 80, width: 1280, height: 800 }),
+    ).toEqual({ x: 56, y: 96, width: 420, height: 92 });
   });
 });

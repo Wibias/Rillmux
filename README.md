@@ -6,13 +6,13 @@ Browse live Twitch channels, launch them in your player via Streamlink, and keep
 
 Upstream project: [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui).
 
-## Features (v0.4)
+## Features (v0.5)
 
 - Twitch login (OAuth **Device Code** flow) with tokens in the OS keyring
 - **Twitch Website auth** for authenticated playback; experimental **Channel Points** (viewer presence, balance, auto-claim rewards) when enabled in Settings
-- Followed / top streams, games, search, channel pages, teams (search by name)
-- Browse language filter on top/category streams; follow outgoing raids with a cancellable banner
-- Streamlink launch (bundled in release builds, or system / custom path)
+- Followed / top streams, categories with viewer counts, search, channel pages, teams (search by name)
+- Browse language filter on top/category streams; follow outgoing raids with an overlay on mpv/Chatterino
+- Streamlink launch (bundled in release builds, or the system install)
 - Watching list with live Streamlink status and seamless channel switching
 - Embedded chat (default) or [Chatterino7](https://github.com/SevenTV/chatterino7) / browser
 - Settings: quality, low latency, ad filter, player, hotkeys, per-channel overrides, tray
@@ -60,13 +60,13 @@ Deep links: `stg://watch/<channel-login>`.
 
 ## Release (maintainers)
 
-Version is kept in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.4.1**).
+Version is kept in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.0**).
 
 **Quality gates:** pushes to `master` require a PR with green Windows CI (`frontend` + `rust`). A local `pre-push` hook runs the same checks (`npm run ci`). Skip the hook only in emergencies with `SKIP_CI_HOOK=1`. The Release workflow re-runs those checks before building installers.
 
 ```bash
-git tag v0.4.1
-git push origin v0.4.1
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
 That runs [`.github/workflows/release.yml`](.github/workflows/release.yml): fetch Streamlink → `tauri build` (NSIS + MSI + updater signatures) → GitHub Release with auto-generated notes. Keep the curated narrative in [CHANGELOG.md](CHANGELOG.md) in sync when you cut a version.

@@ -12,6 +12,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.0] — 2026-08-20
+
+### Added
+
+- Live stream thumbnails refresh every minute and cache-bust so previews update in WebView2
+- Channel Points presence now covers every ready Streamlink session, up to 8 streams
+- Raid Follow/Stay prompt overlays mpv or Chatterino instead of the hidden app window
+- Opt-in Channel Points poll overlay over chat
+- Horizontal Settings tabs
+- About **View changelog** dialog with the last five releases
+- Category viewer counts on the Categories page
+
+### Changed
+
+- Settings no longer shows a Streamlink executable picker in Streaming
+- Bonus claims sit left of Website auth
+- Language filter hides locale codes and makes Clear more visible
+- Browse **Games** is now **Categories**
+
+### Fixed
+
+- Closing the last stream also tears down leftover dock grips and monitor-number overlays
+- Multistream rows can be dragged to reorder
+- About/setup checks no longer flash a console window
+- Raid prompt stays visible after the source stream ends
+
 ## [0.4.1] — 2026-08-14
 
 ### Changed
@@ -91,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- External chat target is **[Chatterino7](https://github.com/SevenTV/chatterino7)** (SevenTV fork): doctor/setup links, install commands, and docs recommend it for 7TV name paints, personal emotes, animated avatars, and 4× 7TV/FFZ images. Stock Chatterino 2 still works if installed
+- External chat target is **[Chatterino7](https://github.com/SevenTV/chatterino7)**: doctor/setup links, install commands, and docs recommend it for 7TV name paints, personal emotes, animated avatars, and 4× 7TV/FFZ images. Stock Chatterino 2 still works if installed
 - Seamless off turns linked dock on (and the reverse); chat width is configurable when the dock reserves space for Chatterino7
 - Docked mpv uses `--keep-open=yes` so the offline goodbye screen can show before quit
 
@@ -162,7 +188,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/streamlink-twitch-gui/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Wibias/streamlink-twitch-gui/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.0
 [0.3.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.3.1

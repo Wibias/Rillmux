@@ -31,7 +31,7 @@
   "chatterinoFound": "Chatterino7 found",
   "chatterinoFoundPath": "Path: {{path}}",
   "chatterinoMissingTitle": "Chatterino7 not found (optional)",
-  "chatterinoMissingBody": "Only needed if you prefer external chat over embedded. Install Chatterino7 (SevenTV fork) for name paints, personal emotes, animated avatars, and 4× 7TV/FFZ images — then Recheck, or keep using embedded chat in Settings.",
+  "chatterinoMissingBody": "Only needed if you prefer external chat over embedded. Install Chatterino7 for name paints, personal emotes, animated avatars, and 4× 7TV/FFZ images — then Recheck, or keep using embedded chat in Settings.",
   "chatterinoWinget": "Windows (winget)",
   "chatterinoChoco": "Windows (Chocolatey)",
   "chatterinoScoop": "Windows (Chocolatey)",

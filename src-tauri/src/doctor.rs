@@ -214,7 +214,7 @@ fn mpv_fallbacks() -> Vec<PathBuf> {
 
 fn chatterino_fallbacks() -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    // Prefer Chatterino7 (SevenTV fork) over stock Chatterino 2.
+    // Prefer Chatterino7 over stock Chatterino 2.
     // Prefer real installs first — WinGet Links shims often fail when spawned from a GUI host.
     for env in ["ProgramFiles", "ProgramFiles(x86)"] {
         if let Ok(root) = std::env::var(env) {

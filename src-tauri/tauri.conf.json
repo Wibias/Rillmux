@@ -29,7 +29,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkyMUE0RTgyOTQwODZFNjUKUldSbGJnaVVnazRha3VLUUNHSi9BM05IWHV6VktyS2g2dG1HYWR5YVJUekdtZFliVGtEcGk1TS8K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU5NDQ1N0MzMkM1M0MyQTUKUldTbHdsTXN3MWRFV2U2akl3bjVPUFJmVlFocnBNaWo1S25BekQ2MXJjVXJFN2ZzVWxmKzJGMlIK",
       "endpoints": [
         "https://github.com/Wibias/Rillmux/releases/latest/download/latest.json"
       ],

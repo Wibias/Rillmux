@@ -4,10 +4,9 @@ use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::branding::{KEYRING_SERVICE, KEYRING_SERVICE_LEGACY};
 use crate::http::shared_client;
 
-const SERVICE: &str = "streamlink-twitch-gui";
-// Keep the old key so users who already authorized the TV experiment can reuse it.
 const USER: &str = "twitch-channel-points-tv-oauth";
 const DEVICE_URL: &str = "https://id.twitch.tv/oauth2/device";
 const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
@@ -130,31 +129,48 @@ fn ensure_keyring() -> Result<(), ChannelPointsClaimAuthError> {
     result.clone().map_err(ChannelPointsClaimAuthError::Keyring)
 }
 
-fn entry() -> Result<Entry, ChannelPointsClaimAuthError> {
+fn entry_for(service: &str) -> Result<Entry, ChannelPointsClaimAuthError> {
     ensure_keyring()?;
-    Entry::new(SERVICE, USER)
+    Entry::new(service, USER)
         .map_err(|error| ChannelPointsClaimAuthError::Keyring(error.to_string()))
 }
 
-fn load_auth() -> Result<Option<StoredTvAuth>, ChannelPointsClaimAuthError> {
-    match entry()?.get_password() {
+fn read_auth(service: &str) -> Result<Option<StoredTvAuth>, ChannelPointsClaimAuthError> {
+    match entry_for(service)?.get_password() {
         Ok(secret) => Ok(Some(serde_json::from_str(&secret)?)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(ChannelPointsClaimAuthError::Keyring(error.to_string())),
     }
 }
 
+fn delete_service(service: &str) -> Result<(), ChannelPointsClaimAuthError> {
+    match entry_for(service)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(ChannelPointsClaimAuthError::Keyring(error.to_string())),
+    }
+}
+
+fn load_auth() -> Result<Option<StoredTvAuth>, ChannelPointsClaimAuthError> {
+    if let Some(auth) = read_auth(KEYRING_SERVICE)? {
+        return Ok(Some(auth));
+    }
+    let Some(auth) = read_auth(KEYRING_SERVICE_LEGACY)? else {
+        return Ok(None);
+    };
+    save_auth(&auth)?;
+    let _ = delete_service(KEYRING_SERVICE_LEGACY);
+    Ok(Some(auth))
+}
+
 fn save_auth(auth: &StoredTvAuth) -> Result<(), ChannelPointsClaimAuthError> {
-    entry()?
+    entry_for(KEYRING_SERVICE)?
         .set_password(&serde_json::to_string(auth)?)
         .map_err(|error| ChannelPointsClaimAuthError::Keyring(error.to_string()))
 }
 
 fn clear_auth() -> Result<(), ChannelPointsClaimAuthError> {
-    match entry()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(ChannelPointsClaimAuthError::Keyring(error.to_string())),
-    }
+    delete_service(KEYRING_SERVICE)?;
+    delete_service(KEYRING_SERVICE_LEGACY)
 }
 
 pub(crate) fn device_id() -> &'static str {

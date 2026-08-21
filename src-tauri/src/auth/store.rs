@@ -4,7 +4,8 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
-const SERVICE: &str = "streamlink-twitch-gui";
+use crate::branding::{KEYRING_SERVICE, KEYRING_SERVICE_LEGACY};
+
 const USER: &str = "twitch-oauth";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,35 +41,49 @@ fn ensure_keyring() -> Result<(), TokenStoreError> {
     result.clone().map_err(TokenStoreError::Keyring)
 }
 
-fn entry() -> Result<Entry, TokenStoreError> {
+fn entry_for(service: &str) -> Result<Entry, TokenStoreError> {
     ensure_keyring()?;
-    Entry::new(SERVICE, USER).map_err(|e| TokenStoreError::Keyring(e.to_string()))
+    Entry::new(service, USER).map_err(|e| TokenStoreError::Keyring(e.to_string()))
 }
 
-pub fn load_tokens() -> Result<Option<StoredTokens>, TokenStoreError> {
-    let entry = entry()?;
-    match entry.get_password() {
+fn read_tokens(service: &str) -> Result<Option<StoredTokens>, TokenStoreError> {
+    match entry_for(service)?.get_password() {
         Ok(secret) => Ok(Some(serde_json::from_str(&secret)?)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(TokenStoreError::Keyring(e.to_string())),
     }
 }
 
+fn delete_service(service: &str) -> Result<(), TokenStoreError> {
+    match entry_for(service)?.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(TokenStoreError::Keyring(e.to_string())),
+    }
+}
+
+pub fn load_tokens() -> Result<Option<StoredTokens>, TokenStoreError> {
+    if let Some(tokens) = read_tokens(KEYRING_SERVICE)? {
+        return Ok(Some(tokens));
+    }
+    let Some(tokens) = read_tokens(KEYRING_SERVICE_LEGACY)? else {
+        return Ok(None);
+    };
+    save_tokens(&tokens)?;
+    let _ = delete_service(KEYRING_SERVICE_LEGACY);
+    Ok(Some(tokens))
+}
+
 pub fn save_tokens(tokens: &StoredTokens) -> Result<(), TokenStoreError> {
-    let entry = entry()?;
     let payload = serde_json::to_string(tokens)?;
-    entry
+    entry_for(KEYRING_SERVICE)?
         .set_password(&payload)
         .map_err(|e| TokenStoreError::Keyring(e.to_string()))
 }
 
 pub fn clear_tokens() -> Result<(), TokenStoreError> {
-    let entry = entry()?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(TokenStoreError::Keyring(e.to_string())),
-    }
+    delete_service(KEYRING_SERVICE)?;
+    delete_service(KEYRING_SERVICE_LEGACY)
 }
 
 pub fn now_unix() -> u64 {

@@ -2,7 +2,7 @@
 Measures where the time goes between `stream_start` and a visible player.
 
 Spawns streamlink with the exact args the app builds, timestamps every log
-line, polls for the mpv window (title stgui-<channel>) and records when it
+line, polls for the mpv window (title rillmux-<channel>) and records when it
 appears. mpv writes its own log so the first-video-frame marker can be found.
 
 Usage: python scripts/measure-stream-start.py <channel> [extra streamlink args...]
@@ -47,7 +47,7 @@ def main() -> None:
     channel = sys.argv[1] if len(sys.argv) > 1 else "xqc"
     extra = sys.argv[2:]
     t0 = time.perf_counter()
-    title = f"stgui-{channel}"
+    title = f"rillmux-{channel}"
     mpv_log = Path(tempfile.gettempdir()) / f"mpv-measure-{channel}.log"
     mpv_log.unlink(missing_ok=True)
     # streamlink splits --player-args with posix shlex and EATS backslashes —

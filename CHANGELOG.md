@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The app, window title, installer, and executable are **Rillmux** (`Rillmux.exe`). The Windows identifier is `com.wibias.rillmux`. Logins and `settings.json` from the old `streamlink-twitch-gui` names are copied forward.
+
 ### Planned
 
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
@@ -14,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] — 2026-08-20
 
-Covers browse, Channel Points, and the desktop shell since 0.4.1. The window title is still Streamlink Twitch GUI; **Rillmux** is the public repo.
+Covers browse, Channel Points, and the desktop shell since 0.4.1.
 
 ### Added
 

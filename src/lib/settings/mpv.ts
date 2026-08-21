@@ -1,6 +1,6 @@
 import { CHAT_WIDTH_FRACTION } from "../streaming/layout";
 
-/** Wiki-oriented mpv preset toggles (streamlink-twitch-gui Recommendations). */
+/** Wiki-oriented mpv preset toggles (upstream Streamlink Twitch GUI Recommendations). */
 export interface MpvPresetSettings {
   /** --no-border */
   noBorder: boolean;

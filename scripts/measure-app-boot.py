@@ -5,7 +5,7 @@ import subprocess
 import threading
 import time
 
-TITLE = "Streamlink Twitch GUI"
+TITLE = "Rillmux"
 
 
 def window_visible() -> bool:

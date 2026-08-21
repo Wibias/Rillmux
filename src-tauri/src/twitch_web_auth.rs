@@ -5,16 +5,18 @@ use std::sync::OnceLock;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::branding::{KEYRING_SERVICE, KEYRING_SERVICE_LEGACY};
 use crate::http::shared_client;
 
-const SERVICE: &str = "streamlink-twitch-gui";
 const USER: &str = "twitch-website-oauth";
 const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 
 #[allow(dead_code)]
 pub(crate) const WEB_CLIENT_ID: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
-pub(crate) const MANAGED_BEGIN: &str = "# BEGIN streamlink-twitch-gui managed Twitch auth";
-pub(crate) const MANAGED_END: &str = "# END streamlink-twitch-gui managed Twitch auth";
+pub(crate) const MANAGED_BEGIN: &str = "# BEGIN rillmux managed Twitch auth";
+pub(crate) const MANAGED_END: &str = "# END rillmux managed Twitch auth";
+const MANAGED_BEGIN_LEGACY: &str = "# BEGIN streamlink-twitch-gui managed Twitch auth";
+const MANAGED_END_LEGACY: &str = "# END streamlink-twitch-gui managed Twitch auth";
 
 #[derive(Debug, Error)]
 pub enum TwitchWebAuthError {
@@ -75,34 +77,48 @@ fn ensure_keyring() -> Result<(), TwitchWebAuthError> {
     result.clone().map_err(TwitchWebAuthError::Keyring)
 }
 
-fn entry() -> Result<Entry, TwitchWebAuthError> {
+fn entry_for(service: &str) -> Result<Entry, TwitchWebAuthError> {
     ensure_keyring()?;
-    Entry::new(SERVICE, USER).map_err(|error| TwitchWebAuthError::Keyring(error.to_string()))
+    Entry::new(service, USER).map_err(|error| TwitchWebAuthError::Keyring(error.to_string()))
 }
 
-fn load_auth() -> Result<Option<StoredWebsiteAuth>, TwitchWebAuthError> {
-    let entry = entry()?;
-    match entry.get_password() {
+fn read_auth(service: &str) -> Result<Option<StoredWebsiteAuth>, TwitchWebAuthError> {
+    match entry_for(service)?.get_password() {
         Ok(secret) => Ok(Some(serde_json::from_str(&secret)?)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(TwitchWebAuthError::Keyring(error.to_string())),
     }
 }
 
+fn delete_service(service: &str) -> Result<(), TwitchWebAuthError> {
+    match entry_for(service)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(TwitchWebAuthError::Keyring(error.to_string())),
+    }
+}
+
+fn load_auth() -> Result<Option<StoredWebsiteAuth>, TwitchWebAuthError> {
+    if let Some(auth) = read_auth(KEYRING_SERVICE)? {
+        return Ok(Some(auth));
+    }
+    let Some(auth) = read_auth(KEYRING_SERVICE_LEGACY)? else {
+        return Ok(None);
+    };
+    save_auth(&auth)?;
+    let _ = delete_service(KEYRING_SERVICE_LEGACY);
+    Ok(Some(auth))
+}
+
 fn save_auth(auth: &StoredWebsiteAuth) -> Result<(), TwitchWebAuthError> {
-    let entry = entry()?;
     let payload = serde_json::to_string(auth)?;
-    entry
+    entry_for(KEYRING_SERVICE)?
         .set_password(&payload)
         .map_err(|error| TwitchWebAuthError::Keyring(error.to_string()))
 }
 
 fn clear_auth() -> Result<(), TwitchWebAuthError> {
-    let entry = entry()?;
-    match entry.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(TwitchWebAuthError::Keyring(error.to_string())),
-    }
+    delete_service(KEYRING_SERVICE)?;
+    delete_service(KEYRING_SERVICE_LEGACY)
 }
 
 #[allow(dead_code)]
@@ -185,11 +201,27 @@ pub(crate) fn streamlink_config_path_for(
     Ok(base.join("streamlink").join("config.twitch"))
 }
 
+fn managed_block_present(config: &str) -> bool {
+    (config.contains(MANAGED_BEGIN) && config.contains(MANAGED_END))
+        || (config.contains(MANAGED_BEGIN_LEGACY) && config.contains(MANAGED_END_LEGACY))
+}
+
 pub(crate) fn remove_managed_block(existing: &str) -> String {
     let mut result = existing.to_string();
-    while let Some(begin) = result.find(MANAGED_BEGIN) {
-        let after_begin = begin + MANAGED_BEGIN.len();
-        let Some(relative_end) = result[after_begin..].find(MANAGED_END) else {
+    for (begin, end) in [
+        (MANAGED_BEGIN, MANAGED_END),
+        (MANAGED_BEGIN_LEGACY, MANAGED_END_LEGACY),
+    ] {
+        result = remove_marker_block(&result, begin, end);
+    }
+    result
+}
+
+fn remove_marker_block(existing: &str, begin_marker: &str, end_marker: &str) -> String {
+    let mut result = existing.to_string();
+    while let Some(begin) = result.find(begin_marker) {
+        let after_begin = begin + begin_marker.len();
+        let Some(relative_end) = result[after_begin..].find(end_marker) else {
             let prefix = result[..begin].trim_end_matches(['\r', '\n']);
             return if prefix.is_empty() {
                 String::new()
@@ -197,7 +229,7 @@ pub(crate) fn remove_managed_block(existing: &str) -> String {
                 format!("{prefix}\n")
             };
         };
-        let end = after_begin + relative_end + MANAGED_END.len();
+        let end = after_begin + relative_end + end_marker.len();
         let mut after = end;
         if result[after..].starts_with("\r\n") {
             after += 2;
@@ -293,7 +325,7 @@ fn status_from(
         configured: auth.is_some(),
         login: auth.as_ref().map(|value| value.login.clone()),
         user_id: auth.as_ref().map(|value| value.user_id.clone()),
-        streamlink_configured: config.contains(MANAGED_BEGIN) && config.contains(MANAGED_END),
+        streamlink_configured: managed_block_present(&config),
         config_path: path.to_string_lossy().into_owned(),
     })
 }
@@ -400,6 +432,21 @@ mod tests {
         assert!(replaced.contains(OTHER_TOKEN));
         assert_eq!(replaced.matches(MANAGED_BEGIN).count(), 1);
         assert_eq!(replaced.matches(MANAGED_END).count(), 1);
+    }
+
+    #[test]
+    fn upsert_replaces_legacy_managed_block() {
+        let existing = concat!(
+            "player=mpv\n\n",
+            "# BEGIN streamlink-twitch-gui managed Twitch auth\n",
+            "twitch-api-header=Authorization=OAuth oldtoken\n",
+            "# END streamlink-twitch-gui managed Twitch auth\n",
+        );
+        let updated = upsert_managed_block(existing, TOKEN);
+        assert!(updated.contains(MANAGED_BEGIN));
+        assert!(!updated.contains(MANAGED_BEGIN_LEGACY));
+        assert!(updated.contains(TOKEN));
+        assert!(!updated.contains("oldtoken"));
     }
 
     #[test]

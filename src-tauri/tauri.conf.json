@@ -1,8 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Streamlink Twitch GUI",
+  "productName": "Rillmux",
+  "mainBinaryName": "Rillmux",
   "version": "0.5.0",
-  "identifier": "com.wibias.streamlinktwitchgui",
+  "identifier": "com.wibias.rillmux",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Streamlink Twitch GUI",
+        "title": "Rillmux",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,

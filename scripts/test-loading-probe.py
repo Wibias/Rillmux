@@ -10,8 +10,8 @@ import ctypes
 from PIL import Image
 
 MPV = r"C:\Program Files\MPV Player\mpv.exe"
-TITLE = "stgui-loadprobe"
-PIPE = r"\\.\pipe\stgui-loadprobe"
+TITLE = "rillmux-loadprobe"
+PIPE = r"\\.\pipe\rillmux-loadprobe"
 LOADING = r"C:\Users\ws\Desktop\Anderes\GitHub\streamlink-twitch-gui\src-tauri\assets\loading.png"
 
 user32 = ctypes.windll.user32

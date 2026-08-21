@@ -84,7 +84,7 @@ git push origin v0.5.0
 
 That runs [`.github/workflows/release.yml`](.github/workflows/release.yml): fetch Streamlink → `tauri build` (NSIS + MSI + updater signatures) → GitHub Release with auto-generated notes. Keep the narrative in [CHANGELOG.md](CHANGELOG.md) in sync when you cut a version.
 
-You can also run the workflow by hand (**Actions → Release → Run workflow**) as a dry-run; artifacts upload without creating a Release unless the ref is a `v*` tag.
+You can also run the workflow by hand (**Actions → Release → Run workflow**). From `main` or `master` that creates tag `v{version}` (from `package.json`) and publishes the GitHub Release. From any other branch it only uploads artifacts.
 
 ### Required GitHub Actions secrets
 

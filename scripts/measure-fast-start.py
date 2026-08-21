@@ -63,7 +63,7 @@ def ipc_command(pipe: str, cmd: list, timeout: float = 5.0) -> str:
 
 def main() -> None:
     channel = sys.argv[1] if len(sys.argv) > 1 else "sodapoppin"
-    title = f"stgui-fast-{channel}"
+    title = f"rillmux-fast-{channel}"
     pipe = rf"\\.\pipe\{title}"
     mpv_log = Path(tempfile.gettempdir()) / f"mpv-fast-{channel}.log"
     mpv_log.unlink(missing_ok=True)

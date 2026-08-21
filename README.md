@@ -2,7 +2,7 @@
 
 Windows Twitch browser for [Streamlink](https://streamlink.github.io/). Log in, see who’s live, start the stream in your player, and keep chat next to the video.
 
-The window title is still **Streamlink Twitch GUI**. Rillmux is this repository.
+The window title, installer, and executable are **Rillmux**.
 
 ![Followed live channels, grid view](docs/screenshots/followed.png)
 

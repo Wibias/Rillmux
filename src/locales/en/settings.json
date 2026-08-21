@@ -79,7 +79,7 @@
   "playerCustomArgs": "Extra player arguments",
   "playerCustomArgsHint": "Appended after the mpv presets below. Leave empty unless you need more flags.",
   "playerMpvPresets": "mpv presets",
-  "playerMpvPresetsLede": "Recommended defaults from the Streamlink Twitch GUI wiki. Toggle what you want — no need to edit raw flags.",
+  "playerMpvPresetsLede": "Recommended defaults from the original Streamlink Twitch GUI wiki. Toggle what you want — no need to edit raw flags.",
   "playerMpvIncluded": "Active now: {{list}}.",
   "playerMpvIncludedNone": "No recommended presets enabled (only force-window + title).",
   "playerMpvReset": "Reset to recommended",

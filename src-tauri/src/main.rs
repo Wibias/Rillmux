@@ -3,5 +3,5 @@
 #![allow(linker_messages)]
 
 fn main() {
-    streamlink_twitch_gui_app_lib::run()
+    rillmux_lib::run()
 }

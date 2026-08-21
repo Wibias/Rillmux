@@ -16,6 +16,7 @@ use std::os::windows::ffi::OsStrExt;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
+use crate::branding::{PLAYER_WINDOW_PREFIX, PLAYER_WINDOW_PREFIX_LEGACY};
 use crate::doctor::{find_chatterino_path, find_mpv_path, find_streamlink_path, which_on_path};
 
 /// Cached tool paths so every `stream_start` does not re-walk PATH/fallbacks.
@@ -187,7 +188,7 @@ struct FastPlayer {
     child: Child,
     /// Kill-job for the player tree (fallback when the IPC quit fails).
     job: JobSlot,
-    /// mpv IPC named pipe (`\\.\pipe\stgui-mpv-<uuid>`).
+    /// mpv IPC named pipe (`\\.\pipe\rillmux-mpv-<uuid>`).
     pipe: String,
     /// --player-no-close: leave the player open when the stream ends.
     no_close: bool,
@@ -562,7 +563,7 @@ fn default_player_args(player_id: &str, channel: &str, title: &str, game: &str) 
             )
         }
         "vlc" => {
-            // Same stgui-<channel> marker mpv uses, so stop/prune can find
+            // Same rillmux-<channel> marker mpv uses, so stop/prune can find
             // and close the window (close_player_windows_for_channel matches
             // the prefix). VLC shows it as "<title> - VLC media player".
             let label = mpv_window_title(channel);
@@ -1204,8 +1205,7 @@ fn chatterino_has_overlay_popup() -> bool {
 fn dock_member_hwnds(channels: &[String], reserve_chat: bool) -> Vec<*mut core::ffi::c_void> {
     let mut out = Vec::new();
     for channel in channels.iter().take(8) {
-        let key = mpv_window_title(channel);
-        if let Some(hwnd) = find_window_by_title(&key, true) {
+        if let Some(hwnd) = find_player_window(channel) {
             out.push(hwnd);
         }
     }
@@ -1380,8 +1380,7 @@ fn overlay_rect_from_hwnd(hwnd: *mut core::ffi::c_void) -> Option<OverlayRect> {
 /// Player first, then owned Chatterino. Main-window fallback is frontend-owned.
 #[cfg(windows)]
 pub fn raid_overlay_host(from_channel: &str) -> Option<OverlayRect> {
-    let title = mpv_window_title(from_channel);
-    let player = find_window_by_title(&title, true).and_then(overlay_rect_from_hwnd);
+    let player = find_player_window(from_channel).and_then(overlay_rect_from_hwnd);
     if let Some(host) = player {
         return Some(overlay_rect_from_host(host));
     }
@@ -1739,7 +1738,7 @@ fn mpv_geometry_for_dock(
 /// starting on a silent image breaks audio when the live stream attaches.
 fn loading_image_path() -> Option<PathBuf> {
     static BYTES: &[u8] = include_bytes!("../assets/loading.png");
-    let path = std::env::temp_dir().join("stgui-loading.png");
+    let path = std::env::temp_dir().join("rillmux-loading.png");
     match std::fs::metadata(&path) {
         Ok(m) if m.len() as usize == BYTES.len() => Some(path),
         _ => std::fs::write(&path, BYTES).ok().map(|_| path),
@@ -1814,17 +1813,36 @@ fn build_mpv_dock_args(
     mpv_dock_arg_parts(channel, reserve_chat, preset_args, index, count, layout).join(" ")
 }
 
-fn mpv_window_title(channel: &str) -> String {
+fn sanitize_player_channel(channel: &str) -> String {
     let ch = channel
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect::<String>();
-    let ch = if ch.is_empty() {
+    if ch.is_empty() {
         "stream".into()
     } else {
         ch.to_ascii_lowercase()
-    };
-    format!("stgui-{ch}")
+    }
+}
+
+fn mpv_window_title(channel: &str) -> String {
+    format!(
+        "{PLAYER_WINDOW_PREFIX}-{}",
+        sanitize_player_channel(channel)
+    )
+}
+
+fn legacy_mpv_window_title(channel: &str) -> String {
+    format!(
+        "{PLAYER_WINDOW_PREFIX_LEGACY}-{}",
+        sanitize_player_channel(channel)
+    )
+}
+
+#[cfg(windows)]
+fn find_player_window(channel: &str) -> Option<*mut core::ffi::c_void> {
+    find_window_by_title(&mpv_window_title(channel), true)
+        .or_else(|| find_window_by_title(&legacy_mpv_window_title(channel), true))
 }
 
 /// Split player-args like a shell (keeps "quoted titles" as one token).
@@ -2245,8 +2263,7 @@ fn raise_hwnd(hwnd: *mut core::ffi::c_void, foreground: bool) {
 fn raise_dock_windows(channels: &[String], reserve_chat: bool) {
     let mut first = true;
     for channel in channels.iter().take(8) {
-        let key = mpv_window_title(channel);
-        if let Some(hwnd) = find_window_by_title(&key, true) {
+        if let Some(hwnd) = find_player_window(channel) {
             raise_hwnd(hwnd, first);
             first = false;
         }
@@ -2410,8 +2427,7 @@ fn retile_player_windows(channels: &[String], reserve_chat: bool, layout: &str) 
     let mut found = 0usize;
     for (i, channel) in channels.iter().take(n).enumerate() {
         let tile = tile_rect(video, i, eff);
-        let key = mpv_window_title(channel);
-        if let Some(hwnd) = find_window_by_title(&key, true) {
+        if let Some(hwnd) = find_player_window(channel) {
             // Borderless mpv: plain MoveWindow (DWM expand breaks no-border windows).
             move_hwnd_to(hwnd, tile, false);
             found += 1;
@@ -2827,7 +2843,7 @@ pub fn start_stream(
         if let Some(player_path) = &player {
             let no_close = req.player_no_close.unwrap_or(false);
             let port = free_loopback_port()?;
-            let pipe = format!(r"\\.\pipe\stgui-mpv-{}", Uuid::new_v4().simple());
+            let pipe = format!(r"\\.\pipe\rillmux-mpv-{}", Uuid::new_v4().simple());
             let dock_argv = mpv_dock_arg_parts(
                 &channel,
                 reserve_chat,
@@ -3324,7 +3340,7 @@ fn wait_session_processes(state: &StreamingState, timeout_ms: u32) {
 fn mpv_window_alive(channel: &str) -> bool {
     #[cfg(windows)]
     {
-        find_window_by_title(&mpv_window_title(channel), true).is_some()
+        find_player_window(channel).is_some()
     }
     #[cfg(not(windows))]
     {
@@ -3447,7 +3463,7 @@ fn close_player_windows_for_channel_windows(channel: &str) {
     const PROCESS_TERMINATE: u32 = 0x0001;
 
     struct Data {
-        prefix: String,
+        prefixes: [String; 2],
         pids: Mutex<Vec<u32>>,
     }
 
@@ -3463,13 +3479,15 @@ fn close_player_windows_for_channel_windows(channel: &str) {
         }
         let title = String::from_utf16_lossy(&buf[..n as usize]);
         let lower = title.to_ascii_lowercase();
-        let prefix = data.prefix.as_str();
-        // Player windows we spawn are titled stgui-<channel> (mpv --title /
+        let matches_player = data.prefixes.iter().any(|prefix| {
+            lower == prefix.as_str()
+                || lower.starts_with(&format!("{prefix} -"))
+                || lower.starts_with(&format!("{prefix}:"))
+        });
+        // Player windows we spawn are titled rillmux-<channel> (mpv --title /
         // VLC --input-title-format); VLC appends " - VLC media player".
-        if !(lower == prefix
-            || lower.starts_with(&format!("{prefix} -"))
-            || lower.starts_with(&format!("{prefix}:")))
-        {
+        // Older builds used stgui-<channel>.
+        if !matches_player {
             return 1;
         }
         let mut pid = 0u32;
@@ -3487,7 +3505,7 @@ fn close_player_windows_for_channel_windows(channel: &str) {
     }
 
     let data = Data {
-        prefix: mpv_window_title(channel),
+        prefixes: [mpv_window_title(channel), legacy_mpv_window_title(channel)],
         pids: Mutex::new(Vec::new()),
     };
     unsafe {
@@ -3574,8 +3592,12 @@ mod tests {
     #[test]
     fn channel_and_quality_validation() {
         // mpv_window_title strips anything outside [a-z0-9_-].
-        assert_eq!(mpv_window_title("Some_Channel-1"), "stgui-some_channel-1");
-        assert_eq!(mpv_window_title("äöü"), "stgui-stream");
+        assert_eq!(mpv_window_title("Some_Channel-1"), "rillmux-some_channel-1");
+        assert_eq!(mpv_window_title("äöü"), "rillmux-stream");
+        assert_eq!(
+            legacy_mpv_window_title("Some_Channel-1"),
+            "stgui-some_channel-1"
+        );
     }
 
     #[test]
@@ -3681,7 +3703,7 @@ mod tests {
         }
 
         let class = wide("StguiIconicFindTest");
-        let title = wide("stgui-iconicfindtest");
+        let title = wide("rillmux-iconicfindtest");
         let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
         let wc = WndClassEx {
             size: std::mem::size_of::<WndClassEx>() as u32,
@@ -3757,7 +3779,7 @@ mod tests {
         }
         pump();
         assert!(
-            find_window_by_title("stgui-iconicfindtest", true).is_some(),
+            find_window_by_title("rillmux-iconicfindtest", true).is_some(),
             "should find restored test window"
         );
         unsafe {
@@ -3770,7 +3792,7 @@ mod tests {
             is_hwnd_iconic(hwnd),
             "test window should be iconic after minimize"
         );
-        let found = find_window_by_title("stgui-iconicfindtest", true);
+        let found = find_window_by_title("rillmux-iconicfindtest", true);
         assert!(
             found.is_some(),
             "must still find iconic window (minimize-sync regression)"
@@ -3783,10 +3805,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "diagnostic: needs a live mpv with IPC pipe (STGUI_PROBE_PIPE)"]
+    #[ignore = "diagnostic: needs a live mpv with IPC pipe (RILLMUX_PROBE_PIPE)"]
     #[cfg(windows)]
     fn probe_mpv_ipc() {
-        let pipe = std::env::var("STGUI_PROBE_PIPE").expect("STGUI_PROBE_PIPE not set");
+        let pipe = std::env::var("RILLMUX_PROBE_PIPE").expect("RILLMUX_PROBE_PIPE not set");
         let result = mpv_ipc_command(
             &pipe,
             &["get_property", "mpv-version"],
@@ -3797,7 +3819,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "diagnostic: needs a live mpv probe window (STGUI_PROBE_CHANNEL); moves windows"]
+    #[ignore = "diagnostic: needs a live mpv probe window (RILLMUX_PROBE_CHANNEL); moves windows"]
     #[cfg(windows)]
     fn probe_layout_evidence() {
         #[link(name = "user32")]
@@ -3814,13 +3836,13 @@ mod tests {
             (unsafe { GetWindowRect(hwnd, &mut r) } != 0).then_some(r)
         }
 
-        let channels: Vec<String> = std::env::var("STGUI_PROBE_CHANNEL")
+        let channels: Vec<String> = std::env::var("RILLMUX_PROBE_CHANNEL")
             .unwrap_or_else(|_| "probe".into())
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        let layout = std::env::var("STGUI_PROBE_LAYOUT").unwrap_or_else(|_| "2x2".into());
+        let layout = std::env::var("RILLMUX_PROBE_LAYOUT").unwrap_or_else(|_| "2x2".into());
         let (video, chat) = chat_video_split(true).expect("chat_video_split");
         println!("EVID video area: {video:?}");
         println!("EVID chat area:  {chat:?}");
@@ -3830,25 +3852,25 @@ mod tests {
             effective_layout(channels.len(), &layout)
         );
         for (i, channel) in channels.iter().enumerate() {
+            let title = mpv_window_title(channel);
             println!(
                 "EVID launch geometry idx {i}: {:?}",
                 mpv_geometry_for_dock(true, i, channels.len(), Some(&layout))
             );
-            let key = mpv_window_title(channel);
-            match find_window_by_title(&key, true) {
+            match find_player_window(channel) {
                 Some(hwnd) => println!(
-                    "EVID window '{key}' (idx {i}): found, rect before = {:?}",
+                    "EVID window '{title}' (idx {i}): found, rect before = {:?}",
                     rect_of(hwnd)
                 ),
-                None => println!("EVID window '{key}' (idx {i}): NOT FOUND"),
+                None => println!("EVID window '{title}' (idx {i}): NOT FOUND"),
             }
         }
         let found = retile_player_windows(&channels, true, &layout);
         println!("EVID retile(layout={layout}) found={found}");
         for channel in &channels {
-            let key = mpv_window_title(channel);
-            if let Some(hwnd) = find_window_by_title(&key, true) {
-                println!("EVID window '{key}': rect after = {:?}", rect_of(hwnd));
+            let title = mpv_window_title(channel);
+            if let Some(hwnd) = find_player_window(channel) {
+                println!("EVID window '{title}': rect after = {:?}", rect_of(hwnd));
             }
         }
     }
@@ -3893,7 +3915,7 @@ mod tests {
         assert!(!args.contains("--geometry=50%x50%"));
         assert!(!args.contains("--window-maximized"));
         assert!(!args.contains("chan - g - t"));
-        assert!(args.contains("--title=stgui-chan"));
-        assert!(args.contains("--force-media-title=stgui-chan"));
+        assert!(args.contains("--title=rillmux-chan"));
+        assert!(args.contains("--force-media-title=rillmux-chan"));
     }
 }

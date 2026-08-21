@@ -86,7 +86,9 @@ if (!assetName || !signature) {
 }
 
 // GitHub sanitizes uploaded asset names (spaces and other specials become
-// dots — observed: "Streamlink Twitch GUI_…exe" → "Streamlink.Twitch.GUI_…exe").
+// dots — observed historically: "Streamlink Twitch GUI_…exe" → "Streamlink.Twitch.GUI_…exe").
+// Rillmux installers should not need that, but the sanitizer stays because GitHub
+// still rewrites anything outside [A-Za-z0-9._-].
 // The download URL must use the sanitized name, otherwise it 404s.
 const sanitizedAsset = assetName.replace(/[^A-Za-z0-9._-]+/g, ".");
 

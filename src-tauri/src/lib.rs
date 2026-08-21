@@ -2,6 +2,7 @@
 #![allow(linker_messages)]
 
 mod auth;
+mod branding;
 mod channel_points;
 mod channel_points_claim_auth;
 mod channel_points_realtime;
@@ -16,6 +17,7 @@ mod viewer_presence;
 
 use auth::{AuthSession, DeviceCodeResponse};
 use doctor::DoctorReport;
+use std::path::PathBuf;
 use std::sync::Arc;
 use streaming::{LaunchRequest, OverlayRect, SharedStreaming, StreamSession, StreamingState};
 use tauri::{AppHandle, Manager};
@@ -374,6 +376,34 @@ fn enable_title_bar_overlay(window: tauri::WebviewWindow) -> Result<(), String> 
     enable_main_title_bar_overlay(&window)
 }
 
+fn migrate_legacy_app_data(app: &AppHandle) {
+    migrate_settings_file(app.path().app_data_dir().ok());
+    migrate_settings_file(app.path().app_config_dir().ok());
+}
+
+fn migrate_settings_file(new_dir: Option<PathBuf>) {
+    let Some(new_dir) = new_dir else {
+        return;
+    };
+    let dest = new_dir.join("settings.json");
+    if dest.exists() {
+        return;
+    }
+    let Some(parent) = new_dir.parent() else {
+        return;
+    };
+    let src = parent
+        .join(branding::APP_IDENTIFIER_LEGACY)
+        .join("settings.json");
+    if !src.is_file() {
+        return;
+    }
+    if std::fs::create_dir_all(&new_dir).is_err() {
+        return;
+    }
+    let _ = std::fs::copy(src, dest);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _sentry_guard = init_sentry();
@@ -434,6 +464,7 @@ pub fn run() {
             enable_title_bar_overlay
         ])
         .setup(|app| {
+            migrate_legacy_app_data(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_decorations(false);
                 let _ = window.set_shadow(true);

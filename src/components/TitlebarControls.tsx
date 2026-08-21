@@ -36,7 +36,7 @@ export function TitlebarControls() {
         title={t("windowMinimize")}
         onClick={() => void win.minimize()}
       >
-        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden>
+        <svg viewBox="0 0 12 12" width="16" height="16" aria-hidden>
           <path fill="currentColor" d="M2 6.25h8v1H2z" />
         </svg>
       </button>
@@ -47,7 +47,7 @@ export function TitlebarControls() {
         onClick={() => void win.toggleMaximize()}
       >
         {maximized ? (
-          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden>
+          <svg viewBox="0 0 12 12" width="16" height="16" aria-hidden>
             <path
               fill="none"
               stroke="currentColor"
@@ -56,7 +56,7 @@ export function TitlebarControls() {
             />
           </svg>
         ) : (
-          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden>
+          <svg viewBox="0 0 12 12" width="16" height="16" aria-hidden>
             <rect
               x="2.5"
               y="2.5"
@@ -76,7 +76,7 @@ export function TitlebarControls() {
         title={t("windowClose")}
         onClick={() => void win.close()}
       >
-        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden>
+        <svg viewBox="0 0 12 12" width="16" height="16" aria-hidden>
           <path
             fill="none"
             stroke="currentColor"

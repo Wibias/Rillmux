@@ -87,16 +87,16 @@
 }
 
 .authbar--compact .button-secondary {
-  min-height: 1.7rem;
-  padding: 0.18rem 0.55rem;
-  font-size: 0.78rem;
+  min-height: 2.2rem;
+  padding: 0.23rem 0.72rem;
+  font-size: 1.01rem;
 }
 
 .authbar--compact .authbar__playback-toggle {
-  min-height: 1.45rem;
-  padding: 0.12rem 0.5rem;
+  min-height: 1.88rem;
+  padding: 0.16rem 0.65rem;
   border-radius: 0;
-  font-size: 0.75rem;
+  font-size: 0.975rem;
   font-weight: 600;
   background: var(--bg-sunken);
   color: var(--text);
@@ -125,8 +125,8 @@
 }
 
 .authbar__playback-dot {
-  width: 0.48rem;
-  height: 0.48rem;
+  width: 0.62rem;
+  height: 0.62rem;
   border-radius: 50%;
   background: var(--text-muted);
 }

@@ -7,14 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- The app, window title, installer, and executable are **Rillmux** (`Rillmux.exe`). The Windows identifier is `com.wibias.rillmux`. Logins and `settings.json` from the old `streamlink-twitch-gui` names are copied forward.
-
 ### Planned
 
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
+
+## [0.5.1] — 2026-08-21
+
+### Changed
+
+- Title bar is 42px tall, with larger caption icons and website-auth / bonus-claims chips
+- Default window height is 880px
+
+### Fixed
+
+- Minimize / maximize / close missing in release builds: production CSP dropped the overlay plugin's inline stylesheet while still hiding the HTML fallback
+- Bonus claims chip opens a panel like website auth instead of disconnecting on the first click
 
 ## [0.5.0] — 2026-08-20
 
@@ -207,7 +215,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.1
 [0.5.0]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.0

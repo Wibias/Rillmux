@@ -81,8 +81,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <img
             className="shell__titlebar-icon"
             src="/app-icon.png"
-            width={16}
-            height={16}
+            width={21}
+            height={21}
             alt=""
           />
           <span className="shell__titlebar-title">{tc("appName")}</span>

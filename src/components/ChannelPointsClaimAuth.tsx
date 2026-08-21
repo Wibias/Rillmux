@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useTranslation } from "react-i18next";
 import { invoke, isTauri } from "../lib/tauri";
+import {
+  applyBonusClaimsChipClick,
+  type ChannelPointsClaimAuthStatus,
+} from "../lib/auth/claimAuth";
 import { CopyableDeviceCode } from "./CopyableDeviceCode";
-
-interface ChannelPointsClaimAuthStatus {
-  configured: boolean;
-  login?: string | null;
-  userId?: string | null;
-}
 
 interface TvDeviceCodeResponse {
   deviceCode: string;
@@ -27,8 +26,10 @@ export function ChannelPointsClaimAuth({
 }: {
   compact?: boolean;
 }) {
+  const { t } = useTranslation("common");
   const [status, setStatus] = useState<ChannelPointsClaimAuthStatus | null>(null);
   const [device, setDevice] = useState<TvDeviceCodeResponse | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,6 +83,7 @@ export function ChannelPointsClaimAuth({
             setStatus(result.status);
             setDevice(null);
             setBusy(false);
+            setExpanded(false);
             return;
           }
           if (result.state === "slowDown") {
@@ -113,6 +115,7 @@ export function ChannelPointsClaimAuth({
       );
       setStatus(next);
       setDevice(null);
+      setExpanded(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -126,47 +129,77 @@ export function ChannelPointsClaimAuth({
     <div
       className={`authbar__playback${compact ? " authbar__playback--compact" : ""}`}
     >
-      {device ? (
+      <button
+        type="button"
+        className="button-secondary authbar__playback-toggle"
+        aria-expanded={expanded}
+        onClick={() =>
+          setExpanded(
+            applyBonusClaimsChipClick({
+              expanded,
+              status,
+              device,
+            }).expanded,
+          )
+        }
+      >
+        <span
+          className={`authbar__playback-dot${connected ? " authbar__playback-dot--connected" : ""}`}
+          aria-hidden="true"
+        />
+        {connected ? t("bonusClaimsConnected") : t("bonusClaimsSetup")}
+      </button>
+
+      {expanded ? (
         <div className="authbar__playback-panel">
-          <strong>Channel Points bonus claims</strong>
-          <p className="muted">Enter this code on Twitch:</p>
-          <CopyableDeviceCode code={device.userCode} />
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => {
-              clearPoll();
-              setDevice(null);
-              setBusy(false);
-            }}
-          >
-            Cancel
-          </button>
+          <strong>{t("bonusClaimsTitle")}</strong>
+          {device ? (
+            <>
+              <p className="muted">{t("bonusClaimsDevicePrompt")}</p>
+              <CopyableDeviceCode code={device.userCode} />
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  clearPoll();
+                  setDevice(null);
+                  setBusy(false);
+                }}
+              >
+                {t("cancel")}
+              </button>
+            </>
+          ) : connected ? (
+            <>
+              <p className="muted">
+                {t("bonusClaimsConnectedHint", {
+                  login: status?.login ?? t("playbackAuthCurrentAccount"),
+                })}
+              </p>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={busy}
+                onClick={() => void disconnect()}
+              >
+                {busy ? t("bonusClaimsRemoving") : t("bonusClaimsRemove")}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="muted">{t("bonusClaimsExplanation")}</p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void startLogin()}
+              >
+                {busy ? t("bonusClaimsConnecting") : t("bonusClaimsConnect")}
+              </button>
+            </>
+          )}
+          {error ? <p className="authbar__error">{error}</p> : null}
         </div>
-      ) : (
-        <button
-          type="button"
-          className="button-secondary authbar__playback-toggle"
-          disabled={busy}
-          onClick={() => void (connected ? disconnect() : startLogin())}
-          title={
-            connected
-              ? `Bonus claims connected as ${status?.login ?? "current account"}`
-              : "Connect a dedicated Twitch TV session only for +50 bonus claims"
-          }
-        >
-          <span
-            className={`authbar__playback-dot${connected ? " authbar__playback-dot--connected" : ""}`}
-            aria-hidden="true"
-          />
-          {busy
-            ? "Bonus claims…"
-            : connected
-              ? `Bonus claims: ${status?.login ?? "connected"}`
-              : "Connect bonus claims"}
-        </button>
-      )}
-      {error ? <p className="authbar__error">{error}</p> : null}
+      ) : null}
     </div>
   );
 }

@@ -24,6 +24,12 @@
   --topbar-bg: #181818;
   --shell-toolbar-control: 2.35rem;
   --shell-toolbar-padding-y: 0.7rem;
+  --title-bar-height: 42px;
+  --title-bar-controls-width: 138px;
+  --tbo-default: transparent;
+  --tbo-symbol: #efeff1;
+  --tbo-hover: rgba(255, 255, 255, 0.08);
+  --tbo-pressed: rgba(255, 255, 255, 0.04);
 }
 
 html[data-theme="dark"] {
@@ -74,6 +80,8 @@ body,
 }
 
 body {
+  /* Specified on body so the overlay plugin's later `:root { --title-bar-height: 32px }` cannot shrink the bar. */
+  --title-bar-height: 42px;
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);

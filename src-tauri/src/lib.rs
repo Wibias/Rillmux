@@ -347,10 +347,7 @@ fn show_main_window(app: &AppHandle) {
 }
 
 fn enable_main_title_bar_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
-    window
-        .set_title_bar_overlay(true)
-        .map_err(|e| e.to_string())?;
-    window.set_title_bar_height(32).map_err(|e| e.to_string())?;
+    window.set_title_bar_height(42).map_err(|e| e.to_string())?;
     let light = TitleBarColors {
         symbol: Some("#0e0e10".into()),
         hover: Some("#00000014".into()),
@@ -365,6 +362,9 @@ fn enable_main_title_bar_overlay(window: &tauri::WebviewWindow) -> Result<(), St
     };
     window
         .set_title_bar_colors(light, dark)
+        .map_err(|e| e.to_string())?;
+    window
+        .set_title_bar_overlay(true)
         .map_err(|e| e.to_string())
 }
 

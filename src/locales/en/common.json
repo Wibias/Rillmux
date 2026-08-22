@@ -16,6 +16,7 @@
   "settings": "Settings",
   "about": "About",
   "login": "Log in with Twitch",
+  "authNetworkUnavailable": "Can't reach Twitch — retrying…",
   "logout": "Log out",
   "quit": "Quit",
   "authDevicePrompt": "Open the browser page and enter this code:",

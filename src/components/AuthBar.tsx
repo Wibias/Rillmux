@@ -1,5 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../lib/auth/store";
+import {
+  isTransientAuthNetworkError,
+  shouldOfferTwitchLogin,
+} from "../lib/auth/sessionRestore";
 import { CopyableDeviceCode } from "./CopyableDeviceCode";
 import { ChannelPointsClaimAuth } from "./ChannelPointsClaimAuth";
 import { ChannelPointsStatus } from "./ChannelPointsStatus";
@@ -15,6 +19,16 @@ export function AuthBar({ compact = false }: { compact?: boolean }) {
   const startLogin = useAuthStore((s) => s.startLogin);
   const cancelLogin = useAuthStore((s) => s.cancelLogin);
   const logout = useAuthStore((s) => s.logout);
+  const offerLogin = shouldOfferTwitchLogin({
+    loggedIn: Boolean(session?.loggedIn),
+    deviceActive: Boolean(device),
+    error,
+  });
+  const errorText = error
+    ? isTransientAuthNetworkError(error)
+      ? t("authNetworkUnavailable")
+      : error
+    : null;
 
   if (loading && !session) {
     return (
@@ -26,7 +40,17 @@ export function AuthBar({ compact = false }: { compact?: boolean }) {
 
   return (
     <div className={`authbar${compact ? " authbar--compact" : ""}`}>
-      {error ? <p className="authbar__error">{error}</p> : null}
+      {errorText ? (
+        <p
+          className={
+            isTransientAuthNetworkError(error)
+              ? "authbar__status"
+              : "authbar__error"
+          }
+        >
+          {errorText}
+        </p>
+      ) : null}
       {device ? (
         <div className="authbar__device">
           <p>{t("authDevicePrompt")}</p>
@@ -73,7 +97,7 @@ export function AuthBar({ compact = false }: { compact?: boolean }) {
           <ChannelPointsClaimAuth compact={compact} />
           <ChannelPointsStatus compact={compact} />
         </>
-      ) : !device && !compact ? (
+      ) : offerLogin && !compact ? (
         <button
           type="button"
           onClick={() => void startLogin()}

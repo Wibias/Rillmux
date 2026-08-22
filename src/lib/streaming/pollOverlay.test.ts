@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   POLL_FALLBACK_REFRESH_MS,
+  isClosedPredictionError,
   overlayRectMoved,
   pollOverlayRect,
   pollOverlayShouldPollGql,
+  predictionAcceptsVotes,
 } from "./pollOverlay";
 
 describe("pollOverlayRect", () => {
@@ -38,5 +40,38 @@ describe("poll overlay GQL", () => {
     expect(POLL_FALLBACK_REFRESH_MS).toBe(60_000);
     expect(pollOverlayShouldPollGql(false)).toBe(true);
     expect(pollOverlayShouldPollGql(true)).toBe(false);
+  });
+});
+
+describe("prediction vote window", () => {
+  it("locks voting when the prediction is LOCKED or the window has elapsed", () => {
+    expect(
+      predictionAcceptsVotes({
+        status: "LOCKED",
+        createdAt: "2026-08-20T20:00:00Z",
+        windowSeconds: 120,
+      }),
+    ).toBe(false);
+    expect(
+      predictionAcceptsVotes({
+        status: "ACTIVE",
+        createdAt: new Date().toISOString(),
+        windowSeconds: 120,
+      }),
+    ).toBe(true);
+  });
+
+  it("treats a closed-prediction API error as overlay cleanup, not a schema bug", () => {
+    expect(
+      isClosedPredictionError(
+        'Cannot query field "predictionEvent" on type "MakePredictionPayload".',
+      ),
+    ).toBe(true);
+    expect(
+      isClosedPredictionError("This prediction is no longer accepting votes"),
+    ).toBe(true);
+    expect(isClosedPredictionError("Not enough Channel Points to make that prediction")).toBe(
+      false,
+    );
   });
 });

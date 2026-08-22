@@ -4,10 +4,13 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSettingsStore } from "../lib/settings/store";
 import {
+  isClosedPredictionError,
   overlayRectMoved,
   pollOverlayRect,
   POLL_FALLBACK_REFRESH_MS,
   pollOverlayShouldPollGql,
+  predictionAcceptsVotes,
+  predictionRemainingSeconds,
   type OverlayRect,
 } from "../lib/streaming/pollOverlay";
 import { useWatchingStore } from "../lib/streaming/store";
@@ -60,14 +63,6 @@ interface ChannelPointsSnapshot {
 const OVERLAY_LABEL = "poll-overlay";
 const MIN_PREDICTION_POINTS = 10;
 const MAX_PREDICTION_POINTS = 250_000;
-
-function predictionRemaining(prediction: ChannelPointsPrediction): number | null {
-  if (prediction.status === "LOCKED") return 0;
-  if (!prediction.createdAt || prediction.windowSeconds == null) return null;
-  const end = Date.parse(prediction.createdAt) + prediction.windowSeconds * 1000;
-  if (Number.isNaN(end)) return null;
-  return Math.max(0, Math.floor((end - Date.now()) / 1000));
-}
 
 function overlayEventId(snapshot: ChannelPointsSnapshot | null): string | null {
   if (snapshot?.poll?.status === "ACTIVE") return snapshot.poll.id;
@@ -230,6 +225,7 @@ export function ChannelPointsPollOverlay() {
   const [error, setError] = useState<string | null>(null);
   const [votingId, setVotingId] = useState<string | null>(null);
   const [stake, setStake] = useState(MIN_PREDICTION_POINTS);
+  const [, setTick] = useState(0);
   const dismissed = useRef<Set<string>>(new Set());
 
   const channel = overlayWindow
@@ -350,12 +346,21 @@ export function ChannelPointsPollOverlay() {
         (prediction.status === "ACTIVE" || prediction.status === "LOCKED"),
     ) && !(prediction && dismissed.current.has(prediction.id));
   const showOverlay = showPoll || showPrediction;
-  const remainingPrediction = prediction ? predictionRemaining(prediction) : null;
+  const remainingPrediction = prediction
+    ? predictionRemainingSeconds(prediction)
+    : null;
+  const predictionOpen = Boolean(prediction && predictionAcceptsVotes(prediction));
   const maxStake = Math.max(
     MIN_PREDICTION_POINTS,
     Math.min(MAX_PREDICTION_POINTS, snapshot?.balance ?? MAX_PREDICTION_POINTS),
   );
   const clampedStake = Math.min(maxStake, Math.max(MIN_PREDICTION_POINTS, stake));
+
+  useEffect(() => {
+    if (!showPrediction || !predictionOpen) return;
+    const timer = window.setInterval(() => setTick((tick) => tick + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [predictionOpen, showPrediction]);
 
   useEffect(() => {
     if (overlayWindow || !isTauri()) return;
@@ -387,7 +392,7 @@ export function ChannelPointsPollOverlay() {
 
   async function votePrediction(outcomeId: string) {
     if (!prediction || !channel || votingId) return;
-    if (prediction.status !== "ACTIVE") return;
+    if (!predictionAcceptsVotes(prediction)) return;
     if (
       prediction.predictedOutcomeId &&
       prediction.predictedOutcomeId !== outcomeId
@@ -407,8 +412,28 @@ export function ChannelPointsPollOverlay() {
       );
       setSnapshot(next);
       setError(null);
+      if (overlayWindow && isTauri() && !overlayEventId(next)) {
+        dismissed.current.add(prediction.id);
+        await emit("poll-overlay-dismiss", { pollId: prediction.id });
+        await getCurrentWindow().close().catch(() => undefined);
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      const message = reason instanceof Error ? reason.message : String(reason);
+      if (isClosedPredictionError(message)) {
+        dismissed.current.add(prediction.id);
+        setSnapshot((current) =>
+          current?.prediction?.id === prediction.id
+            ? { ...current, prediction: null }
+            : current,
+        );
+        setError(null);
+        if (overlayWindow && isTauri()) {
+          await emit("poll-overlay-dismiss", { pollId: prediction.id });
+          await getCurrentWindow().close().catch(() => undefined);
+        }
+        return;
+      }
+      setError(message);
     } finally {
       setVotingId(null);
     }
@@ -439,7 +464,7 @@ export function ChannelPointsPollOverlay() {
     : "poll-overlay";
 
   if (showPrediction && prediction && !showPoll) {
-    const locked = prediction.status !== "ACTIVE";
+    const locked = !predictionOpen;
     return (
       <aside className={cardClass} role="dialog" aria-label={prediction.title}>
         <header className="poll-overlay__head">

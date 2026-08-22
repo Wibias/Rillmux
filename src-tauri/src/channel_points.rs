@@ -27,7 +27,9 @@ const VIEWABLE_POLL_QUERIES: [&str; 3] = [
 const PREDICTION_QUERY: &str = r#"query ViewablePredictions($login: String!) { channel(name: $login) { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } self { prediction { points outcome { id } } } } } }"#;
 const PREDICTION_QUERY_USER: &str = r#"query ViewablePredictions($login: String!) { user(login: $login) { channel { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } self { prediction { points outcome { id } } } } } } }"#;
 const PREDICTION_QUERY_BARE: &str = r#"query ViewablePredictions($login: String!) { channel(name: $login) { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } } } }"#;
-const MAKE_PREDICTION_QUERY: &str = r#"mutation MakePrediction($input: MakePredictionInput!) { makePrediction(input: $input) { error { code } predictionEvent { id title status } } }"#;
+const MAKE_PREDICTION_HASH: &str =
+    "b44682ecc88358817009f20e69d75081b1e58825bb40aa53d5dbadcc17c881d8";
+const MAKE_PREDICTION_QUERY: &str = r#"mutation MakePrediction($input: MakePredictionInput!) { makePrediction(input: $input) { error { code } prediction { id points outcome { id } event { id title status } } } }"#;
 const CLAIM_COMMUNITY_POINTS_HASH: &str =
     "46aaeebe02c99afdf4fc97c7c0cba964124bf6b0af229395f1f6d1feed05b3d0";
 const VOTE_POLL_HASH: &str = "6b21d6e5c8c6c8d6f0c0c6e6a0b0d0e0f0a1b2c3d4e5f60718293a4b5c6d7e8";
@@ -731,30 +733,49 @@ fn ingest_prediction(channel_id: &str, message: &Value) -> bool {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_ascii_lowercase();
-    if matches!(
-        event_type.as_str(),
-        "event-complete" | "event-cancel" | "event-cancelled"
-    ) {
-        if let Ok(mut cache) = prediction_cache().lock() {
-            cache.remove(channel_id);
-        }
-        return true;
+    if prediction_topic_ended(&event_type) {
+        return clear_prediction(channel_id);
     }
     let payload = event
         .pointer("/data/event")
         .or_else(|| event.get("event"))
         .cloned()
         .unwrap_or(event);
-    let Some(prediction) = parse_prediction_event(&payload) else {
-        return false;
-    };
-    if prediction.status != "ACTIVE" && prediction.status != "LOCKED" {
-        if let Ok(mut cache) = prediction_cache().lock() {
-            cache.remove(channel_id);
+    match parse_prediction_event(&payload) {
+        Some(prediction) => {
+            store_prediction(channel_id, prediction);
+            true
         }
-        return true;
+        None if prediction_payload_ended(&payload) => clear_prediction(channel_id),
+        None => false,
     }
-    store_prediction(channel_id, prediction);
+}
+
+fn prediction_topic_ended(event_type: &str) -> bool {
+    matches!(
+        event_type,
+        "event-complete"
+            | "event-completed"
+            | "event-cancel"
+            | "event-cancelled"
+            | "event-canceled"
+    )
+}
+
+fn prediction_payload_ended(payload: &Value) -> bool {
+    let status = str_field(payload, &["status"])
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    matches!(
+        status.as_str(),
+        "RESOLVED" | "RESOLVE_PENDING" | "CANCELED" | "CANCELLED" | "CANCEL_PENDING"
+    )
+}
+
+fn clear_prediction(channel_id: &str) -> bool {
+    if let Ok(mut cache) = prediction_cache().lock() {
+        cache.remove(channel_id);
+    }
     true
 }
 
@@ -909,6 +930,20 @@ fn prediction_query_payload(channel_login: &str, query: &str) -> Value {
     })
 }
 
+fn make_prediction_input(
+    event_id: &str,
+    outcome_id: &str,
+    points: u64,
+    transaction_id: &str,
+) -> Value {
+    json!({
+        "eventID": event_id,
+        "outcomeID": outcome_id,
+        "points": points,
+        "transactionID": transaction_id
+    })
+}
+
 fn make_prediction_payload(
     event_id: &str,
     outcome_id: &str,
@@ -919,14 +954,37 @@ fn make_prediction_payload(
         "operationName": "MakePrediction",
         "query": MAKE_PREDICTION_QUERY,
         "variables": {
-            "input": {
-                "eventID": event_id,
-                "outcomeID": outcome_id,
-                "points": points,
-                "transactionID": transaction_id
+            "input": make_prediction_input(event_id, outcome_id, points, transaction_id)
+        }
+    })
+}
+
+fn make_prediction_persisted_payload(
+    event_id: &str,
+    outcome_id: &str,
+    points: u64,
+    transaction_id: &str,
+) -> Value {
+    json!({
+        "operationName": "MakePrediction",
+        "variables": {
+            "input": make_prediction_input(event_id, outcome_id, points, transaction_id)
+        },
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": MAKE_PREDICTION_HASH
             }
         }
     })
+}
+
+fn make_prediction_closed(body: &Value) -> bool {
+    matches!(
+        body.pointer("/data/makePrediction/error/code")
+            .and_then(Value::as_str),
+        Some("EVENT_NOT_ACTIVE" | "NOT_FOUND")
+    )
 }
 
 fn make_prediction_error(body: &Value) -> Option<String> {
@@ -936,7 +994,7 @@ fn make_prediction_error(body: &Value) -> Option<String> {
         .filter(|code| !code.is_empty())?;
     Some(match code {
         "NOT_ENOUGH_POINTS" => "Not enough Channel Points to make that prediction".into(),
-        "EVENT_NOT_ACTIVE" => "This prediction is no longer accepting votes".into(),
+        "EVENT_NOT_ACTIVE" | "NOT_FOUND" => "This prediction is no longer accepting votes".into(),
         "MUST_ACCEPT_TOS" => "Accept Predictions terms on twitch.tv, then try again".into(),
         "MULTIPLE_OUTCOMES" => "You already predicted the other outcome".into(),
         "MAX_POINTS_PER_EVENT" => "That would go over the prediction point limit".into(),
@@ -946,6 +1004,20 @@ fn make_prediction_error(body: &Value) -> Option<String> {
         }
         other => format!("Twitch rejected the prediction ({other})"),
     })
+}
+
+fn drop_cached_prediction(channel_login: &str) {
+    let channel_id = last_contexts().lock().ok().and_then(|cache| {
+        cache
+            .get(channel_login)
+            .map(|context| context.channel_id.clone())
+    });
+    if let Some(channel_id) = channel_id {
+        let _ = clear_prediction(&channel_id);
+    }
+    if let Ok(mut misses) = prediction_gql_misses().lock() {
+        misses.remove(channel_login);
+    }
 }
 
 async fn fetch_prediction(
@@ -1248,31 +1320,46 @@ pub async fn vote_prediction(
     }
     let points = points.clamp(10, 250_000);
     let client_version = current_client_version().await;
-    let payload = make_prediction_payload(
-        event_id.trim(),
-        outcome_id.trim(),
-        points,
-        &uuid::Uuid::new_v4().to_string(),
-    );
-    let (status, body) = post_web_gql(
-        &payload,
-        &channel_login,
-        &points_auth.token,
-        &client_version,
-    )
-    .await?;
-    if !status.is_success() {
-        return Err(ChannelPointsError::Message(format!(
-            "Twitch rejected the prediction (HTTP {status})"
-        )));
+    let transaction_id = uuid::Uuid::new_v4().to_string();
+    let payloads = [
+        make_prediction_payload(event_id.trim(), outcome_id.trim(), points, &transaction_id),
+        make_prediction_persisted_payload(
+            event_id.trim(),
+            outcome_id.trim(),
+            points,
+            &transaction_id,
+        ),
+    ];
+    let mut last_error = None;
+    for payload in payloads {
+        let (status, body) = post_web_gql(
+            &payload,
+            &channel_login,
+            &points_auth.token,
+            &client_version,
+        )
+        .await?;
+        if !status.is_success() {
+            last_error = Some(ChannelPointsError::Message(format!(
+                "Twitch rejected the prediction (HTTP {status})"
+            )));
+            continue;
+        }
+        if let Some(message) = gql_error_message(&body) {
+            last_error = Some(ChannelPointsError::Message(message));
+            continue;
+        }
+        if make_prediction_closed(&body) {
+            drop_cached_prediction(&channel_login);
+            return refresh(&channel_login, true).await;
+        }
+        if let Some(message) = make_prediction_error(&body) {
+            return Err(ChannelPointsError::Message(message));
+        }
+        return refresh(&channel_login, true).await;
     }
-    if let Some(message) = gql_error_message(&body) {
-        return Err(ChannelPointsError::Message(message));
-    }
-    if let Some(message) = make_prediction_error(&body) {
-        return Err(ChannelPointsError::Message(message));
-    }
-    refresh(&channel_login, true).await
+    Err(last_error
+        .unwrap_or_else(|| ChannelPointsError::Message("Twitch rejected the prediction".into())))
 }
 
 #[cfg(test)]
@@ -1551,6 +1638,22 @@ mod tests {
         assert_eq!(payload["variables"]["input"]["outcomeID"], "yes");
         assert_eq!(payload["variables"]["input"]["points"], 25);
         assert_eq!(payload["variables"]["input"]["transactionID"], "tx-1");
+        let query = payload["query"]
+            .as_str()
+            .expect("inline MakePrediction query");
+        assert!(
+            query.contains("prediction {"),
+            "MakePredictionPayload.prediction is the user bet, not predictionEvent"
+        );
+        assert!(
+            !query.contains("predictionEvent"),
+            "Twitch rejects predictionEvent on MakePredictionPayload"
+        );
+        let persisted = make_prediction_persisted_payload("event-1", "yes", 25, "tx-1");
+        assert_eq!(
+            persisted["extensions"]["persistedQuery"]["sha256Hash"],
+            MAKE_PREDICTION_HASH
+        );
     }
 
     #[test]
@@ -1562,6 +1665,14 @@ mod tests {
             make_prediction_error(&body).as_deref(),
             Some("Not enough Channel Points to make that prediction")
         );
+        let closed = json!({
+            "data": { "makePrediction": { "error": { "code": "EVENT_NOT_ACTIVE" } } }
+        });
+        assert_eq!(
+            make_prediction_error(&closed).as_deref(),
+            Some("This prediction is no longer accepting votes")
+        );
+        assert!(make_prediction_closed(&closed));
     }
 
     #[test]
@@ -1609,6 +1720,73 @@ mod tests {
             &json!({ "type": "event-complete" }),
         );
         assert!(cached_prediction("42").is_none());
+    }
+
+    #[test]
+    fn clears_prediction_when_event_updated_to_resolved() {
+        ingest_pubsub(
+            "predictions-channel-v1.43",
+            &json!({
+                "type": "event-updated",
+                "data": {
+                    "event": {
+                        "id": "pred-43",
+                        "title": "Done?",
+                        "status": "ACTIVE",
+                        "outcomes": [
+                            { "id": "a", "title": "Yes", "total_points": 1, "total_users": 1 },
+                            { "id": "b", "title": "No", "total_points": 2, "total_users": 2 }
+                        ]
+                    }
+                }
+            }),
+        );
+        assert!(cached_prediction("43").is_some());
+        assert!(ingest_pubsub(
+            "predictions-channel-v1.43",
+            &json!({
+                "type": "event-updated",
+                "data": {
+                    "event": {
+                        "id": "pred-43",
+                        "title": "Done?",
+                        "status": "RESOLVED",
+                        "outcomes": [
+                            { "id": "a", "title": "Yes", "total_points": 1, "total_users": 1 },
+                            { "id": "b", "title": "No", "total_points": 2, "total_users": 2 }
+                        ]
+                    }
+                }
+            }),
+        ));
+        assert!(cached_prediction("43").is_none());
+    }
+
+    #[test]
+    fn clears_prediction_on_event_completed() {
+        ingest_pubsub(
+            "predictions-channel-v1.44",
+            &json!({
+                "type": "event-updated",
+                "data": {
+                    "event": {
+                        "id": "pred-44",
+                        "title": "Over?",
+                        "status": "LOCKED",
+                        "outcomes": [
+                            { "id": "a", "title": "Yes", "total_points": 1, "total_users": 1 },
+                            { "id": "b", "title": "No", "total_points": 2, "total_users": 2 }
+                        ]
+                    }
+                }
+            }),
+        );
+        assert_eq!(cached_prediction("44").expect("cached").status, "LOCKED");
+        assert!(ingest_pubsub(
+            "predictions-channel-v1.44",
+            &json!({ "type": "event-completed" }),
+        ));
+        assert!(cached_prediction("44").is_none());
     }
 
     #[test]

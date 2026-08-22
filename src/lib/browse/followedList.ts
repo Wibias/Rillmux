@@ -127,9 +127,12 @@ export function paginateItems<T>(
 const LIST_HEAD_PX = 40;
 const LIST_ROW_PX = 56;
 const GRID_MIN_CARD_PX = 200;
-const GRID_COL_GAP_PX = 16;
-const GRID_ROW_GAP_PX = 18;
-const GRID_CARD_BODY_PX = 72;
+// StreamGrid.css uses rem; rem is html (16px default), not body font-size 13px.
+const GRID_COL_GAP_PX = 16; // 1rem
+const GRID_ROW_GAP_PX = 18.4; // 1.15rem
+// Name row (1.75rem menu) + title + viewers/uptime, padding/gaps, plus slack so a
+// row is omitted unless the name and both text lines fit without clipping.
+const GRID_CARD_BODY_PX = 84;
 
 /** How many followed streams fit in the visible list/grid without scrolling. */
 export function followedVisibleCount(opts: {
@@ -137,8 +140,8 @@ export function followedVisibleCount(opts: {
   width: number;
   height: number;
 }): number {
-  const width = Math.max(0, opts.width);
-  const height = Math.max(0, opts.height);
+  const width = Math.max(0, Math.floor(opts.width));
+  const height = Math.max(0, Math.floor(opts.height));
   if (opts.view === "list") {
     return Math.max(1, Math.floor((height - LIST_HEAD_PX) / LIST_ROW_PX));
   }

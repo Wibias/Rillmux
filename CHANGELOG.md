@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+### Fixed
+
+- Followed grid hides a stream row unless the window is tall enough for the channel name plus title and viewer/uptime lines
+
 ## [0.5.2] — 2026-08-22
 
 ### Fixed

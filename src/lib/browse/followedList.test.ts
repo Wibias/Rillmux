@@ -107,6 +107,15 @@ describe("followedVisibleCount", () => {
       followedVisibleCount({ view: "grid", width: 200, height: 180 }),
     ).toBe(1);
   });
+
+  it("omits a grid row that cannot show the name plus two text lines", () => {
+    // 4×240px cards: 4 * 240 + 3 * 16 gap. 680px is enough for two full
+    // bodies (name + title + viewers) but not three — the old 72px body
+    // estimate counted a third row that clipped the last text line.
+    expect(
+      followedVisibleCount({ view: "grid", width: 1008, height: 680 }),
+    ).toBe(8);
+  });
 });
 
 describe("followedDetailTags", () => {

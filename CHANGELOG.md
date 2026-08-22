@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.2] — 2026-08-22
+
+### Fixed
+
+- Stored Twitch login recovers after starting offline: validate retries when the network returns instead of staying on Login with Twitch until restart
+- Prediction overlay uses MakePrediction's `prediction` field (not `predictionEvent`) and clears on completed, cancelled, or resolved events
+
 ## [0.5.1] — 2026-08-21
 
 ### Changed

@@ -2,11 +2,45 @@ import type { OverlayRect } from "./raid";
 
 export type { OverlayRect };
 
+export type PredictionVoteState = {
+  status: string;
+  createdAt?: string | null;
+  windowSeconds?: number | null;
+};
+
 /** Host GQL fallback after Hermes pushes the live poll/prediction. */
 export const POLL_FALLBACK_REFRESH_MS = 60_000;
 
 export function pollOverlayShouldPollGql(overlayWindow: boolean): boolean {
   return !overlayWindow;
+}
+
+export function predictionRemainingSeconds(
+  prediction: PredictionVoteState,
+  now = Date.now(),
+): number | null {
+  if (prediction.status === "LOCKED") return 0;
+  if (!prediction.createdAt || prediction.windowSeconds == null) return null;
+  const end = Date.parse(prediction.createdAt) + prediction.windowSeconds * 1000;
+  if (Number.isNaN(end)) return null;
+  return Math.max(0, Math.floor((end - now) / 1000));
+}
+
+export function predictionAcceptsVotes(
+  prediction: PredictionVoteState,
+  now = Date.now(),
+): boolean {
+  if (prediction.status !== "ACTIVE") return false;
+  return predictionRemainingSeconds(prediction, now) !== 0;
+}
+
+export function isClosedPredictionError(message: string): boolean {
+  const text = message.toLowerCase();
+  return (
+    text.includes("no longer accepting") ||
+    text.includes("predictionevent") ||
+    text.includes("makepredictionpayload")
+  );
 }
 
 const POLL_OVERLAY_WIDTH = 360;

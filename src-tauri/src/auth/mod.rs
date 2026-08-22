@@ -120,8 +120,29 @@ fn client_id() -> Result<String, AuthError> {
     Ok("phiay4sq36lfv9zu7cbqwz2ndnesfd8".to_string())
 }
 
-fn http() -> &'static reqwest::Client {
+fn http() -> reqwest::Client {
     shared_client()
+}
+
+fn map_http(err: reqwest::Error) -> AuthError {
+    if crate::http::is_transient(&err) {
+        if err.status().is_none() {
+            crate::http::reset_shared_client();
+        }
+        AuthError::Message(crate::http::NETWORK_UNAVAILABLE.into())
+    } else {
+        AuthError::Http(err)
+    }
+}
+
+fn map_session_error(err: AuthError) -> AuthError {
+    match err {
+        AuthError::Http(http_err) => map_http(http_err),
+        AuthError::Message(msg) if msg.contains("will retry later") => {
+            AuthError::Message(crate::http::NETWORK_UNAVAILABLE.into())
+        }
+        other => other,
+    }
 }
 
 pub async fn start_device_flow() -> Result<DeviceCodeResponse, AuthError> {
@@ -234,7 +255,8 @@ async fn refresh_if_needed(mut tokens: StoredTokens) -> Result<StoredTokens, Aut
             ("refresh_token", refresh.as_str()),
         ])
         .send()
-        .await?;
+        .await
+        .map_err(map_http)?;
     if !res.status().is_success() {
         let status = res.status();
         // Only wipe the stored session when Twitch definitively rejects the
@@ -245,9 +267,7 @@ async fn refresh_if_needed(mut tokens: StoredTokens) -> Result<StoredTokens, Aut
                 "session expired; please log in again".into(),
             ));
         }
-        return Err(AuthError::Message(format!(
-            "token refresh failed ({status}); will retry later"
-        )));
+        return Err(AuthError::Message(crate::http::NETWORK_UNAVAILABLE.into()));
     }
     let token: TokenResponse = res.json().await?;
     tokens = StoredTokens {
@@ -269,8 +289,10 @@ async fn session_from_tokens(tokens: StoredTokens) -> Result<AuthSession, AuthEr
         .get(VALIDATE_URL)
         .bearer_auth(&tokens.access_token)
         .send()
-        .await?
-        .error_for_status()?
+        .await
+        .map_err(map_http)?
+        .error_for_status()
+        .map_err(map_http)?
         .json()
         .await?;
 
@@ -283,8 +305,10 @@ async fn session_from_tokens(tokens: StoredTokens) -> Result<AuthSession, AuthEr
         .header("Client-Id", &client_id)
         .bearer_auth(&tokens.access_token)
         .send()
-        .await?
-        .error_for_status()?
+        .await
+        .map_err(map_http)?
+        .error_for_status()
+        .map_err(map_http)?
         .json()
         .await?;
 
@@ -307,7 +331,7 @@ async fn session_from_tokens(tokens: StoredTokens) -> Result<AuthSession, AuthEr
 
 pub async fn get_session() -> Result<AuthSession, AuthError> {
     match load_tokens()? {
-        Some(tokens) => session_from_tokens(tokens).await,
+        Some(tokens) => session_from_tokens(tokens).await.map_err(map_session_error),
         None => Ok(AuthSession {
             logged_in: false,
             user_id: None,
@@ -369,5 +393,21 @@ mod tests {
         let json = serde_json::to_string(&dto).unwrap();
         assert!(json.contains("userCode"));
         assert!(json.contains("verificationUri"));
+    }
+
+    #[test]
+    fn maps_later_refresh_to_network_unavailable() {
+        let err = map_session_error(AuthError::Message(
+            "token refresh failed (503); will retry later".into(),
+        ));
+        assert_eq!(err.to_string(), crate::http::NETWORK_UNAVAILABLE);
+    }
+
+    #[test]
+    fn keeps_expired_session_errors() {
+        let err = map_session_error(AuthError::Message(
+            "session expired; please log in again".into(),
+        ));
+        assert_eq!(err.to_string(), "session expired; please log in again");
     }
 }

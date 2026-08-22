@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, isTauri } from "../tauri";
+import {
+  AUTH_NETWORK_UNAVAILABLE,
+  authErrorText,
+  isTransientAuthNetworkError,
+  planAuthSessionRetry,
+} from "./sessionRestore";
 
 export interface AuthSession {
   loggedIn: boolean;
@@ -31,19 +37,68 @@ interface AuthState {
   loading: boolean;
   device: DeviceCodeResponse | null;
   error: string | null;
-  refreshSession: () => Promise<void>;
+  refreshSession: (opts?: { quiet?: boolean }) => Promise<void>;
   startLogin: () => Promise<void>;
   cancelLogin: () => void;
   logout: () => Promise<void>;
 }
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let sessionRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let sessionRetryAttempt = 0;
+let sessionRefreshGeneration = 0;
+let onlineRetryBound = false;
 
 function clearPoll() {
   if (pollTimer) {
     clearTimeout(pollTimer);
     pollTimer = null;
   }
+}
+
+function clearSessionRetry() {
+  if (sessionRetryTimer) {
+    clearTimeout(sessionRetryTimer);
+    sessionRetryTimer = null;
+  }
+  sessionRetryAttempt = 0;
+}
+
+function bindOnlineSessionRetry() {
+  if (onlineRetryBound || typeof window === "undefined") {
+    return;
+  }
+  onlineRetryBound = true;
+  window.addEventListener("online", () => {
+    sessionRetryAttempt = 0;
+    if (sessionRetryTimer) {
+      clearTimeout(sessionRetryTimer);
+      sessionRetryTimer = null;
+    }
+    void useAuthStore.getState().refreshSession({ quiet: true });
+  });
+}
+
+function scheduleSessionRetry() {
+  if (sessionRetryTimer) {
+    clearTimeout(sessionRetryTimer);
+    sessionRetryTimer = null;
+  }
+  const { session, error } = useAuthStore.getState();
+  const plan = planAuthSessionRetry({
+    loggedIn: Boolean(session?.loggedIn),
+    error,
+    attempt: sessionRetryAttempt,
+  });
+  if (!plan) {
+    sessionRetryAttempt = 0;
+    return;
+  }
+  sessionRetryAttempt += 1;
+  sessionRetryTimer = setTimeout(() => {
+    sessionRetryTimer = null;
+    void useAuthStore.getState().refreshSession({ quiet: true });
+  }, plan.delayMs);
 }
 
 function restartViewerPresence() {
@@ -58,9 +113,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   device: null,
   error: null,
 
-  refreshSession: async () => {
-    set({ loading: true, error: null });
+  refreshSession: async (opts) => {
+    bindOnlineSessionRetry();
+    const generation = ++sessionRefreshGeneration;
+    if (!opts?.quiet) {
+      set({ loading: true, error: null });
+    }
     if (!isTauri()) {
+      clearSessionRetry();
       set({
         session: { loggedIn: false, scopes: [] },
         loading: false,
@@ -70,18 +130,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     try {
       const session = await invoke<AuthSession>("auth_get_session");
-      set({ session, loading: false });
+      if (generation !== sessionRefreshGeneration) {
+        return;
+      }
+      clearSessionRetry();
+      set({ session, loading: false, error: null });
+      if (session.loggedIn) {
+        restartViewerPresence();
+      }
     } catch (err) {
+      if (generation !== sessionRefreshGeneration) {
+        return;
+      }
+      const message = authErrorText(err);
+      const error = isTransientAuthNetworkError(message)
+        ? AUTH_NETWORK_UNAVAILABLE
+        : message;
       set({
         session: { loggedIn: false, scopes: [] },
         loading: false,
-        error: err instanceof Error ? err.message : String(err),
+        error,
       });
+      scheduleSessionRetry();
     }
   },
 
   startLogin: async () => {
     clearPoll();
+    clearSessionRetry();
     set({ error: null, device: null, loading: true });
     if (!isTauri()) {
       set({
@@ -145,6 +221,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     clearPoll();
+    clearSessionRetry();
     if (isTauri()) {
       await invoke("auth_logout");
     }

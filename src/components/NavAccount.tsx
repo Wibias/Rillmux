@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../lib/auth/store";
+import {
+  isTransientAuthNetworkError,
+  shouldOfferTwitchLogin,
+} from "../lib/auth/sessionRestore";
 import { isTauri } from "../lib/tauri";
 import { ChevronIcon } from "./FollowedIcons";
 
@@ -11,10 +15,17 @@ export function NavAccount() {
   const loading = useAuthStore((s) => s.loading);
   const startLogin = useAuthStore((s) => s.startLogin);
   const logout = useAuthStore((s) => s.logout);
+  const error = useAuthStore((s) => s.error);
+  const device = useAuthStore((s) => s.device);
   const [open, setOpen] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const loggedIn = Boolean(session?.loggedIn);
+  const offerLogin = shouldOfferTwitchLogin({
+    loggedIn,
+    deviceActive: Boolean(device),
+    error,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -99,7 +110,7 @@ export function NavAccount() {
             </div>
           ) : null}
         </>
-      ) : (
+      ) : offerLogin ? (
         <button
           type="button"
           className="shell__account-login"
@@ -108,7 +119,9 @@ export function NavAccount() {
         >
           {t("login")}
         </button>
-      )}
+      ) : isTransientAuthNetworkError(error) ? (
+        <span className="muted">{t("authNetworkUnavailable")}</span>
+      ) : null}
       {version ? <span className="shell__version">v{version}</span> : null}
     </div>
   );

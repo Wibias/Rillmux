@@ -80,10 +80,26 @@
   pointer-events: none;
 }
 
-.authbar__error {
-  color: var(--danger);
+.authbar__error,
+.authbar__status {
   margin: 0;
   font-size: 0.8rem;
+}
+
+.authbar__error {
+  color: var(--danger);
+}
+
+.authbar__status {
+  color: var(--text-muted);
+}
+
+.authbar--compact .authbar__error,
+.authbar--compact .authbar__status {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .authbar--compact .button-secondary {

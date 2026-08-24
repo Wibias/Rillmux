@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "Least-privilege capability for Rillmux overlay windows",
+  "windows": ["raid-overlay", "poll-overlay", "points-hud-*"],
+  "permissions": [
+    "core:event:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-set-ignore-cursor-events",
+    "store:default",
+    "allow-channel-points-refresh",
+    "allow-channel-points-cached",
+    "allow-channel-points-vote-poll",
+    "allow-channel-points-vote-prediction",
+    "allow-channel-points-redeem-reward",
+    "allow-channel-points-hud-place",
+    "allow-overlay-fit-webview",
+    "allow-overlay-place-hud"
+  ]
+}

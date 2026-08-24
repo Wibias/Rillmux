@@ -1,0 +1,156 @@
+name: Apply Streaming Decomposition V3
+
+on:
+  push:
+    branches: ["refactor/streaming-decomposition-run"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+
+      - name: Split streaming module without changing item order
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          root = Path.cwd()
+          source_path = root / "src-tauri" / "src" / "streaming.rs"
+          original = source_path.read_bytes()
+          newline = b"\r\n" if b"\r\n" in original else b"\n"
+
+          def marker(text: str) -> bytes:
+              return text.replace("\n", "\r\n" if newline == b"\r\n" else "\n").encode("utf-8")
+
+          boundaries = [
+              marker("#[derive(Debug, Error)]\npub enum StreamError"),
+              marker("fn bundled_streamlink() -> Option<PathBuf> {"),
+              marker("/// Re-tile mpv windows for active channels; optionally leave the right strip for chat.\npub fn layout_watching("),
+              marker("#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct OverlayRect {"),
+              marker("/// Monotonic counter serializing layout_watching retile threads (latest wins).\nstatic LAYOUT_GENERATION: AtomicU64 = AtomicU64::new(0);"),
+              marker("fn strip_ansi(input: &str) -> String {"),
+              marker("#[cfg(test)]\nmod tests {"),
+          ]
+          names = [
+              "foundation.rs",
+              "types_player.rs",
+              "tools_process.rs",
+              "dock.rs",
+              "overlays.rs",
+              "windows_layout.rs",
+              "runtime.rs",
+              "tests.rs",
+          ]
+
+          positions = []
+          for boundary in boundaries:
+              count = original.count(boundary)
+              if count != 1:
+                  raise SystemExit(f"expected one streaming boundary, found {count}: {boundary[:80]!r}")
+              positions.append(original.index(boundary))
+          if positions != sorted(positions) or len(set(positions)) != len(positions):
+              raise SystemExit("streaming boundaries are not strictly ordered")
+
+          cuts = [0, *positions, len(original)]
+          shards = [original[cuts[i]:cuts[i + 1]] for i in range(len(names))]
+          if b"".join(shards) != original:
+              raise SystemExit("streaming shard reconstruction differs from original bytes")
+          if any(not shard for shard in shards):
+              raise SystemExit("streaming decomposition produced an empty shard")
+
+          module_dir = source_path.with_suffix("")
+          module_dir.mkdir(exist_ok=True)
+          for name, shard in zip(names, shards):
+              (module_dir / name).write_bytes(shard)
+
+          windows_path = module_dir / "windows_layout.rs"
+          windows_bytes = windows_path.read_bytes()
+          old_asset = marker('include_bytes!("../assets/loading.png")')
+          new_asset = marker('include_bytes!("../../assets/loading.png")')
+          if windows_bytes.count(old_asset) != 1:
+              raise SystemExit("expected exactly one loading.png include path to relocate")
+          windows_path.write_bytes(windows_bytes.replace(old_asset, new_asset, 1))
+
+          facade = """// Structural shards intentionally share the `streaming` module namespace.\n// Keep this order stable unless a follow-up refactor also changes interfaces.\ninclude!(\"foundation.rs\");\ninclude!(\"types_player.rs\");\ninclude!(\"tools_process.rs\");\ninclude!(\"dock.rs\");\ninclude!(\"overlays.rs\");\ninclude!(\"windows_layout.rs\");\ninclude!(\"runtime.rs\");\ninclude!(\"tests.rs\");\n"""
+          (module_dir / "mod.rs").write_text(facade, encoding="utf-8", newline="\n")
+          source_path.unlink()
+
+          contract = root / "src-tauri" / "tests" / "streaming_decomposition_contract.rs"
+          contract.write_text(r'''#[test]
+          fn streaming_is_composed_from_ordered_focused_shards() {
+              let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+              assert!(!root.join("src/streaming.rs").exists());
+
+              let module = include_str!("../src/streaming/mod.rs");
+              let expected = [
+                  "foundation.rs",
+                  "types_player.rs",
+                  "tools_process.rs",
+                  "dock.rs",
+                  "overlays.rs",
+                  "windows_layout.rs",
+                  "runtime.rs",
+                  "tests.rs",
+              ];
+              let mut cursor = 0;
+              for shard in expected {
+                  assert!(
+                      root.join("src/streaming").join(shard).is_file(),
+                      "missing {shard}"
+                  );
+                  let needle = format!("include!(\\\"{shard}\\\");");
+                  let relative = module[cursor..]
+                      .find(&needle)
+                      .unwrap_or_else(|| panic!("missing or out-of-order include for {shard}"));
+                  cursor += relative + needle.len();
+              }
+          }
+          ''', encoding="utf-8", newline="\n")
+
+          template = root / ".github" / "pull_request_template.md"
+          text = template.read_text(encoding="utf-8")
+          old = "when changing `streaming.rs`, `dock.rs`, `lib.rs`, auth, Tauri capabilities, or release packaging."
+          new = "when changing `src-tauri/src/streaming/`, `dock.rs`, `lib.rs`, auth, Tauri capabilities, or release packaging."
+          if old not in text:
+              raise SystemExit("PR template streaming path marker changed")
+          template.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
+          print("streaming shards reconstruct the original source byte-for-byte before the one required relative asset-path relocation")
+          '@ | python -
+
+      - name: Verify decomposed module
+        working-directory: src-tauri
+        run: |
+          cargo fmt --check
+          cargo clippy -- -D warnings
+          cargo test
+
+      - name: Commit verified decomposition
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Remove-Item -Recurse -Force "src-tauri/permissions" -ErrorAction SilentlyContinue
+          Remove-Item -Force ".github/workflows/apply-streaming-decomposition.yml" -ErrorAction SilentlyContinue
+          Remove-Item -Force ".github/workflows/apply-streaming-decomposition-v2.yml" -ErrorAction SilentlyContinue
+          Remove-Item -Force ".github/workflows/apply-streaming-decomposition-v3.yml"
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: decompose streaming runtime into focused shards"
+          git push origin HEAD:refactor/streaming-decomposition

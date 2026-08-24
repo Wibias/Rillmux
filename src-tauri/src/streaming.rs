@@ -2127,7 +2127,6 @@ pub fn restack_hud_above_player(app: &AppHandle, label: &str) {
             return;
         }
         restack_hud_hwnd(app, &win, label);
-        return;
     }
     #[cfg(not(windows))]
     let _ = win.set_always_on_top(false);
@@ -2726,9 +2725,9 @@ fn spawn_dock_chatterino_process(
                 path.display()
             )));
         }
-        return Err(StreamError::Message(format!(
+        Err(StreamError::Message(format!(
             "Chatterino exited immediately ({last_exit})"
-        )));
+        )))
     }
     #[cfg(not(windows))]
     {
@@ -3820,7 +3819,7 @@ fn command_line_from_nt_buffer(buf: &[u8]) -> Option<String> {
         return None;
     }
     let length = u16::from_le_bytes(buf[0..2].try_into().ok()?) as usize;
-    if length == 0 || length % 2 != 0 {
+    if length == 0 || !length.is_multiple_of(2) {
         return None;
     }
     let ptr = usize::from_le_bytes(buf[8..16].try_into().ok()?);

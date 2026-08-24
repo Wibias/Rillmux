@@ -432,12 +432,7 @@ fn json_nodes(value: &Value) -> Vec<&Value> {
     value
         .get("edges")
         .and_then(Value::as_array)
-        .map(|edges| {
-            edges
-                .iter()
-                .filter_map(|edge| edge.get("node"))
-                .collect()
-        })
+        .map(|edges| edges.iter().filter_map(|edge| edge.get("node")).collect())
         .unwrap_or_default()
 }
 
@@ -505,11 +500,8 @@ fn parse_custom_reward(value: &Value) -> Option<ChannelPointsReward> {
         is_paused: json_bool(value, &["isPaused", "isPaused", "paused"]).unwrap_or(false),
         in_stock: json_bool(value, &["isInStock", "isInStock", "inStock"]).unwrap_or(true),
         is_enabled: json_bool(value, &["isEnabled", "isEnabled"]).unwrap_or(true),
-        is_user_input_required: json_bool(
-            value,
-            &["isUserInputRequired", "isUserInputRequired"],
-        )
-        .unwrap_or(false),
+        is_user_input_required: json_bool(value, &["isUserInputRequired", "isUserInputRequired"])
+            .unwrap_or(false),
         cooldown_seconds: value
             .get("cooldownSeconds")
             .and_then(json_u64)

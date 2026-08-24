@@ -248,7 +248,11 @@ fn chatterino_fallbacks() -> Vec<PathBuf> {
     // newer 7.5.x install is not shadowed by an older SevenTV.Chatterino7.
     for env in ["ProgramFiles", "ProgramFiles(x86)"] {
         if let Ok(root) = std::env::var(env) {
-            paths.push(PathBuf::from(root).join("Chatterino").join("chatterino.exe"));
+            paths.push(
+                PathBuf::from(root)
+                    .join("Chatterino")
+                    .join("chatterino.exe"),
+            );
         }
     }
     paths.extend(winget_seventv_chatterino_exes());
@@ -455,7 +459,10 @@ mod tests {
                 .is_some_and(|parent| parent.ends_with("Chatterino"))
         });
         if let (Some(named), Some(stock)) = (chatterino7, generic) {
-            assert!(named < stock, "Chatterino7 paths must beat stock Chatterino");
+            assert!(
+                named < stock,
+                "Chatterino7 paths must beat stock Chatterino"
+            );
         }
         let seventv = winget_seventv_chatterino_exes();
         if seventv.is_empty() {

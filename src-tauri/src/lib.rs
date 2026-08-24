@@ -9,10 +9,10 @@ mod channel_points_realtime;
 mod diagnostics;
 mod dock;
 mod doctor;
-mod overlay;
 mod eventsub;
 mod helix;
 mod http;
+mod overlay;
 mod streaming;
 mod twitch_web_auth;
 mod viewer_presence;
@@ -311,10 +311,9 @@ async fn dock_set_linked(enabled: bool) {
 
 #[tauri::command]
 async fn dock_set_chat_fraction(fraction: f64) {
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        streaming::dock_set_chat_fraction(fraction)
-    })
-    .await;
+    let _ =
+        tauri::async_runtime::spawn_blocking(move || streaming::dock_set_chat_fraction(fraction))
+            .await;
 }
 
 #[tauri::command]

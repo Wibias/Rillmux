@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
 use std::fs::{self, OpenOptions};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1410,9 +1410,7 @@ fn start_dock_visibility_watchdog() {
                         .and_then(|g| *g)
                         .map(|t| t.elapsed().as_millis() as u64)
                         .unwrap_or(u64::MAX);
-                    if chatterino_watchdog_should_relaunch(
-                        false, true, last_set, elapsed, 2_000,
-                    ) {
+                    if chatterino_watchdog_should_relaunch(false, true, last_set, elapsed, 2_000) {
                         if let Ok(_launch) = chatterino_launch_lock().try_lock() {
                             if let Ok(mut g) = last_chatterino_watchdog_relaunch().lock() {
                                 *g = Some(Instant::now());
@@ -1424,12 +1422,10 @@ fn start_dock_visibility_watchdog() {
                                 .unwrap_or_default();
                             if !list.is_empty() {
                                 if let Some(path) = cached_chatterino_path() {
-                                    crate::diagnostics::log_line(
-                                        "[chatterino] watchdog relaunch",
-                                    );
-                                    if let Err(err) = launch_chatterino_with_path(
-                                        &path, &list, true, true,
-                                    ) {
+                                    crate::diagnostics::log_line("[chatterino] watchdog relaunch");
+                                    if let Err(err) =
+                                        launch_chatterino_with_path(&path, &list, true, true)
+                                    {
                                         crate::diagnostics::log_line(&format!(
                                             "[chatterino] watchdog relaunch failed: {err}"
                                         ));
@@ -2009,10 +2005,7 @@ fn hwnd_dpi_scale(hwnd: *mut core::ffi::c_void) -> f64 {
 }
 
 pub fn overlay_rects_overlap(a: OverlayRect, b: OverlayRect) -> bool {
-    a.x < b.x + b.width
-        && a.x + a.width > b.x
-        && a.y < b.y + b.height
-        && a.y + a.height > b.y
+    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 }
 
 fn overlay_rect_differs(a: OverlayRect, b: OverlayRect, slop: i32) -> bool {
@@ -2200,7 +2193,10 @@ fn restack_hud_hwnd(app: &AppHandle, win: &tauri::WebviewWindow, label: &str) {
     unsafe fn hwnd_is_above(
         a: *mut core::ffi::c_void,
         b: *mut core::ffi::c_void,
-        get_window: unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> *mut core::ffi::c_void,
+        get_window: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            u32,
+        ) -> *mut core::ffi::c_void,
     ) -> bool {
         if a.is_null() || b.is_null() || a == b {
             return false;
@@ -2240,7 +2236,11 @@ fn restack_hud_hwnd(app: &AppHandle, win: &tauri::WebviewWindow, label: &str) {
                 0,
                 0,
                 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOZORDER
+                SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOACTIVATE
+                    | SWP_FRAMECHANGED
+                    | SWP_NOZORDER
                     | SWP_SHOWWINDOW,
             );
             return;
@@ -2291,9 +2291,7 @@ pub fn place_hud_overlay(
             return;
         }
     }
-    let _ = win.set_min_size(Some(tauri::Size::Physical(tauri::PhysicalSize::new(
-        1, 1,
-    ))));
+    let _ = win.set_min_size(Some(tauri::Size::Physical(tauri::PhysicalSize::new(1, 1))));
     restack_hud_above_player(app, label);
     let desired = OverlayRect {
         x,
@@ -2358,13 +2356,7 @@ pub fn channel_points_hud_host(_channel_login: &str) -> Option<OverlayRect> {
 /// Move + resize the overlay HWND in screen physical pixels. Tauri
 /// `setPosition` often no-ops when the window already exists on another monitor.
 #[cfg(windows)]
-fn move_overlay_hwnd(
-    hwnd: *mut core::ffi::c_void,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-) {
+fn move_overlay_hwnd(hwnd: *mut core::ffi::c_void, x: i32, y: i32, width: i32, height: i32) {
     #[link(name = "user32")]
     unsafe extern "system" {
         fn SetWindowPos(
@@ -5788,19 +5780,13 @@ mod tests {
             Some(22)
         );
         assert_eq!(chatterino_pid_after_child_exit(Some(10), 10, &[10]), None);
-        assert_eq!(
-            chatterino_pid_after_child_exit(Some(7), 10, &[22]),
-            Some(7)
-        );
+        assert_eq!(chatterino_pid_after_child_exit(Some(7), 10, &[22]), Some(7));
         assert_eq!(chatterino_pid_after_child_exit(None, 10, &[22]), None);
     }
 
     #[test]
     fn chatterino_close_targets_include_owned_and_other_dock_pids() {
-        assert_eq!(
-            chatterino_pids_to_close(Some(10), &[10, 22]),
-            vec![10, 22]
-        );
+        assert_eq!(chatterino_pids_to_close(Some(10), &[10, 22]), vec![10, 22]);
         assert_eq!(chatterino_pids_to_close(None, &[22]), vec![22]);
         assert_eq!(chatterino_pids_to_close(Some(10), &[]), vec![10]);
         assert!(chatterino_pids_to_close(None, &[]).is_empty());
@@ -5829,9 +5815,7 @@ mod tests {
     #[test]
     fn chatterino_does_not_wm_close_qt_helper_windows() {
         assert!(
-            !chatterino_should_close_duplicate_main(
-                false, false, 80_000, "Chatterino", true
-            ),
+            !chatterino_should_close_duplicate_main(false, false, 80_000, "Chatterino", true),
             "hidden Qt helpers must not receive WM_CLOSE"
         );
         assert!(
@@ -5839,14 +5823,16 @@ mod tests {
             "tiny surfaces must not receive WM_CLOSE"
         );
         assert!(
-            !chatterino_should_close_duplicate_main(
-                false, true, 80_000, "Chatterino", false
-            ),
+            !chatterino_should_close_duplicate_main(false, true, 80_000, "Chatterino", false),
             "do not close extras until the --channels split exists"
         );
         assert!(
             !chatterino_should_close_duplicate_main(
-                true, true, 80_000, "eliasn97 - Chatterino", true
+                true,
+                true,
+                80_000,
+                "eliasn97 - Chatterino",
+                true
             ),
             "keep hwnd must stay"
         );
@@ -5882,9 +5868,8 @@ mod tests {
                 alive,
                 "dock Chatterino pid={pid} died before a window appeared"
             );
-            hwnd = find_main_window_for_pid(pid).or_else(|| {
-                find_rillmux_dock_chatterino_pid().and_then(find_main_window_for_pid)
-            });
+            hwnd = find_main_window_for_pid(pid)
+                .or_else(|| find_rillmux_dock_chatterino_pid().and_then(find_main_window_for_pid));
             if hwnd.is_some() {
                 break;
             }

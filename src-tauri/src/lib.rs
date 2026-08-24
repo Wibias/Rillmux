@@ -20,7 +20,7 @@ mod viewer_presence;
 use auth::{AuthSession, DeviceCodeResponse};
 use doctor::DoctorReport;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use streaming::{
     ChannelPointsHudPlace, LaunchRequest, OverlayRect, SharedStreaming, StreamSession,
     StreamingState,
@@ -327,6 +327,11 @@ fn diagnostics_set_debug(enabled: bool) {
 }
 
 #[tauri::command]
+fn diagnostics_set_sentry_enabled(enabled: bool) {
+    set_native_sentry_enabled(enabled);
+}
+
+#[tauri::command]
 fn diagnostics_open_logs() -> Result<(), String> {
     diagnostics::ensure_dirs();
     open_folder(&diagnostics::logs_dir())
@@ -432,17 +437,44 @@ fn close_overlay_windows(app: &AppHandle) {
 
 fn cleanup_on_exit(app: &AppHandle) {
     channel_points_realtime::clear();
+    if let Some(state) = app.try_state::<SharedStreaming>() {
+        let _ = streaming::stop_all(state.inner());
+    }
+    streaming::close_owned_chatterino();
+    dock::clear_session();
     let _ = app.remove_tray_by_id(MAIN_TRAY_ID);
     close_overlay_windows(app);
 }
 
-fn init_sentry() -> Option<sentry::ClientInitGuard> {
-    let dsn = std::env::var("SENTRY_DSN").ok().filter(|s| !s.is_empty())?;
+fn native_sentry_slot() -> &'static Mutex<Option<sentry::ClientInitGuard>> {
+    static SLOT: OnceLock<Mutex<Option<sentry::ClientInitGuard>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+fn init_native_sentry() -> Option<sentry::ClientInitGuard> {
+    let dsn = option_env!("SENTRY_DSN")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
     let mut opts = sentry::apply_defaults(sentry::ClientOptions::default());
     opts.dsn = Some(dsn.parse().ok()?);
     opts.release = Some(std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION")));
     opts.send_default_pii = false;
     Some(sentry::init(opts))
+}
+
+fn set_native_sentry_enabled(enabled: bool) {
+    let mut slot = native_sentry_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if enabled {
+        if slot.is_none() {
+            *slot = init_native_sentry();
+        }
+    } else {
+        let guard = slot.take();
+        drop(slot);
+        drop(guard);
+    }
 }
 
 #[cfg(not(debug_assertions))]
@@ -521,7 +553,6 @@ fn install_rustls_crypto_provider() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_rustls_crypto_provider();
-    let _sentry_guard = init_sentry();
     diagnostics::install_hooks();
     let streaming = Arc::new(StreamingState::new());
     let viewer_presence = Arc::new(viewer_presence::ViewerPresenceState::new());
@@ -576,6 +607,7 @@ pub fn run() {
             dock_set_chat_fraction,
             dock_cycle_monitor,
             diagnostics_set_debug,
+            diagnostics_set_sentry_enabled,
             diagnostics_open_logs,
             diagnostics_open_crashes,
             eventsub_sync,

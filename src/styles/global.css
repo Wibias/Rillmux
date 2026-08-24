@@ -24,7 +24,7 @@
   --topbar-bg: #181818;
   --shell-toolbar-control: 2.35rem;
   --shell-toolbar-padding-y: 0.7rem;
-  --title-bar-height: 42px;
+  --title-bar-height: 38px;
   --title-bar-controls-width: 138px;
   --tbo-default: transparent;
   --tbo-symbol: #efeff1;
@@ -36,6 +36,14 @@ html[data-theme="dark"] {
   --tbo-symbol: #efeff1;
   --tbo-hover: rgba(255, 255, 255, 0.08);
   --tbo-pressed: rgba(255, 255, 255, 0.04);
+}
+
+/* Overlay webviews still get the plugin's #tbo-controls. If that HWND sits
+ * on the main caption, X closes the overlay (which then respawns) instead of
+ * Rillmux. Hide the injected chrome in overlay documents. */
+html[data-overlay] #tbo-controls {
+  display: none !important;
+  pointer-events: none !important;
 }
 
 /* Paper light — cool gray canvas, white panels, ink text (not inverted dark) */
@@ -81,7 +89,7 @@ body,
 
 body {
   /* Specified on body so the overlay plugin's later `:root { --title-bar-height: 32px }` cannot shrink the bar. */
-  --title-bar-height: 42px;
+  --title-bar-height: 38px;
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);

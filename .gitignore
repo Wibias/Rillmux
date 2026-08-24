@@ -33,3 +33,5 @@ legacy/build/tmp
 *.njsproj
 *.sln
 *.sw?
+/src-tauri/target-ci
+/.cursor

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
-import { isTauri } from "../lib/tauri";
+import { invoke, isTauri } from "../lib/tauri";
 
 export function TitlebarControls() {
   const { t } = useTranslation("common");
@@ -74,7 +74,7 @@ export function TitlebarControls() {
         className="shell__win-close"
         aria-label={t("windowClose")}
         title={t("windowClose")}
-        onClick={() => void win.close()}
+        onClick={() => void invoke("app_quit")}
       >
         <svg viewBox="0 0 12 12" width="16" height="16" aria-hidden>
           <path

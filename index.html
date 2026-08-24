@@ -2,12 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/app-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rillmux</title>
     <style>
-      /* Splash shown until React mounts — kills the white flash while the
-         WebView waits for the JS bundle (slow in dev mode). Theme colors
-         mirror global.css; light follows the OS scheme like "system" mode. */
+      /* design-styles · genre: atmospheric · macro: title-card · nav: none · footer: none
+       * signature: icon as light source + orbiting arc · dials: V4/M7/D3 · strategy: Committed
+       * critique: P4 H4 E4 S4 R4 V4 · gate: pass
+       * Splash until React paints — covers the WebView while the JS bundle loads. */
       :root {
         color-scheme: dark;
       }
@@ -15,34 +17,141 @@
       body {
         margin: 0;
         height: 100%;
-        background: #1a1a1a;
+        background: #181818;
       }
       #splash {
         position: fixed;
         inset: 0;
-        z-index: 9999;
+        z-index: 40;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #181818;
+        color: #efeff1;
+        font-family: "Segoe UI", "Noto Sans", Tahoma, sans-serif;
+        user-select: none;
+        cursor: default;
+      }
+      #splash::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(
+          ellipse at center,
+          transparent 38%,
+          rgba(0, 0, 0, 0.42) 100%
+        );
+      }
+      #splash.is-leaving {
+        opacity: 0;
+        transform: scale(1.03);
+        pointer-events: none;
+        transition:
+          opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
+          transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .splash__glow {
+        position: absolute;
+        left: 50%;
+        top: 46%;
+        width: min(34rem, 78vw);
+        height: min(24rem, 56vh);
+        transform: translate(-50%, -50%);
+        background: radial-gradient(
+          ellipse at center,
+          rgba(145, 71, 255, 0.46) 0%,
+          rgba(145, 71, 255, 0.14) 38%,
+          transparent 70%
+        );
+        pointer-events: none;
+        animation: splash-breathe 2.8s ease-in-out infinite;
+      }
+      .splash__stage {
+        position: relative;
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        gap: 14px;
-        background: #1a1a1a;
-        color: rgba(239, 239, 241, 0.62);
-        font-family: "Segoe UI", "Noto Sans", Tahoma, sans-serif;
-        font-size: 13px;
-        user-select: none;
+        gap: 0;
+        text-align: center;
       }
-      #splash .spinner {
-        width: 28px;
-        height: 28px;
+      .splash__orb {
+        position: relative;
+        width: 8rem;
+        height: 8rem;
+        margin-bottom: 2rem;
+      }
+      .splash__ring {
+        position: absolute;
+        inset: -0.8rem;
         border-radius: 50%;
-        border: 3px solid rgba(145, 71, 255, 0.25);
-        border-top-color: #9147ff;
-        animation: splash-spin 0.8s linear infinite;
+        background: conic-gradient(
+          from 0deg,
+          transparent 0 68%,
+          #bf94ff 86%,
+          #9147ff 100%
+        );
+        -webkit-mask: radial-gradient(
+          farthest-side,
+          transparent calc(100% - 2px),
+          #000 calc(100% - 2px)
+        );
+        mask: radial-gradient(
+          farthest-side,
+          transparent calc(100% - 2px),
+          #000 calc(100% - 2px)
+        );
+        animation: splash-spin 1.05s linear infinite;
+      }
+      .splash__mark {
+        position: absolute;
+        inset: 0;
+        width: 8rem;
+        height: 8rem;
+        display: block;
+        border-radius: 1.65rem;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+      }
+      .splash__word {
+        margin: 0;
+        font-size: clamp(2.75rem, 6vw, 4.25rem);
+        font-weight: 400;
+        letter-spacing: -0.03em;
+        line-height: 1.05;
+        text-wrap: balance;
+      }
+      .splash__tag {
+        margin: 0.5rem 0 0;
+        color: rgba(239, 239, 241, 0.62);
+        font-size: 1rem;
+        font-weight: 400;
+        letter-spacing: 0.04em;
+      }
+      .splash__sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
       @keyframes splash-spin {
         to {
           transform: rotate(360deg);
+        }
+      }
+      @keyframes splash-breathe {
+        0%,
+        100% {
+          opacity: 0.72;
+          transform: translate(-50%, -50%) scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1.08);
         }
       }
       @media (prefers-color-scheme: light) {
@@ -55,21 +164,57 @@
         }
         #splash {
           background: #eef0f3;
+          color: #0e0e10;
+        }
+        .splash__glow {
+          background: radial-gradient(
+            ellipse at center,
+            rgba(145, 71, 255, 0.22) 0%,
+            rgba(145, 71, 255, 0.06) 42%,
+            transparent 70%
+          );
+        }
+        .splash__mark {
+          box-shadow: 0 10px 28px rgba(14, 14, 16, 0.12);
+        }
+        .splash__tag {
           color: #53535f;
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        #splash .spinner {
+        .splash__glow,
+        .splash__ring {
           animation: none;
+        }
+        .splash__ring {
+          opacity: 0.35;
+        }
+        #splash.is-leaving {
+          transform: none;
+          transition: opacity 160ms ease;
         }
       }
     </style>
   </head>
   <body>
     <div id="root"></div>
-    <div id="splash" aria-hidden="true">
-      <div class="spinner"></div>
-      <div>Rillmux</div>
+    <div id="splash">
+      <div class="splash__glow" aria-hidden="true"></div>
+      <div class="splash__stage">
+        <div class="splash__orb" aria-hidden="true">
+          <div class="splash__ring"></div>
+          <img
+            class="splash__mark"
+            src="/app-icon.png"
+            width="128"
+            height="128"
+            alt=""
+          />
+        </div>
+        <p class="splash__word">Rillmux</p>
+        <p class="splash__tag">for Streamlink</p>
+      </div>
+      <span class="splash__sr">Loading Rillmux</span>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

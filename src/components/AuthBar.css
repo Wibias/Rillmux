@@ -26,12 +26,12 @@
 .authbar__avatar {
   border-radius: 50%;
   border: 1px solid var(--border);
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.35rem;
+  height: 1.35rem;
 }
 
 .authbar__name {
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   font-weight: 600;
 }
 
@@ -103,16 +103,16 @@
 }
 
 .authbar--compact .button-secondary {
-  min-height: 2.2rem;
-  padding: 0.23rem 0.72rem;
-  font-size: 1.01rem;
+  min-height: 1.98rem;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.91rem;
 }
 
 .authbar--compact .authbar__playback-toggle {
-  min-height: 1.88rem;
-  padding: 0.16rem 0.65rem;
+  min-height: 1.69rem;
+  padding: 0.14rem 0.58rem;
   border-radius: 0;
-  font-size: 0.975rem;
+  font-size: 0.88rem;
   font-weight: 600;
   background: var(--bg-sunken);
   color: var(--text);
@@ -141,8 +141,8 @@
 }
 
 .authbar__playback-dot {
-  width: 0.62rem;
-  height: 0.62rem;
+  width: 0.56rem;
+  height: 0.56rem;
   border-radius: 50%;
   background: var(--text-muted);
 }

@@ -67,6 +67,7 @@
     "allow-dock-set-chat-fraction",
     "allow-dock-cycle-monitor",
     "allow-diagnostics-set-debug",
+    "allow-diagnostics-set-sentry-enabled",
     "allow-diagnostics-open-logs",
     "allow-diagnostics-open-crashes",
     "allow-eventsub-sync",

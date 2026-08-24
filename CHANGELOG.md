@@ -12,9 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+### Changed
+
+- First-load splash uses the app icon, a larger wordmark, and a short fade into the shell
+- Title bar is 38px (10% shorter), including website-auth text, status dots, and caption glyphs
+
 ### Fixed
 
 - Followed grid hides a stream row unless the window is tall enough for the channel name plus title and viewer/uptime lines
+- Clicking X actually quits in `tauri:dev`; native caption overlay no longer swallows the close button
 
 ## [0.5.2] — 2026-08-22
 

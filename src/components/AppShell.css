@@ -371,14 +371,14 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
 }
 
 .shell__titlebar {
-  --title-bar-height: 42px;
+  --title-bar-height: 38px;
   grid-column: 1 / -1;
   grid-row: 1;
   display: flex;
   align-items: stretch;
   gap: 0.45rem;
-  height: var(--title-bar-height, 42px);
-  min-height: var(--title-bar-height, 42px);
+  height: var(--title-bar-height, 38px);
+  min-height: var(--title-bar-height, 38px);
   padding: 0 0 0 0.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--topbar-bg);
@@ -395,8 +395,8 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
 }
 
 .shell__titlebar-icon {
-  width: 21px;
-  height: 21px;
+  width: 19px;
+  height: 19px;
   flex-shrink: 0;
   display: block;
   pointer-events: none;
@@ -407,7 +407,7 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.975rem;
+  font-size: 0.88rem;
   font-weight: 400;
   line-height: 1;
   pointer-events: none;
@@ -420,25 +420,20 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
   padding: 0;
 }
 
-body:has(#tbo-controls) .shell__titlebar {
-  padding-right: calc(var(--title-bar-controls-width, 138px) + 0.35rem);
-}
-
-body:has(#tbo-controls) .shell__win-controls {
-  display: none;
-}
-
 /*
  * Duplicates tauri-plugin-window-controls' injected stylesheet.
  * Production CSP is `style-src 'self'`, so the plugin's <style> tag is
- * dropped while #tbo-controls still mounts and hides the HTML fallback.
+ * dropped while #tbo-controls still mounts. DWM title-bar overlay steals
+ * clicks from those buttons without closing, so they must not be a hit
+ * target; HTML .shell__win-controls stays visible and quits the app.
  */
 #tbo-controls {
-  --title-bar-height: 42px;
+  --title-bar-height: 38px;
   position: fixed;
   top: 0;
   right: 0;
-  display: flex;
+  display: none;
+  pointer-events: none;
   z-index: 2147483647;
   -webkit-user-select: none;
   user-select: none;
@@ -447,7 +442,7 @@ body:has(#tbo-controls) .shell__win-controls {
 #tbo-controls .tbo-btn {
   box-sizing: border-box;
   width: 46px;
-  height: var(--title-bar-height, 42px);
+  height: var(--title-bar-height, 38px);
   min-width: 46px;
   min-height: 0;
   display: grid;
@@ -502,8 +497,8 @@ body:has(#tbo-controls) .shell__win-controls {
 }
 
 #tbo-controls .tbo-glyph {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   line-height: 0;
 }
 
@@ -555,7 +550,7 @@ body:has(#tbo-controls) .shell__win-controls {
 
 .shell__win-controls button {
   width: 2.875rem;
-  height: var(--title-bar-height, 42px);
+  height: var(--title-bar-height, 38px);
   min-height: 0;
   padding: 0;
   border: none;

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Followed grid hides a stream row unless the window is tall enough for the channel name plus title and viewer/uptime lines
 - Clicking X actually quits in `tauri:dev`; native caption overlay no longer swallows the close button
+- Debug `tauri:dev` no longer stacks leftover tray icons in the Windows hidden-icons overflow; the tray is skipped in Vite dev, removed on quit, and X quits instead of hiding to tray
 
 ## [0.5.2] — 2026-08-22
 

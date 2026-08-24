@@ -38,8 +38,8 @@ pub fn which_on_path(names: &[&str]) -> Option<PathBuf> {
     for dir in std::env::split_paths(&path) {
         for name in names {
             let candidate = dir.join(name);
-            if candidate.is_file() {
-                return Some(candidate);
+            if let Some(exe) = runnable_exe(&candidate) {
+                return Some(exe);
             }
         }
     }
@@ -214,13 +214,12 @@ fn mpv_fallbacks() -> Vec<PathBuf> {
 
 fn chatterino_fallbacks() -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    // Prefer Chatterino7 over stock Chatterino 2.
+    // Prefer Chatterino7 / 7TV over stock Chatterino 2.
     // Prefer real installs first — WinGet Links shims often fail when spawned from a GUI host.
     for env in ["ProgramFiles", "ProgramFiles(x86)"] {
         if let Ok(root) = std::env::var(env) {
             let root = PathBuf::from(root);
             paths.push(root.join("Chatterino7").join("chatterino.exe"));
-            paths.push(root.join("Chatterino").join("chatterino.exe"));
         }
     }
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
@@ -232,6 +231,33 @@ fn chatterino_fallbacks() -> Vec<PathBuf> {
                 .join("chatterino.exe"),
         );
         paths.push(local.join("Chatterino7").join("chatterino.exe"));
+    }
+    if let Ok(user) = std::env::var("USERPROFILE") {
+        paths.push(
+            PathBuf::from(user)
+                .join("scoop")
+                .join("apps")
+                .join("chatterino7")
+                .join("current")
+                .join("chatterino.exe"),
+        );
+    }
+
+    // `Program Files\Chatterino` is often Chatterino 7.x (7TV) without the
+    // "7" in the folder name. Keep it ahead of the WinGet package copy so a
+    // newer 7.5.x install is not shadowed by an older SevenTV.Chatterino7.
+    for env in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(root) = std::env::var(env) {
+            paths.push(
+                PathBuf::from(root)
+                    .join("Chatterino")
+                    .join("chatterino.exe"),
+            );
+        }
+    }
+    paths.extend(winget_seventv_chatterino_exes());
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let local = PathBuf::from(local);
         paths.push(
             local
                 .join("Programs")
@@ -242,15 +268,13 @@ fn chatterino_fallbacks() -> Vec<PathBuf> {
     }
     if let Ok(user) = std::env::var("USERPROFILE") {
         let user = PathBuf::from(user);
-        for app in ["chatterino7", "chatterino"] {
-            paths.push(
-                user.join("scoop")
-                    .join("apps")
-                    .join(app)
-                    .join("current")
-                    .join("chatterino.exe"),
-            );
-        }
+        paths.push(
+            user.join("scoop")
+                .join("apps")
+                .join("chatterino")
+                .join("current")
+                .join("chatterino.exe"),
+        );
         paths.push(user.join("scoop").join("shims").join("chatterino.exe"));
     }
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
@@ -265,8 +289,40 @@ fn chatterino_fallbacks() -> Vec<PathBuf> {
     paths
 }
 
+fn winget_seventv_chatterino_exes() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let Ok(local) = std::env::var("LOCALAPPDATA") else {
+        return paths;
+    };
+    let packages = PathBuf::from(local)
+        .join("Microsoft")
+        .join("WinGet")
+        .join("Packages");
+    let Ok(entries) = std::fs::read_dir(packages) else {
+        return paths;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with("SevenTV.Chatterino7") {
+            continue;
+        }
+        paths.push(entry.path().join("Chatterino2").join("chatterino.exe"));
+    }
+    paths
+}
+
 fn first_existing(candidates: &[PathBuf]) -> Option<PathBuf> {
-    candidates.iter().find(|p| p.is_file()).cloned()
+    candidates.iter().find_map(|path| runnable_exe(path))
+}
+
+/// Skip broken WinGet shims whose symlink target is missing.
+fn runnable_exe(path: &Path) -> Option<PathBuf> {
+    if !path.is_file() {
+        return None;
+    }
+    std::fs::canonicalize(path)
+        .ok()
+        .filter(|resolved| resolved.is_file())
 }
 
 /// Fast path lookup without spawning `--version` (used during stream start).
@@ -383,6 +439,59 @@ mod tests {
                     .ends_with("MPV Player\\mpv.exe")
             }),
             "expected winget 'MPV Player' install path in fallbacks: {paths:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn chatterino_fallbacks_include_seventv_winget_package() {
+        let source = include_str!("doctor.rs");
+        assert!(source.contains("SevenTV.Chatterino7"));
+        assert!(source.contains("winget_seventv_chatterino_exes"));
+        let paths = chatterino_fallbacks();
+        let chatterino7 = paths.iter().position(|p| {
+            p.file_name().is_some_and(|n| n == "chatterino.exe")
+                && p.parent()
+                    .is_some_and(|parent| parent.ends_with("Chatterino7"))
+        });
+        let generic = paths.iter().position(|p| {
+            p.parent()
+                .is_some_and(|parent| parent.ends_with("Chatterino"))
+        });
+        if let (Some(named), Some(stock)) = (chatterino7, generic) {
+            assert!(
+                named < stock,
+                "Chatterino7 paths must beat stock Chatterino"
+            );
+        }
+        let seventv = winget_seventv_chatterino_exes();
+        if seventv.is_empty() {
+            return;
+        }
+        assert!(
+            seventv.iter().any(|p| p.is_file()),
+            "SevenTV package exe should exist when the folder is present: {seventv:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn chatterino_skips_dead_winget_shim() {
+        let links = PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default())
+            .join("Microsoft")
+            .join("WinGet")
+            .join("Links")
+            .join("chatterino.exe");
+        if !links.exists() {
+            return;
+        }
+        if runnable_exe(&links).is_some() {
+            return;
+        }
+        let found = find_chatterino_path();
+        assert!(
+            found.as_ref().is_none_or(|p| p != &links),
+            "dead WinGet Links shim must not be selected: {found:?}"
         );
     }
 

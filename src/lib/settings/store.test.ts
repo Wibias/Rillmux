@@ -24,10 +24,13 @@ describe("migrateSettings", () => {
     expect(result.streaming.disableAds).toBe(false);
     expect(result.streaming.channelPoints).toBe(false);
     expect(result.streaming.channelPointsPolls).toBe(false);
+    expect(result.streaming.channelPointsHud).toBe(false);
+    expect(result.streaming.channelPointsHudOffset).toBeNull();
     expect(result.streaming.seamlessSwitch).toBe(true);
     expect(result.streaming.followRaids).toBe(true);
     expect(result.streaming.streamLanguages).toEqual([]);
     expect(result.gui.onboardingDone).toBe(false);
+    expect(result.gui.debugMode).toBe(false);
     expect(result.player.input).toBe("default");
     expect(result.player.mpv).toEqual(defaultMpvPresets());
     expect(result.hotkeys.refresh).toBe("F5");
@@ -112,6 +115,31 @@ describe("migrateSettings", () => {
       },
     });
     expect(kept.notifications.mutedFollowed).toEqual(["forsen", "xqc"]);
+  });
+
+  it("defaults missing Channel Points HUD keys and sanitizes offset", () => {
+    const missing = migrateSettings({ schemaVersion: 18, streaming: {} });
+    expect(missing.streaming.channelPointsHud).toBe(false);
+    expect(missing.streaming.channelPointsHudOffset).toBeNull();
+    const garbage = migrateSettings({
+      schemaVersion: 18,
+      streaming: { channelPointsHudOffset: { x: "nope", y: 0.2 } },
+    });
+    expect(garbage.streaming.channelPointsHudOffset).toBeNull();
+    const kept = migrateSettings({
+      schemaVersion: 18,
+      streaming: {
+        channelPointsHud: true,
+        channelPointsHudOffset: { x: 0.2, y: 0.3 },
+      },
+    });
+    expect(kept.streaming.channelPointsHud).toBe(true);
+    expect(kept.streaming.channelPointsHudOffset).toEqual({ x: 0.2, y: 0.3 });
+    const clamped = migrateSettings({
+      schemaVersion: 18,
+      streaming: { channelPointsHudOffset: { x: 1.5, y: -0.2 } },
+    });
+    expect(clamped.streaming.channelPointsHudOffset).toEqual({ x: 1, y: 0 });
   });
 
   it("turns off webbrowser when migrating from schema < 8", () => {

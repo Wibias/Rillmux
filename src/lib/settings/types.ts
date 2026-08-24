@@ -81,6 +81,16 @@ export interface AppSettings {
     channelPoints: boolean;
     /** Show Channel Points polls over chat and allow voting. Opt-in. */
     channelPointsPolls: boolean;
+    /**
+     * Channel Points chip on each mpv window. Opt-in; requires presence
+     * (`channelPoints`) and website auth. Does not enable presence.
+     */
+    channelPointsHud: boolean;
+    /**
+     * Chip top-left as a fraction of the player inner size, or null for
+     * the default top-right inset. One offset for every stream.
+     */
+    channelPointsHudOffset: { x: number; y: number } | null;
     /** Start the next Streamlink process before stopping the previous one. */
     seamlessSwitch: boolean;
     /** Multistream grid when seamlessSwitch is off. */
@@ -126,6 +136,8 @@ export interface AppSettings {
     /** Lowercase logins pinned to the top of Followed. */
     pinnedFollowed: string[];
     hideMatureFollowed: boolean;
+    /** Extra logging, a debug console, and local crash files. */
+    debugMode: boolean;
   };
   notifications: {
     followedOnline: boolean;
@@ -142,7 +154,7 @@ export interface AppSettings {
   closeToTray?: boolean;
 }
 
-export const SETTINGS_SCHEMA_VERSION = 17;
+export const SETTINGS_SCHEMA_VERSION = 19;
 
 export const defaultHotkeys = (): HotkeySettings => ({
   refresh: "F5",
@@ -178,6 +190,8 @@ export const defaultSettings = (): AppSettings => ({
     disableAds: false,
     channelPoints: false,
     channelPointsPolls: false,
+    channelPointsHud: false,
+    channelPointsHudOffset: null,
     seamlessSwitch: true,
     multistreamLayout: DEFAULT_MULTISTREAM_LAYOUT,
     unevenMainSide: DEFAULT_UNEVEN_MAIN_SIDE,
@@ -203,6 +217,7 @@ export const defaultSettings = (): AppSettings => ({
     followedPageSize: 24,
     pinnedFollowed: [],
     hideMatureFollowed: false,
+    debugMode: false,
   },
   notifications: {
     followedOnline: true,

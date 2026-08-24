@@ -17,11 +17,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - First-load splash uses the app icon, a larger wordmark, and a short fade into the shell
 - Title bar is 38px (10% shorter), including website-auth text, status dots, and caption glyphs
 
+### Added
+
+- Optional Channel Points chip on each mpv window: balance, drag to reposition, and a redeem catalog (Settings → Streaming)
+- Settings button to reset the Channel Points chip to its default position
+- Debug mode (Settings → Other, or `--debug` / `RILLMUX_DEBUG=1`) writes `%APPDATA%\Rillmux\logs` and can open a console
+- Local crash files (panic text + Windows minidumps) under `%APPDATA%\Rillmux\crashes`, plus optional Sentry when enabled
+
 ### Fixed
 
 - Followed grid hides a stream row unless the window is tall enough for the channel name plus title and viewer/uptime lines
-- Clicking X actually quits in `tauri:dev`; native caption overlay no longer swallows the close button
 - Debug `tauri:dev` no longer stacks leftover tray icons in the Windows hidden-icons overflow; the tray is skipped in Vite dev, removed on quit, and X quits instead of hiding to tray
+- Debug `tauri:dev` can run next to an installed Rillmux (single-instance is release-only; WebView2 uses a separate user-data folder)
+- Linked dock no longer freezes the Rillmux window while multistream grips retile mpv/Chatterino
+- Chatterino user cards and menus stay above stream tiles and grey dividers
+- Channel Points chip no longer jumps: the main window no longer destroys and recreates the overlay when its position drifts a few pixels
+- Channel Points overlay stays above its mpv window instead of sitting on top of every other application
+- Resetting the Channel Points chip parks it in the title-bar row, left of min/max/close, not under the caption buttons
+- Resetting the Channel Points chip no longer snaps back under the window controls when returning to a stream
+- A Channel Points chip dragged to the top edge, left of min/max/close, keeps that relative spot when the stream is retiled
+- Chatterino no longer kills and relaunches itself on every Watching refresh; duplicate opens hit its single-instance mutex and the new process exited
+- Dragging the Channel Points chip follows the pointer in screen space and no longer snaps to the caption park
+- Dragging the Channel Points chip no longer moves the overlay HWND on every pointer update; the chip follows with CSS inside a stable drag surface
+- Debug mode writes to the console window it opens instead of spamming `debug mode on` into `tauri:dev`
+- Clicking X actually quits in `tauri:dev`; native caption overlay no longer swallows the close button
 
 ## [0.5.2] — 2026-08-22
 

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
+import { emit, listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../lib/settings/store";
 import {
   exportSettingsJson,
@@ -19,7 +20,7 @@ import { defaultMpvPresets, describeMpvPresets } from "../lib/settings/mpv";
 import { playerInstallGuide } from "../lib/settings/playerInstall";
 import { eventToHotkey, normalizeHotkey } from "../lib/hotkeys";
 import { toggleMutedFollowed } from "../lib/notifications/followedLive";
-import { isTauri } from "../lib/tauri";
+import { invoke, isTauri } from "../lib/tauri";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { syncViewerPresence, useWatchingStore } from "../lib/streaming/store";
@@ -28,6 +29,17 @@ import {
   settingsTabFromPath,
   settingsTabLabelKey,
 } from "../lib/settings/tabs";
+import {
+  isOverlayWebview,
+  shouldAttachDebugConsole,
+} from "../lib/settings/debugConsole";
+import {
+  POINTS_HUD_OFFSET_EVENT,
+  hudOffsetFromSearch,
+  hudOffsetFromUnknown,
+  hudOffsetsEqual,
+  type HudOffset,
+} from "../lib/streaming/pointsHud";
 import "./SettingsPage.css";
 import "../components/SetupHelp.css";
 
@@ -465,6 +477,59 @@ export function SettingsPage() {
             <small className="muted">{t("settings:channelPointsPollsHint")}</small>
           </span>
         </label>
+
+        <label className="settings__row settings__row--check">
+          <input
+            type="checkbox"
+            checked={settings.streaming.channelPointsHud}
+            disabled={!settings.streaming.channelPoints}
+            onChange={(e) =>
+              setSettings({
+                streaming: {
+                  ...settings.streaming,
+                  channelPointsHud: e.target.checked,
+                },
+              })
+            }
+          />
+          <span className="settings__check-text">
+            {t("settings:channelPointsHud")}
+            <small className="muted">{t("settings:channelPointsHudHint")}</small>
+          </span>
+        </label>
+
+        <div className="settings__row settings__row--actions">
+          <div className="settings__label">
+            <span>{t("settings:channelPointsHudReset")}</span>
+            <small className="muted">
+              {t("settings:channelPointsHudResetHint")}
+            </small>
+          </div>
+          <div className="settings__actions">
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={
+                !settings.streaming.channelPoints ||
+                !settings.streaming.channelPointsHud
+              }
+              onClick={() => {
+                setSettings({
+                  streaming: {
+                    ...settings.streaming,
+                    channelPointsHudOffset: null,
+                  },
+                });
+                void persistSettings(useSettingsStore.getState().settings);
+                if (isTauri()) {
+                  void emit(POINTS_HUD_OFFSET_EVENT, null);
+                }
+              }}
+            >
+              {t("settings:channelPointsHudResetBtn")}
+            </button>
+          </div>
+        </div>
 
         <label className="settings__row settings__row--check">
           <input
@@ -1176,6 +1241,44 @@ export function SettingsPage() {
           </span>
         </label>
 
+        <label className="settings__row settings__row--check">
+          <input
+            type="checkbox"
+            checked={settings.gui.debugMode}
+            onChange={(e) =>
+              setSettings({
+                gui: { ...settings.gui, debugMode: e.target.checked },
+              })
+            }
+          />
+          <span className="settings__check-text">
+            {t("settings:debugMode")}
+            <small className="muted">{t("settings:debugModeHint")}</small>
+          </span>
+        </label>
+
+        <div className="settings__row settings__row--actions">
+          <div className="settings__label" />
+          <div className="settings__actions">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => void invoke("diagnostics_open_logs").catch(() => undefined)}
+            >
+              {t("settings:openLogs")}
+            </button>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() =>
+                void invoke("diagnostics_open_crashes").catch(() => undefined)
+              }
+            >
+              {t("settings:openCrashes")}
+            </button>
+          </div>
+        </div>
+
         <div className="settings__row settings__row--actions">
           <div className="settings__label" />
           <div className="settings__actions">
@@ -1226,17 +1329,75 @@ export function SettingsPage() {
   );
 }
 
+let pendingHudOffset: { received: true; value: HudOffset } | { received: false } =
+  { received: false };
+
+function applyHudOffset(next: HudOffset) {
+  const store = useSettingsStore.getState();
+  const current = store.settings.streaming.channelPointsHudOffset;
+  if (hudOffsetsEqual(current, next)) return;
+  store.setSettings({
+    streaming: {
+      ...store.settings.streaming,
+      channelPointsHudOffset: next,
+    },
+  });
+}
+
 export function SettingsBootstrap({ children }: { children: React.ReactNode }) {
   const hydrate = useSettingsStore((s) => s.hydrate);
   const hydrated = useSettingsStore((s) => s.hydrated);
   const settings = useSettingsStore((s) => s.settings);
 
   useEffect(() => {
-    void loadPersistedSettings().then(hydrate);
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    // Listen before hydrate so a reset event cannot lose to a stale settings.json.
+    if (isTauri()) {
+      void listen(POINTS_HUD_OFFSET_EVENT, (event) => {
+        const next = hudOffsetFromUnknown(event.payload);
+        pendingHudOffset = { received: true, value: next };
+        if (cancelled) return;
+        if (useSettingsStore.getState().hydrated) {
+          applyHudOffset(next);
+        }
+      }).then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
+        unlisten = fn;
+      });
+    }
+
+    void loadPersistedSettings().then((loaded) => {
+      if (cancelled) return;
+      hydrate(loaded);
+      const fromUrl = hudOffsetFromSearch();
+      if (fromUrl.found) applyHudOffset(fromUrl.offset);
+      if (pendingHudOffset.received) applyHudOffset(pendingHudOffset.value);
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [hydrate]);
 
   useEffect(() => {
+    if (!hydrated || !isTauri()) return;
+    if (!shouldAttachDebugConsole()) return;
+    void invoke("diagnostics_set_debug", {
+      enabled: settings.gui.debugMode,
+    }).catch(() => undefined);
+  }, [hydrated, settings.gui.debugMode]);
+
+  useEffect(() => {
     if (!hydrated) return;
+    // Overlay webviews must not write settings.json — a remount can persist a
+    // stale Channel Points offset and shove the chip back under the caption.
+    if (isOverlayWebview()) return;
     const handle = window.setTimeout(() => {
       void persistSettings(settings);
     }, 400);

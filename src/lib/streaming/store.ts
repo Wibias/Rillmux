@@ -15,6 +15,11 @@ import {
 import { nextSessionStatus, sessionStatusPatch } from "./status";
 import type { RaidOutgoingEvent } from "./raid";
 import {
+  chatterinoShouldCloseOnEmpty,
+  chatterinoShouldSkipSync,
+  chatterinoSyncKey,
+} from "./chatterinoSync";
+import {
   buildPresenceTargets,
   presenceSourceFromStream,
   prunePresenceMetadata,
@@ -67,6 +72,8 @@ interface WatchingState {
 
 let listenersBound = false;
 let lastChatSyncKey = "";
+let chatSyncInflight = "";
+let chatSyncGeneration = 0;
 let layoutTimer: ReturnType<typeof setTimeout> | null = null;
 let presenceMetadata: PresenceMetadata = {};
 let lastPresenceSyncKey = "";
@@ -173,24 +180,46 @@ async function syncChatterino(channels: string[]) {
   if (!isTauri()) return;
   const settings = useSettingsStore.getState().settings;
   if (settings.chat.provider !== "chatterino") return;
-  if (!channels.length) {
+  const key = chatterinoSyncKey(channels);
+  if (!key) {
+    const hasRunningSessions = useWatchingStore
+      .getState()
+      .sessions.some((s) => s.running);
+    if (!chatterinoShouldCloseOnEmpty(chatSyncInflight, hasRunningSessions)) {
+      return;
+    }
+    chatSyncGeneration += 1;
     lastChatSyncKey = "";
+    chatSyncInflight = "";
     void invoke("close_owned_chatterino").catch(() => undefined);
     return;
   }
-  const key = channels.join(",");
-  if (key === lastChatSyncKey) return;
-  lastChatSyncKey = key;
-  void invoke<string>("open_chatterino_chat", { channels }).catch(
-    (err: unknown) => {
+  // Duplicate Watching refresh + stream start used to fire two opens; the
+  // second kill+spawn hits Chatterino's single-instance mutex and the new
+  // process exits immediately.
+  if (chatterinoShouldSkipSync(key, lastChatSyncKey, chatSyncInflight)) {
+    return;
+  }
+  chatSyncInflight = key;
+  const generation = chatSyncGeneration;
+  void invoke<string>("open_chatterino_chat", { channels })
+    .then(() => {
+      if (generation === chatSyncGeneration) {
+        lastChatSyncKey = key;
+      }
+    })
+    .catch((err: unknown) => {
+      lastChatSyncKey = "";
       useWatchingStore.setState({
         error:
           err instanceof Error
             ? err.message
             : `Chatterino7 failed to open: ${String(err)}`,
       });
-    },
-  );
+    })
+    .finally(() => {
+      if (chatSyncInflight === key) chatSyncInflight = "";
+    });
 }
 
 function scheduleLayoutAfterReady() {
@@ -612,6 +641,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       }));
     }
     lastChatSyncKey = "";
+    chatSyncInflight = "";
+    chatSyncGeneration += 1;
     await get().refresh();
     afterSessionsChanged();
   },
@@ -619,6 +650,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
   stopAll: async () => {
     await invoke("stream_stop_all");
     lastChatSyncKey = "";
+    chatSyncInflight = "";
+    chatSyncGeneration += 1;
     void invoke("close_owned_chatterino").catch(() => undefined);
     presenceMetadata = {};
     set({ sessions: [], slotChannels: [], activeChatChannel: null });

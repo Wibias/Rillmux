@@ -423,7 +423,10 @@ mod tests {
     #[test]
     fn release_client_id_does_not_fall_back_at_runtime() {
         let err = select_client_id(None, Some("runtime-client"), false).unwrap_err();
-        assert_eq!(err.to_string(), "release build is missing its Twitch client ID");
+        assert_eq!(
+            err.to_string(),
+            "release build is missing its Twitch client ID"
+        );
     }
 
     #[test]

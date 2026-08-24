@@ -4,17 +4,20 @@
   "description": "Least-privilege capability for Rillmux overlay windows",
   "windows": ["raid-overlay", "poll-overlay", "points-hud-*"],
   "permissions": [
-    "core:default",
-    "core:window:allow-hide",
-    "core:window:allow-show",
-    "core:window:allow-set-focus",
+    "core:event:default",
+    "core:window:default",
     "core:window:allow-close",
-    "core:window:allow-is-visible",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
     "core:window:allow-set-ignore-cursor-events",
-    "core:window:allow-set-always-on-top",
-    "core:window:allow-set-skip-taskbar",
-    "store:default"
+    "store:default",
+    "allow-channel-points-refresh",
+    "allow-channel-points-cached",
+    "allow-channel-points-vote-poll",
+    "allow-channel-points-vote-prediction",
+    "allow-channel-points-redeem-reward",
+    "allow-channel-points-hud-place",
+    "allow-overlay-fit-webview",
+    "allow-overlay-place-hud"
   ]
 }

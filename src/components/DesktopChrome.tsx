@@ -9,6 +9,7 @@ import {
   newlyLiveFollowedLogins,
   shouldNotifyFollowedLive,
 } from "../lib/notifications/followedLive";
+import { MAIN_TRAY_ID, shouldCreateDesktopTray } from "../lib/desktop/tray";
 
 /**
  * Desktop-only chrome: tray icon, close-to-tray, followed-live notifications.
@@ -34,6 +35,7 @@ export function DesktopChrome() {
     if (!isTauri() || !hydrated) return;
     let unlistenClose: (() => void) | undefined;
     let disposed = false;
+    const useTray = shouldCreateDesktopTray(import.meta.env.DEV);
 
     void (async () => {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -50,29 +52,33 @@ export function DesktopChrome() {
         await win.setFocus();
       };
 
-      const menu = await Menu.new({
-        items: [
-          {
-            id: "show",
-            text: t("common:appNameShort"),
-            action: () => {
-              void showWindow();
-            },
-          },
-          {
-            id: "quit",
-            text: t("common:quit"),
-            action: () => {
-              void invoke("app_quit");
-            },
-          },
-        ],
-      });
+      // Drop a leftover icon from Vite HMR or a previous failed teardown.
+      const leftover = await TrayIcon.getById(MAIN_TRAY_ID).catch(() => null);
+      await leftover?.close().catch(() => undefined);
 
-      const icon = await defaultWindowIcon();
-      try {
+      if (useTray) {
+        const menu = await Menu.new({
+          items: [
+            {
+              id: "show",
+              text: t("common:appNameShort"),
+              action: () => {
+                void showWindow();
+              },
+            },
+            {
+              id: "quit",
+              text: t("common:quit"),
+              action: () => {
+                void invoke("app_quit");
+              },
+            },
+          ],
+        });
+
+        const icon = await defaultWindowIcon();
         await TrayIcon.new({
-          id: "main-tray",
+          id: MAIN_TRAY_ID,
           icon: icon ?? undefined,
           tooltip: t("common:appName"),
           menu,
@@ -86,13 +92,13 @@ export function DesktopChrome() {
               void showWindow();
             }
           },
-        });
-      } catch {
-        // Tray may already exist after HMR; ignore.
+        }).catch(() => undefined);
       }
 
+      // Close-to-tray needs a live icon. In tauri:dev, X must quit so the
+      // console kill / HMR path does not hide a headless process.
       unlistenClose = await win.onCloseRequested(async (event) => {
-        if (closeToTrayRef.current) {
+        if (useTray && closeToTrayRef.current) {
           event.preventDefault();
           await win.hide();
         }
@@ -102,6 +108,12 @@ export function DesktopChrome() {
     return () => {
       disposed = true;
       unlistenClose?.();
+      void import("@tauri-apps/api/tray")
+        .then(async ({ TrayIcon }) => {
+          const tray = await TrayIcon.getById(MAIN_TRAY_ID);
+          await tray?.close();
+        })
+        .catch(() => undefined);
     };
   }, [hydrated, t]);
 

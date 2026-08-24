@@ -43,7 +43,7 @@ jobs:
               marker("fn bundled_streamlink() -> Option<PathBuf> {"),
               marker("/// Re-tile mpv windows for active channels; optionally leave the right strip for chat.\npub fn layout_watching("),
               marker("#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct OverlayRect {"),
-              marker("static LAYOUT_GENERATION: AtomicU64 = AtomicU64::new(0);"),
+              marker("/// Monotonic counter serializing layout_watching retile threads (latest wins).\nstatic LAYOUT_GENERATION: AtomicU64 = AtomicU64::new(0);"),
               marker("fn strip_ansi(input: &str) -> String {"),
               marker("#[cfg(test)]\nmod tests {"),
           ]
@@ -79,6 +79,17 @@ jobs:
           for name, shard in zip(names, shards):
               (module_dir / name).write_bytes(shard)
 
+          # include_bytes! resolves relative to the source file containing the
+          # macro. Moving this code one directory deeper needs exactly one
+          # relative-path correction while keeping the same asset target.
+          windows_path = module_dir / "windows_layout.rs"
+          windows_bytes = windows_path.read_bytes()
+          old_asset = marker('include_bytes!("../assets/loading.png")')
+          new_asset = marker('include_bytes!("../../assets/loading.png")')
+          if windows_bytes.count(old_asset) != 1:
+              raise SystemExit("expected exactly one loading.png include path to relocate")
+          windows_path.write_bytes(windows_bytes.replace(old_asset, new_asset, 1))
+
           facade = """// Structural shards intentionally share the `streaming` module namespace.\n// Keep this order stable unless a follow-up refactor also changes interfaces.\ninclude!(\"foundation.rs\");\ninclude!(\"types_player.rs\");\ninclude!(\"tools_process.rs\");\ninclude!(\"dock.rs\");\ninclude!(\"overlays.rs\");\ninclude!(\"windows_layout.rs\");\ninclude!(\"runtime.rs\");\ninclude!(\"tests.rs\");\n"""
           (module_dir / "mod.rs").write_text(facade, encoding="utf-8", newline="\n")
           source_path.unlink()
@@ -102,7 +113,10 @@ jobs:
               ];
               let mut cursor = 0;
               for shard in expected {
-                  assert!(root.join("src/streaming").join(shard).is_file(), "missing {shard}");
+                  assert!(
+                      root.join("src/streaming").join(shard).is_file(),
+                      "missing {shard}"
+                  );
                   let needle = format!("include!(\\\"{shard}\\\");");
                   let relative = module[cursor..]
                       .find(&needle)
@@ -119,7 +133,7 @@ jobs:
           if old not in text:
               raise SystemExit("PR template streaming path marker changed")
           template.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
-          print("streaming shards reconstruct the original source byte-for-byte")
+          print("streaming shards reconstruct the original source byte-for-byte before the one required relative asset-path relocation")
           '@ | python -
 
       - name: Verify decomposed module

@@ -32,6 +32,7 @@ const COMMANDS: &[&str] = &[
     "dock_set_chat_fraction",
     "dock_cycle_monitor",
     "diagnostics_set_debug",
+    "diagnostics_set_sentry_enabled",
     "diagnostics_open_logs",
     "diagnostics_open_crashes",
     "eventsub_sync",

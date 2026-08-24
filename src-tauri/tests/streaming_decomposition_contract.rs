@@ -27,3 +27,22 @@ fn streaming_is_composed_from_ordered_focused_shards() {
         cursor += relative + needle.len();
     }
 }
+
+#[test]
+fn win32_version_info_pointer_is_validated_before_dereference() {
+    let source = include_str!("../src/streaming/windows_layout.rs");
+    let query = source
+        .find("VerQueryValueW")
+        .expect("missing Win32 version-info query");
+    let dereference = source[query..]
+        .find("let info = &*info_ptr;")
+        .map(|offset| query + offset)
+        .expect("missing validated VS_FIXEDFILEINFO dereference");
+    let guard = &source[query..dereference];
+
+    assert!(guard.contains("checked_add(buf.len())?"));
+    assert!(guard.contains("checked_add(std::mem::size_of::<VsFixedFileInfo>())?"));
+    assert!(guard.contains("info_addr < buf_start"));
+    assert!(guard.contains("info_end > buf_end"));
+    assert!(guard.contains("is_multiple_of(std::mem::align_of::<VsFixedFileInfo>())"));
+}

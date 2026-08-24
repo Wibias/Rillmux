@@ -69,7 +69,7 @@ export function TwitchWebsiteAuth({ compact = false }: { compact?: boolean }) {
     }
   }
 
-  const connected = Boolean(status?.configured && status.streamlinkConfigured);
+  const connected = Boolean(status?.configured && status.playbackReady);
   const label = status
     ? websiteAuthLabel(status)
     : t("playbackAuthChecking");
@@ -146,11 +146,6 @@ export function TwitchWebsiteAuth({ compact = false }: { compact?: boolean }) {
             </>
           )}
 
-          {status?.configPath ? (
-            <small className="muted authbar__playback-path">
-              {t("playbackAuthConfigPath", { path: status.configPath })}
-            </small>
-          ) : null}
           {error ? <p className="authbar__error">{error}</p> : null}
         </div>
       ) : null}

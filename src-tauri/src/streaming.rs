@@ -4642,6 +4642,11 @@ pub fn start_stream(
     }
 
     let mut args: Vec<String> = Vec::new();
+    if let Some(auth_arg) = crate::twitch_web_auth::streamlink_auth_arg()
+        .map_err(|error| StreamError::Message(error.to_string()))?
+    {
+        args.push(auth_arg);
+    }
     if req.low_latency.unwrap_or(false) {
         args.push("--twitch-low-latency".into());
     }

@@ -47,3 +47,8 @@ jobs:
       - name: Cargo test
         working-directory: src-tauri
         run: cargo test
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: RustSec advisory audit
+        working-directory: src-tauri
+        run: cargo audit

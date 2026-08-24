@@ -90,6 +90,20 @@ pub struct ChannelPointsPrediction {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ChannelPointsReward {
+    pub id: String,
+    pub title: String,
+    pub cost: u64,
+    pub image_url: Option<String>,
+    pub is_paused: bool,
+    pub in_stock: bool,
+    pub is_enabled: bool,
+    pub is_user_input_required: bool,
+    pub cooldown_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChannelPointsSnapshot {
     pub channel_login: String,
     pub balance: u64,
@@ -99,6 +113,7 @@ pub struct ChannelPointsSnapshot {
     pub claim_error: Option<String>,
     pub poll: Option<ChannelPointsPoll>,
     pub prediction: Option<ChannelPointsPrediction>,
+    pub rewards: Vec<ChannelPointsReward>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +122,7 @@ struct ContextState {
     balance: u64,
     claim_id: Option<String>,
     poll: Option<ChannelPointsPoll>,
+    rewards: Vec<ChannelPointsReward>,
 }
 
 fn last_contexts() -> &'static Mutex<HashMap<String, ContextState>> {
@@ -135,6 +151,7 @@ pub fn cached_snapshot(raw_channel_login: &str) -> Option<ChannelPointsSnapshot>
         claim_error: None,
         poll: cached_poll(&context.channel_id).or(context.poll),
         prediction: cached_prediction(&context.channel_id),
+        rewards: context.rewards,
     })
 }
 
@@ -384,6 +401,142 @@ fn parse_context(body: &Value) -> Result<ContextState, ChannelPointsError> {
         balance,
         claim_id,
         poll: parse_active_poll(channel),
+        rewards: parse_custom_rewards(channel),
+    })
+}
+
+fn json_u64(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
+        .or_else(|| {
+            value.as_f64().and_then(|n| {
+                if n.is_finite() && n >= 0.0 {
+                    Some(n as u64)
+                } else {
+                    None
+                }
+            })
+        })
+}
+
+fn json_bool(value: &Value, keys: &[&str]) -> Option<bool> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_bool))
+}
+
+fn json_nodes(value: &Value) -> Vec<&Value> {
+    if let Some(items) = value.as_array() {
+        return items.iter().collect();
+    }
+    value
+        .get("edges")
+        .and_then(Value::as_array)
+        .map(|edges| {
+            edges
+                .iter()
+                .filter_map(|edge| edge.get("node"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_custom_rewards(channel: &Value) -> Vec<ChannelPointsReward> {
+    const PATHS: [&str; 5] = [
+        "/communityPointsSettings/customRewards",
+        "/communityPointsSettings/rewards",
+        "/communityPointsSettings/customRewards/edges",
+        "/redemptionSettings/customRewards",
+        "/self/communityPoints/customRewards",
+    ];
+    PATHS
+        .iter()
+        .find_map(|path| {
+            let found = channel.pointer(path)?;
+            let nodes = if path.ends_with("/edges") {
+                found
+                    .as_array()?
+                    .iter()
+                    .filter_map(|edge| edge.get("node"))
+                    .collect::<Vec<_>>()
+            } else {
+                json_nodes(found)
+            };
+            if nodes.is_empty() {
+                None
+            } else {
+                Some(nodes)
+            }
+        })
+        .into_iter()
+        .flatten()
+        .filter_map(parse_custom_reward)
+        .collect()
+}
+
+fn parse_custom_reward(value: &Value) -> Option<ChannelPointsReward> {
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?
+        .to_string();
+    let title = value
+        .get("title")
+        .or_else(|| value.get("title"))
+        .and_then(Value::as_str)
+        .filter(|title| !title.is_empty())?
+        .to_string();
+    let cost = value
+        .get("cost")
+        .and_then(json_u64)
+        .or_else(|| value.pointer("/cost/amount").and_then(json_u64))?;
+    let image_url = value
+        .pointer("/image/url")
+        .or_else(|| value.pointer("/defaultImage/url"))
+        .or_else(|| value.pointer("/image/url4x"))
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string);
+    Some(ChannelPointsReward {
+        id,
+        title,
+        cost,
+        image_url,
+        is_paused: json_bool(value, &["isPaused", "isPaused", "paused"]).unwrap_or(false),
+        in_stock: json_bool(value, &["isInStock", "isInStock", "inStock"]).unwrap_or(true),
+        is_enabled: json_bool(value, &["isEnabled", "isEnabled"]).unwrap_or(true),
+        is_user_input_required: json_bool(
+            value,
+            &["isUserInputRequired", "isUserInputRequired"],
+        )
+        .unwrap_or(false),
+        cooldown_seconds: value
+            .get("cooldownSeconds")
+            .and_then(json_u64)
+            .or_else(|| value.get("cooldownSeconds").and_then(json_u64))
+            .or_else(|| {
+                value
+                    .pointer("/self/redemptionCooldown/secondsRemaining")
+                    .and_then(json_u64)
+            })
+            .unwrap_or(0),
+    })
+}
+
+const REDEEM_REWARD_QUERY: &str = r#"mutation RedeemCommunityPointsCustomReward($input: RedeemCommunityPointsCustomRewardInput!) { redeemCommunityPointsCustomReward(input: $input) { error { code } } }"#;
+
+fn redeem_reward_payload(channel_id: &str, reward_id: &str, text: Option<&str>) -> Value {
+    let mut input = json!({
+        "channelID": channel_id,
+        "rewardID": reward_id,
+    });
+    if let Some(text) = text.map(str::trim).filter(|value| !value.is_empty()) {
+        input["text"] = json!(text);
+    }
+    json!({
+        "operationName": "RedeemCommunityPointsCustomReward",
+        "query": REDEEM_REWARD_QUERY,
+        "variables": { "input": input }
     })
 }
 
@@ -1045,6 +1198,61 @@ async fn fetch_prediction(
     None
 }
 
+const CUSTOM_REWARDS_QUERIES: [&str; 2] = [
+    r#"query ChannelCustomRewards($login: String!) { channel(name: $login) { communityPointsSettings { customRewards { id title cost isPaused isEnabled isInStock isUserInputRequired cooldownSeconds image { url } defaultImage { url } } } } }"#,
+    r#"query ChannelCustomRewards($login: String!) { user(login: $login) { channel { communityPointsSettings { customRewards { id title cost isPaused isEnabled isInStock isUserInputRequired cooldownSeconds image { url } defaultImage { url } } } } } }"#,
+];
+
+fn custom_rewards_payload(channel_login: &str, query: &str) -> Value {
+    json!({
+        "operationName": "ChannelCustomRewards",
+        "query": query,
+        "variables": { "login": channel_login }
+    })
+}
+
+fn parse_rewards_from_body(body: &Value) -> Vec<ChannelPointsReward> {
+    const ROOTS: [&str; 3] = [
+        "/data/community/channel",
+        "/data/channel",
+        "/data/user/channel",
+    ];
+    ROOTS
+        .iter()
+        .find_map(|path| {
+            let channel = body.pointer(path)?;
+            let rewards = parse_custom_rewards(channel);
+            if rewards.is_empty() {
+                None
+            } else {
+                Some(rewards)
+            }
+        })
+        .unwrap_or_default()
+}
+
+async fn fetch_custom_rewards(
+    channel_login: &str,
+    token: &str,
+    client_version: &str,
+) -> Vec<ChannelPointsReward> {
+    for query in CUSTOM_REWARDS_QUERIES {
+        let payload = custom_rewards_payload(channel_login, query);
+        let Ok((status, body)) = post_web_gql(&payload, channel_login, token, client_version).await
+        else {
+            continue;
+        };
+        if !status.is_success() {
+            continue;
+        }
+        let rewards = parse_rewards_from_body(&body);
+        if !rewards.is_empty() {
+            return rewards;
+        }
+    }
+    Vec::new()
+}
+
 async fn fetch_context(
     channel_login: &str,
     token: &str,
@@ -1129,6 +1337,12 @@ pub async fn refresh(
 
     let client_version = current_client_version().await;
     let mut context = fetch_context(&channel_login, &points_auth.token, &client_version).await?;
+    if context.rewards.is_empty() {
+        let extra = fetch_custom_rewards(&channel_login, &points_auth.token, &client_version).await;
+        if !extra.is_empty() {
+            context.rewards = extra;
+        }
+    }
     let mut bonus_claimed = false;
     let mut claim_http_status = None;
     let mut claim_error = None;
@@ -1225,6 +1439,7 @@ pub async fn refresh(
         claim_error,
         poll: context.poll,
         prediction,
+        rewards: context.rewards.clone(),
     })
 }
 
@@ -1362,6 +1577,83 @@ pub async fn vote_prediction(
         .unwrap_or_else(|| ChannelPointsError::Message("Twitch rejected the prediction".into())))
 }
 
+pub async fn redeem_reward(
+    raw_channel_login: &str,
+    reward_id: &str,
+    text: Option<String>,
+) -> Result<ChannelPointsSnapshot, ChannelPointsError> {
+    let channel_login = raw_channel_login.trim().to_ascii_lowercase();
+    if !valid_login(&channel_login) {
+        return Err(ChannelPointsError::Message(
+            "invalid Twitch channel login".into(),
+        ));
+    }
+    let reward_id = reward_id.trim();
+    if reward_id.is_empty() {
+        return Err(ChannelPointsError::Message("invalid reward".into()));
+    }
+    let text = text
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let points_auth = crate::twitch_web_auth::load_session()
+        .map_err(|error| ChannelPointsError::Message(error.to_string()))?
+        .ok_or_else(|| {
+            ChannelPointsError::Message("Twitch Website Authentication is not configured".into())
+        })?;
+    let session = crate::auth::get_session()
+        .await
+        .map_err(|error| ChannelPointsError::Message(error.to_string()))?;
+    if !session.logged_in || session.user_id.as_deref() != Some(points_auth.user_id.as_str()) {
+        return Err(ChannelPointsError::Message(
+            "Twitch Website Authentication does not match the current Twitch account".into(),
+        ));
+    }
+    let _ = refresh(&channel_login, false).await?;
+    let context = last_contexts()
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&channel_login).cloned())
+        .ok_or_else(|| ChannelPointsError::Message("Channel Points are unavailable".into()))?;
+    let requires_input = context
+        .rewards
+        .iter()
+        .find(|reward| reward.id == reward_id)
+        .map(|reward| reward.is_user_input_required)
+        .unwrap_or(false);
+    if requires_input && text.is_none() {
+        return Err(ChannelPointsError::Message(
+            "this reward needs a message".into(),
+        ));
+    }
+    let payload = redeem_reward_payload(&context.channel_id, reward_id, text.as_deref());
+    let client_version = current_client_version().await;
+    let (status, body) = post_web_gql(
+        &payload,
+        &channel_login,
+        &points_auth.token,
+        &client_version,
+    )
+    .await?;
+    if !status.is_success() {
+        return Err(ChannelPointsError::Message(format!(
+            "Twitch rejected the reward (HTTP {status})"
+        )));
+    }
+    if let Some(message) = gql_error_message(&body) {
+        return Err(ChannelPointsError::Message(message));
+    }
+    if let Some(code) = body
+        .pointer("/data/redeemCommunityPointsCustomReward/error/code")
+        .and_then(Value::as_str)
+        .filter(|code| !code.is_empty())
+    {
+        return Err(ChannelPointsError::Message(format!(
+            "Twitch rejected the reward ({code})"
+        )));
+    }
+    refresh(&channel_login, true).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1424,6 +1716,114 @@ mod tests {
         assert_eq!(context.balance, 18450);
         assert_eq!(context.claim_id.as_deref(), Some("claim-456"));
         assert!(context.poll.is_none());
+        assert!(context.rewards.is_empty());
+    }
+
+    #[test]
+    fn parses_custom_channel_points_rewards() {
+        let body = json!({
+            "data": {
+                "community": {
+                    "channel": {
+                        "id": "123",
+                        "communityPointsSettings": {
+                            "customRewards": [
+                                {
+                                    "id": "r1",
+                                    "title": "Highlight",
+                                    "cost": 50,
+                                    "isPaused": false,
+                                    "isEnabled": true,
+                                    "isInStock": true,
+                                    "isUserInputRequired": false,
+                                    "image": { "url": "https://example/a.png" }
+                                },
+                                {
+                                    "id": "r2",
+                                    "title": "Shoutout",
+                                    "cost": 500,
+                                    "isPaused": true,
+                                    "isEnabled": true,
+                                    "isInStock": true,
+                                    "isUserInputRequired": true,
+                                    "cooldownSeconds": 30
+                                },
+                                { "id": "", "title": "bad" }
+                            ]
+                        },
+                        "self": {
+                            "communityPoints": {
+                                "balance": 100,
+                                "availableClaim": null
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let context = parse_context(&body).unwrap();
+        assert_eq!(context.rewards.len(), 2);
+        assert_eq!(context.rewards[0].id, "r1");
+        assert_eq!(context.rewards[0].title, "Highlight");
+        assert_eq!(context.rewards[0].cost, 50);
+        assert_eq!(
+            context.rewards[0].image_url.as_deref(),
+            Some("https://example/a.png")
+        );
+        assert!(!context.rewards[0].is_user_input_required);
+        assert!(context.rewards[1].is_paused);
+        assert!(context.rewards[1].is_user_input_required);
+        assert_eq!(context.rewards[1].cooldown_seconds, 30);
+    }
+
+    #[test]
+    fn parses_custom_rewards_from_graphql_edges() {
+        let body = json!({
+            "data": {
+                "community": {
+                    "channel": {
+                        "id": "123",
+                        "communityPointsSettings": {
+                            "customRewards": {
+                                "edges": [
+                                    {
+                                        "node": {
+                                            "id": "edge-1",
+                                            "title": "Hype",
+                                            "cost": 25,
+                                            "isPaused": false,
+                                            "isEnabled": true,
+                                            "isInStock": true
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "self": {
+                            "communityPoints": { "balance": 10, "availableClaim": null }
+                        }
+                    }
+                }
+            }
+        });
+        let context = parse_context(&body).unwrap();
+        assert_eq!(context.rewards.len(), 1);
+        assert_eq!(context.rewards[0].id, "edge-1");
+        assert_eq!(context.rewards[0].cost, 25);
+    }
+
+    #[test]
+    fn builds_redeem_reward_payload_without_empty_text() {
+        let with_text = redeem_reward_payload("123", "r1", Some(" hello "));
+        assert_eq!(
+            with_text["operationName"],
+            "RedeemCommunityPointsCustomReward"
+        );
+        assert_eq!(with_text["variables"]["input"]["channelID"], "123");
+        assert_eq!(with_text["variables"]["input"]["rewardID"], "r1");
+        assert_eq!(with_text["variables"]["input"]["text"], "hello");
+        let without = redeem_reward_payload("123", "r1", Some("  "));
+        assert!(without["variables"]["input"].get("text").is_none());
     }
 
     #[test]
@@ -1823,6 +2223,7 @@ mod tests {
                 balance: 42,
                 claim_id: None,
                 poll: None,
+                rewards: vec![],
             },
         );
         assert!(ingest_pubsub(

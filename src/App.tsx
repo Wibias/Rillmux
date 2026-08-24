@@ -34,6 +34,11 @@ import {
   ChannelPointsPollOverlay,
   isPollOverlayWindow,
 } from "./components/ChannelPointsPollOverlay";
+import {
+  ChannelPointsHud,
+  isPointsHudOverlayWindow,
+} from "./components/ChannelPointsHud";
+import { ChannelPointsHudSync } from "./components/ChannelPointsHudSync";
 import { SentryBootstrap } from "./lib/sentry";
 import "./styles/global.css";
 
@@ -103,6 +108,16 @@ export default function App() {
     );
   }
 
+  if (isPointsHudOverlayWindow()) {
+    return (
+      <ThemeProvider>
+        <SettingsBootstrap>
+          <ChannelPointsHud />
+        </SettingsBootstrap>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
@@ -121,6 +136,9 @@ export default function App() {
                         <UpdateBanner />
                         <RaidBanner />
                         <ChannelPointsPollOverlay />
+                        <Sentry.ErrorBoundary fallback={null}>
+                          <ChannelPointsHudSync />
+                        </Sentry.ErrorBoundary>
                         <AppRoutes />
                       </AppShell>
                     </StreamingBootstrap>

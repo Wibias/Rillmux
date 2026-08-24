@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -78,6 +79,202 @@ fn chatterino_cache() -> &'static Mutex<Option<PathBuf>> {
 fn owned_chatterino_pid() -> &'static Mutex<Option<u32>> {
     static PID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
     PID.get_or_init(|| Mutex::new(None))
+}
+
+fn last_chatterino_channels() -> &'static Mutex<String> {
+    static LAST: OnceLock<Mutex<String>> = OnceLock::new();
+    LAST.get_or_init(|| Mutex::new(String::new()))
+}
+
+fn last_chatterino_watchdog_relaunch() -> &'static Mutex<Option<Instant>> {
+    static LAST: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    LAST.get_or_init(|| Mutex::new(None))
+}
+
+fn chatterino_launch_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn chatterino_close_epoch() -> &'static AtomicU64 {
+    static EPOCH: AtomicU64 = AtomicU64::new(0);
+    &EPOCH
+}
+
+fn bump_chatterino_close_epoch() -> u64 {
+    chatterino_close_epoch().fetch_add(1, Ordering::SeqCst) + 1
+}
+
+fn current_chatterino_close_epoch() -> u64 {
+    chatterino_close_epoch().load(Ordering::SeqCst)
+}
+
+fn chatterino_spawn_is_stale(spawn_epoch: u64, close_epoch: u64) -> bool {
+    spawn_epoch != close_epoch
+}
+
+fn chatterino_pids_to_close(owned: Option<u32>, dock_pids: &[u32]) -> Vec<u32> {
+    let mut pids = Vec::new();
+    if let Some(pid) = owned {
+        pids.push(pid);
+    }
+    for pid in dock_pids {
+        if !pids.contains(pid) {
+            pids.push(*pid);
+        }
+    }
+    pids
+}
+
+/// Chatterino's QCommandLineParser exits on unknown flags. Tag the dock
+/// instance with an env var instead of `--rillmux-dock`.
+const CHATTERINO_DOCK_ENV: &str = "RILLMUX_DOCK";
+
+fn chatterino_dock_appdata() -> PathBuf {
+    crate::diagnostics::app_data_dir().join("chatterino-dock")
+}
+
+fn user_chatterino_settings_dir() -> Option<PathBuf> {
+    let appdata = std::env::var_os("APPDATA")?;
+    Some(PathBuf::from(appdata).join("Chatterino2").join("Settings"))
+}
+
+fn seed_chatterino_dock_home(dock_appdata: &Path) {
+    let dest = dock_appdata.join("Chatterino2").join("Settings");
+    let dest_file = dest.join("settings.json");
+    if dest_file.is_file() {
+        return;
+    }
+    let Some(src) = user_chatterino_settings_dir() else {
+        let _ = fs::create_dir_all(&dest);
+        return;
+    };
+    let src_file = src.join("settings.json");
+    if !src_file.is_file() {
+        let _ = fs::create_dir_all(&dest);
+        return;
+    }
+    let _ = fs::create_dir_all(&dest);
+    let _ = fs::copy(src_file, dest_file);
+}
+
+/// Chatterino restores this file over `-geometry` after a monitor switch.
+fn strip_dock_chatterino_window_layout(dock_appdata: &Path) {
+    let path = dock_appdata
+        .join("Chatterino2")
+        .join("Settings")
+        .join("window-layout.json");
+    let _ = fs::remove_file(path);
+}
+
+fn chatterino_should_reuse(alive: bool, last: &str, next: &str) -> bool {
+    alive && !last.is_empty() && last == next
+}
+
+/// What to do with the Chatterino process *we* spawned — never the user's own window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChatterinoLaunchPlan {
+    /// Our instance is still up with the same channels — only retile.
+    Reuse,
+    /// Our instance is up but the channel list changed — close ours, spawn a new `--channels=` window.
+    RestartOwned,
+    /// We have no owned process — start `--channels=` beside the stream (leave other Chatterino windows alone).
+    SpawnFresh,
+}
+
+fn chatterino_pick_owned_pid(
+    tracked: Option<u32>,
+    tracked_alive: bool,
+    discovered: Option<u32>,
+) -> Option<u32> {
+    if tracked_alive {
+        tracked
+    } else {
+        discovered
+    }
+}
+
+fn chatterino_launch_plan(owned_alive: bool, last: &str, next: &str) -> ChatterinoLaunchPlan {
+    if chatterino_should_reuse(owned_alive, last, next) {
+        ChatterinoLaunchPlan::Reuse
+    } else if owned_alive {
+        ChatterinoLaunchPlan::RestartOwned
+    } else {
+        ChatterinoLaunchPlan::SpawnFresh
+    }
+}
+
+/// Relaunch the dock instance when our process died but we still expect chat.
+fn chatterino_watchdog_should_relaunch(
+    pid_alive: bool,
+    expect_chat: bool,
+    last_channels_set: bool,
+    millis_since_last: u64,
+    cooldown_ms: u64,
+) -> bool {
+    expect_chat && !pid_alive && last_channels_set && millis_since_last >= cooldown_ms
+}
+
+/// After the spawned child exits: keep a surviving dock PID (stub/IPC), else
+/// drop tracking so the watchdog can spawn again.
+fn chatterino_pid_after_child_exit(
+    tracked: Option<u32>,
+    child_pid: u32,
+    dock_pids: &[u32],
+) -> Option<u32> {
+    if tracked != Some(child_pid) {
+        return tracked;
+    }
+    dock_pids.iter().copied().find(|&p| p != child_pid)
+}
+
+/// Close only duplicate visible Chatterino mains. Hidden Qt helper windows
+/// (IME, offscreen surfaces) also show up in EnumWindows; WM_CLOSE on those
+/// makes the process exit 0 — which is the watchdog relaunch loop.
+fn chatterino_should_close_duplicate_main(
+    is_keep: bool,
+    visible: bool,
+    area: i64,
+    title: &str,
+    have_split: bool,
+) -> bool {
+    if is_keep || !visible || !have_split || area < 10_000 {
+        return false;
+    }
+    title.to_ascii_lowercase().contains("chatterino")
+}
+
+/// `--channels=t:forsen` windows are titled like "forsen - Chatterino".
+/// Isolated APPDATA also restores an empty notebook named just "Chatterino".
+fn chatterino_title_matches_channels(title: &str, channels_arg: &str) -> bool {
+    let title = title.to_ascii_lowercase();
+    channels_arg.split(';').any(|part| {
+        let name = part
+            .trim()
+            .trim_start_matches("t:")
+            .trim_start_matches('#')
+            .to_ascii_lowercase();
+        !name.is_empty() && title.contains(name.as_str())
+    })
+}
+
+/// Prefer a --channels split over a blank notebook, then a visible frame over
+/// a cloaked ghost (which otherwise lands as a white/black sheet on top of chat).
+fn chatterino_window_pick_key(
+    title_matches: bool,
+    visible: bool,
+    iconic: bool,
+    area: i64,
+) -> (u8, u8, i64) {
+    let split = u8::from(title_matches);
+    let vis = if visible && !iconic {
+        2
+    } else if iconic {
+        1
+    } else {
+        0
+    };
+    (split, vis, area)
 }
 
 fn cached_chatterino_path() -> Option<PathBuf> {
@@ -574,6 +771,9 @@ fn default_player_args(player_id: &str, channel: &str, title: &str, game: &str) 
 }
 
 pub fn launch_chatterino_for_channels(channels: &[String]) -> Result<String, StreamError> {
+    let _launch = chatterino_launch_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let cleaned: Vec<String> = channels
         .iter()
         .map(|c| c.trim().trim_start_matches('#').to_lowercase())
@@ -591,9 +791,51 @@ pub fn launch_chatterino_for_channels(channels: &[String]) -> Result<String, Str
         .map(|c| format!("t:{c}"))
         .collect::<Vec<_>>()
         .join(";");
-    // Replace previous owned instance so channel list stays in sync.
-    close_owned_chatterino_wait(Duration::from_millis(400));
-    launch_chatterino_with_path(&path, &list, true)?;
+    let tracked_pid = owned_chatterino_pid().lock().ok().and_then(|g| *g);
+    let tracked_alive = tracked_pid.is_some_and(pid_is_alive);
+    let discovered = find_rillmux_dock_chatterino_pid().filter(|p| pid_is_alive(*p));
+    let owned_pid = chatterino_pick_owned_pid(tracked_pid, tracked_alive, discovered);
+    if owned_pid.is_some() && owned_pid != tracked_pid {
+        if let Ok(mut guard) = owned_chatterino_pid().lock() {
+            *guard = owned_pid;
+        }
+    }
+    let owned_alive = owned_pid.is_some();
+    let last = last_chatterino_channels()
+        .lock()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    crate::diagnostics::log_line(&format!(
+        "[chatterino] launch plan={:?} alive={owned_alive} last={last} next={list} exe={}",
+        chatterino_launch_plan(owned_alive, &last, &list),
+        path.display()
+    ));
+    match chatterino_launch_plan(owned_alive, &last, &list) {
+        ChatterinoLaunchPlan::Reuse => {
+            if let Some(pid) = owned_pid {
+                place_chatterino_window_right(pid);
+            }
+            schedule_chatterino_place();
+            return Ok(path.to_string_lossy().into_owned());
+        }
+        ChatterinoLaunchPlan::RestartOwned => {
+            // Isolated APPDATA keeps the user's own window. Wait until our
+            // previous Qt instance is gone — spawning into a live lockfile
+            // creates a stub plus a leftover blank window on top of chat.
+            close_owned_chatterino_wait(Duration::from_millis(1500));
+        }
+        ChatterinoLaunchPlan::SpawnFresh => {}
+    }
+    let spawn_epoch = current_chatterino_close_epoch();
+    launch_chatterino_with_path(&path, &list, true, true)?;
+    if chatterino_spawn_is_stale(spawn_epoch, current_chatterino_close_epoch()) {
+        close_owned_chatterino();
+        return Ok(path.to_string_lossy().into_owned());
+    }
+    if let Ok(mut guard) = last_chatterino_channels().lock() {
+        *guard = list.clone();
+    }
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -607,60 +849,80 @@ fn normalize_layout(layout: Option<&str>) -> String {
 
 /// Kill the Chatterino process we spawned (never unrelated user windows).
 pub fn close_owned_chatterino() {
+    bump_chatterino_close_epoch();
     close_owned_chatterino_wait(Duration::from_millis(1500));
 }
 
 fn close_owned_chatterino_wait(timeout: Duration) {
-    let pid = owned_chatterino_pid()
+    if let Ok(mut last) = last_chatterino_channels().lock() {
+        last.clear();
+    }
+    let owned = owned_chatterino_pid()
         .lock()
         .ok()
         .and_then(|mut g| g.take());
-    let Some(pid) = pid else {
+    let pids = chatterino_pids_to_close(owned, &list_rillmux_dock_chatterino_pids());
+    if pids.is_empty() {
         return;
-    };
+    }
     #[cfg(windows)]
     {
         // Prefer WM_CLOSE so Chatterino can flush settings (e.g. currentVersion
         // for the changelog prompt). Fall back to TerminateProcess.
-        soft_close_pid(pid, timeout);
+        for pid in &pids {
+            for hwnd in top_level_windows_for_pid(*pid) {
+                post_close_hwnd(hwnd);
+            }
+        }
+        let deadline = Instant::now() + timeout;
+        for pid in &pids {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            wait_pid_exit(*pid, remaining);
+        }
+        for pid in pids {
+            if pid_is_alive(pid) {
+                terminate_pid(pid);
+            }
+        }
     }
     #[cfg(not(windows))]
     {
-        let _ = (pid, timeout);
+        let _ = (pids, timeout);
     }
 }
 
 #[cfg(windows)]
-fn soft_close_pid(pid: u32, timeout: Duration) {
+fn post_close_hwnd(hwnd: *mut core::ffi::c_void) {
     #[link(name = "user32")]
     unsafe extern "system" {
         fn PostMessageW(hwnd: *mut core::ffi::c_void, msg: u32, w: usize, l: isize) -> i32;
     }
+    const WM_CLOSE: u32 = 0x0010;
+    unsafe {
+        let _ = PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    }
+}
+
+#[cfg(windows)]
+fn wait_pid_exit(pid: u32, timeout: Duration) {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
         fn WaitForSingleObject(handle: *mut core::ffi::c_void, ms: u32) -> u32;
         fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
     }
-    const WM_CLOSE: u32 = 0x0010;
     const SYNCHRONIZE: u32 = 0x0010_0000;
-    const WAIT_OBJECT_0: u32 = 0;
-    if let Some(hwnd) = find_main_window_for_pid(pid) {
-        unsafe {
-            let _ = PostMessageW(hwnd, WM_CLOSE, 0, 0);
-        }
-    }
     let handle = unsafe { OpenProcess(SYNCHRONIZE, 0, pid) };
-    if !handle.is_null() {
-        let waited = unsafe { WaitForSingleObject(handle, timeout.as_millis() as u32) };
-        unsafe {
-            let _ = CloseHandle(handle);
-        }
-        if waited == WAIT_OBJECT_0 {
-            return;
-        }
+    if handle.is_null() {
+        return;
     }
-    terminate_pid(pid);
+    unsafe {
+        let _ = WaitForSingleObject(handle, timeout.as_millis() as u32);
+        let _ = CloseHandle(handle);
+    }
 }
 
 #[cfg(windows)]
@@ -669,13 +931,16 @@ fn terminate_pid(pid: u32) {
     unsafe extern "system" {
         fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
         fn TerminateProcess(handle: *mut core::ffi::c_void, exit_code: u32) -> i32;
+        fn WaitForSingleObject(handle: *mut core::ffi::c_void, ms: u32) -> u32;
         fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
     }
     const PROCESS_TERMINATE: u32 = 0x0001;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
     unsafe {
-        let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        let handle = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, 0, pid);
         if !handle.is_null() {
             let _ = TerminateProcess(handle, 1);
+            let _ = WaitForSingleObject(handle, 2000);
             let _ = CloseHandle(handle);
         }
     }
@@ -824,11 +1089,6 @@ pub fn layout_watching(
     #[cfg(windows)]
     {
         let cleaned = cleaned.clone();
-        let chat_pid = owned_chatterino_pid()
-            .lock()
-            .ok()
-            .and_then(|g| *g)
-            .unwrap_or(0);
         // Latest request wins: when several streams become ready at once, the
         // frontend fires layout_watching repeatedly. Older threads exit as
         // soon as they notice a newer generation instead of fighting over
@@ -844,8 +1104,13 @@ pub fn layout_watching(
                 }
                 let found = retile_player_windows(&cleaned, reserve_chat, &layout);
                 let mut chat_ok = true;
-                if reserve_chat && chat_pid != 0 {
-                    chat_ok = find_main_window_for_pid(chat_pid).is_some();
+                if reserve_chat {
+                    let chat_pid = owned_chatterino_pid()
+                        .lock()
+                        .ok()
+                        .and_then(|g| *g)
+                        .unwrap_or(0);
+                    chat_ok = chat_pid != 0 && find_main_window_for_pid(chat_pid).is_some();
                     if chat_ok {
                         place_chatterino_window_right(chat_pid);
                     }
@@ -886,15 +1151,47 @@ pub fn apply_dock_layout() {
         let _ = retile_player_windows(&cfg.channels, cfg.reserve_chat, &cfg.layout);
         if cfg.reserve_chat {
             place_chatterino_window_right(0);
+            schedule_chatterino_place();
         }
         if crate::dock::take_raise_after_apply() {
             raise_dock_windows(&cfg.channels, cfg.reserve_chat);
+        }
+        // Raising mpv buries an owned HUD under the player. Restack after.
+        if let Some(app) = DOCK_APP.get() {
+            restack_all_points_huds(app);
         }
     }
 }
 
 fn apply_dock_layout_cb() {
     apply_dock_layout();
+}
+
+static CHATTERINO_PLACE_GEN: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(windows)]
+fn schedule_chatterino_place() {
+    let gen = CHATTERINO_PLACE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    thread::spawn(move || {
+        let mut elapsed = 0u64;
+        for &at in chatterino_place_retry_ms() {
+            if CHATTERINO_PLACE_GEN.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            if at > elapsed {
+                thread::sleep(Duration::from_millis(at - elapsed));
+                elapsed = at;
+            }
+            if CHATTERINO_PLACE_GEN.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            let cfg = crate::dock::snapshot();
+            if !cfg.reserve_chat || cfg.channels.is_empty() {
+                return;
+            }
+            place_chatterino_window_right(0);
+        }
+    });
 }
 
 static DOCK_APP: OnceLock<AppHandle> = OnceLock::new();
@@ -1043,8 +1340,7 @@ fn start_dock_visibility_watchdog() {
             // Keep grey grips above mpv/chat while the dock owns focus.
             // Re-assert TOPMOST every tick (mpv --ontop / BringWindowToTop can
             // reorder the TOPMOST band). Only demote when FG is clearly a
-            // foreign app — never demote on a failed title scan (that buried
-            // the bars under the stream).
+            // foreign app — never demote on a failed title scan.
             if cfg.linked {
                 match focus.unwrap_or(DockFocusKind::Unknown) {
                     DockFocusKind::DockOrApp | DockFocusKind::Unknown => {
@@ -1062,9 +1358,9 @@ fn start_dock_visibility_watchdog() {
                 }
             }
 
-            // Chatterino usercards/menus sit above the main chat window; our seam
-            // grips used to be TOPMOST and sliced through them. Hide seam grips
-            // while a secondary Chatterino window is visible.
+            // Chatterino usercards/menus sit above the main chat window; seam
+            // grips used to slice through them. Hide seam grips while a
+            // secondary Chatterino window is visible.
             if cfg.linked && cfg.reserve_chat {
                 if has_popup && !seam_suppressed {
                     crate::dock::suppress_seam_grips();
@@ -1074,7 +1370,75 @@ fn start_dock_visibility_watchdog() {
                     seam_suppressed = false;
                 }
             } else if seam_suppressed {
+                crate::dock::restore_seam_grips();
                 seam_suppressed = false;
+            }
+
+            if cfg.reserve_chat {
+                let pid = owned_chatterino_pid()
+                    .lock()
+                    .ok()
+                    .and_then(|g| *g)
+                    .filter(|p| pid_is_alive(*p))
+                    .or_else(find_rillmux_dock_chatterino_pid)
+                    .unwrap_or(0);
+                if pid != 0 && pid_is_alive(pid) {
+                    if let Ok(mut g) = owned_chatterino_pid().lock() {
+                        *g = Some(pid);
+                    }
+                    if let Some(target) = overlay_rect_from_reserved_chat() {
+                        let hwnd = find_main_window_for_pid(pid);
+                        let visible = hwnd.and_then(dwm_visible_overlay_rect);
+                        if chatterino_watchdog_should_place(
+                            hwnd.is_some(),
+                            true,
+                            visible,
+                            target,
+                            chatterino_place_slop_px(),
+                        ) {
+                            place_chatterino_window_right(pid);
+                        }
+                    }
+                } else {
+                    let last_set = last_chatterino_channels()
+                        .lock()
+                        .ok()
+                        .is_some_and(|g| !g.is_empty());
+                    let elapsed = last_chatterino_watchdog_relaunch()
+                        .lock()
+                        .ok()
+                        .and_then(|g| *g)
+                        .map(|t| t.elapsed().as_millis() as u64)
+                        .unwrap_or(u64::MAX);
+                    if chatterino_watchdog_should_relaunch(
+                        false, true, last_set, elapsed, 2_000,
+                    ) {
+                        if let Ok(_launch) = chatterino_launch_lock().try_lock() {
+                            if let Ok(mut g) = last_chatterino_watchdog_relaunch().lock() {
+                                *g = Some(Instant::now());
+                            }
+                            let list = last_chatterino_channels()
+                                .lock()
+                                .ok()
+                                .map(|g| g.clone())
+                                .unwrap_or_default();
+                            if !list.is_empty() {
+                                if let Some(path) = cached_chatterino_path() {
+                                    crate::diagnostics::log_line(
+                                        "[chatterino] watchdog relaunch",
+                                    );
+                                    if let Err(err) = launch_chatterino_with_path(
+                                        &path, &list, true, true,
+                                    ) {
+                                        crate::diagnostics::log_line(&format!(
+                                            "[chatterino] watchdog relaunch failed: {err}"
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     });
@@ -1202,6 +1566,63 @@ fn chatterino_has_overlay_popup() -> bool {
 }
 
 #[cfg(windows)]
+fn pid_image_path(pid: u32) -> Option<String> {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+        fn QueryFullProcessImageNameW(
+            process: *mut core::ffi::c_void,
+            flags: u32,
+            name: *mut u16,
+            size: *mut u32,
+        ) -> i32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut buf = [0u16; 512];
+    let mut size = buf.len() as u32;
+    let ok = unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut size) };
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    if ok == 0 || size == 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buf[..size as usize]))
+}
+
+#[cfg(windows)]
+fn pid_is_alive(pid: u32) -> bool {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
+        fn GetExitCodeProcess(handle: *mut core::ffi::c_void, code: *mut u32) -> i32;
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return false;
+    }
+    let mut code = 0u32;
+    let ok = unsafe { GetExitCodeProcess(handle, &mut code) };
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    ok != 0 && code == STILL_ACTIVE
+}
+
+#[cfg(not(windows))]
+fn pid_is_alive(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(windows)]
 fn dock_member_hwnds(channels: &[String], reserve_chat: bool) -> Vec<*mut core::ffi::c_void> {
     let mut out = Vec::new();
     for channel in channels.iter().take(8) {
@@ -1306,6 +1727,7 @@ fn restore_dock_group(channels: &[String], reserve_chat: bool, layout: &str) {
     let _ = retile_player_windows(channels, reserve_chat, layout);
     if reserve_chat {
         place_chatterino_window_right(0);
+        schedule_chatterino_place();
     }
     raise_dock_windows(channels, reserve_chat);
 }
@@ -1323,7 +1745,7 @@ pub fn dock_cycle_monitor() {
     crate::dock::cycle_monitor();
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OverlayRect {
     pub x: i32,
@@ -1375,6 +1797,670 @@ fn overlay_rect_from_hwnd(hwnd: *mut core::ffi::c_void) -> Option<OverlayRect> {
         width,
         height,
     })
+}
+
+/// Visible DWM frame. GetWindowRect includes the hidden Win11 thickframe.
+#[cfg(windows)]
+fn dwm_visible_overlay_rect(hwnd: *mut core::ffi::c_void) -> Option<OverlayRect> {
+    if hwnd.is_null() {
+        return None;
+    }
+    #[link(name = "dwmapi")]
+    unsafe extern "system" {
+        fn DwmGetWindowAttribute(
+            hwnd: *mut core::ffi::c_void,
+            attr: u32,
+            pv: *mut core::ffi::c_void,
+            size: u32,
+        ) -> i32;
+    }
+    const DWMWA_EXTENDED_FRAME_BOUNDS: u32 = 9;
+    let mut rect = WinRect {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    let hr = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut _ as *mut _,
+            std::mem::size_of::<WinRect>() as u32,
+        )
+    };
+    if hr != 0 {
+        return overlay_rect_from_hwnd(hwnd);
+    }
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    if width < 80 || height < 40 {
+        return None;
+    }
+    Some(OverlayRect {
+        x: rect.left,
+        y: rect.top,
+        width,
+        height,
+    })
+}
+
+const CHANNEL_POINTS_HUD_MIN_WIDTH: i32 = 200;
+const CHANNEL_POINTS_HUD_MIN_HEIGHT: i32 = 120;
+/// Matches `--title-bar-height` / `#tbo-controls` (CSS px, scaled to physical).
+const POINTS_HUD_TITLE_BAR_HEIGHT_CSS: f64 = 38.0;
+/// Matches `--title-bar-controls-width` (3 × 46px caption buttons).
+const POINTS_HUD_CAPTION_WIDTH_CSS: f64 = 138.0;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelPointsHudPlace {
+    pub player: OverlayRect,
+    pub caption_avoid: Option<OverlayRect>,
+}
+
+/// Top-right min/max/close strip. `host` is the webview inner rect — `#tbo-controls`
+/// is `position:fixed; right:0` on the webview, not the outer frame (8px borders).
+pub fn caption_avoid_from_main(host: OverlayRect, scale: f64) -> OverlayRect {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let width = (POINTS_HUD_CAPTION_WIDTH_CSS * scale).round() as i32;
+    let height = (POINTS_HUD_TITLE_BAR_HEIGHT_CSS * scale).round() as i32;
+    OverlayRect {
+        x: host.x + host.width - width.max(1),
+        y: host.y,
+        width: width.max(1),
+        height: height.max(1),
+    }
+}
+
+pub fn union_overlay_rect(a: OverlayRect, b: OverlayRect) -> OverlayRect {
+    let x = a.x.min(b.x);
+    let y = a.y.min(b.y);
+    let right = (a.x + a.width).max(b.x + b.width);
+    let bottom = (a.y + a.height).max(b.y + b.height);
+    OverlayRect {
+        x,
+        y,
+        width: (right - x).max(1),
+        height: (bottom - y).max(1),
+    }
+}
+
+/// DWM caption-button bounds are window-relative (including the 8px frame).
+#[cfg(windows)]
+fn dwm_caption_buttons_screen(
+    hwnd: *mut core::ffi::c_void,
+    window_x: i32,
+    window_y: i32,
+) -> Option<OverlayRect> {
+    #[repr(C)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+    #[link(name = "dwmapi")]
+    unsafe extern "system" {
+        fn DwmGetWindowAttribute(
+            hwnd: *mut core::ffi::c_void,
+            attr: u32,
+            pv: *mut core::ffi::c_void,
+            size: u32,
+        ) -> i32;
+    }
+    const DWMWA_CAPTION_BUTTON_BOUNDS: u32 = 5;
+    let mut bounds = Rect {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    let hr = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_BUTTON_BOUNDS,
+            &mut bounds as *mut Rect as *mut _,
+            std::mem::size_of::<Rect>() as u32,
+        )
+    };
+    if hr != 0 || bounds.right <= bounds.left || bounds.bottom <= bounds.top {
+        return None;
+    }
+    Some(OverlayRect {
+        x: window_x + bounds.left,
+        y: window_y + bounds.top,
+        width: bounds.right - bounds.left,
+        height: bounds.bottom - bounds.top,
+    })
+}
+
+pub fn main_window_caption_avoid(app: &AppHandle) -> Option<OverlayRect> {
+    let win = app.get_webview_window("main")?;
+    let scale = win
+        .scale_factor()
+        .ok()
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(1.0);
+    let inner_pos = win.inner_position().ok()?;
+    let inner_size = win.inner_size().ok()?;
+    let plugin = caption_avoid_from_main(
+        OverlayRect {
+            x: inner_pos.x,
+            y: inner_pos.y,
+            width: inner_size.width as i32,
+            height: inner_size.height as i32,
+        },
+        scale,
+    );
+    #[cfg(windows)]
+    {
+        if let (Ok(hwnd), Ok(outer)) = (win.hwnd(), win.outer_position()) {
+            if let Some(dwm) = dwm_caption_buttons_screen(hwnd.0, outer.x, outer.y) {
+                return Some(union_overlay_rect(plugin, dwm));
+            }
+        }
+    }
+    Some(plugin)
+}
+
+/// Min/max/close of the *player* window, not the Rillmux chrome. Synthetic
+/// top-right strip when DWM has no caption buttons (borderless mpv OSC).
+pub fn player_caption_avoid(channel_login: &str, player: OverlayRect) -> Option<OverlayRect> {
+    #[cfg(windows)]
+    {
+        let hwnd = find_player_window(channel_login);
+        let scale = hwnd.map(hwnd_dpi_scale).unwrap_or(1.0);
+        if let Some(hwnd) = hwnd {
+            if let Some(dwm) = dwm_caption_buttons_screen(hwnd, player.x, player.y) {
+                if overlay_rects_overlap(dwm, player) {
+                    return Some(dwm);
+                }
+            }
+        }
+        Some(caption_avoid_from_main(player, scale))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = channel_login;
+        Some(caption_avoid_from_main(player, 1.0))
+    }
+}
+
+#[cfg(windows)]
+fn hwnd_dpi_scale(hwnd: *mut core::ffi::c_void) -> f64 {
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetDpiForWindow(hwnd: *mut core::ffi::c_void) -> u32;
+    }
+    if hwnd.is_null() {
+        return 1.0;
+    }
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    if dpi == 0 {
+        1.0
+    } else {
+        dpi as f64 / 96.0
+    }
+}
+
+pub fn overlay_rects_overlap(a: OverlayRect, b: OverlayRect) -> bool {
+    a.x < b.x + b.width
+        && a.x + a.width > b.x
+        && a.y < b.y + b.height
+        && a.y + a.height > b.y
+}
+
+fn overlay_rect_differs(a: OverlayRect, b: OverlayRect, slop: i32) -> bool {
+    (a.x - b.x).abs() > slop
+        || (a.y - b.y).abs() > slop
+        || (a.width - b.width).abs() > slop
+        || (a.height - b.height).abs() > slop
+}
+
+/// Move the HUD when forced, when the chip jumped (monitor switch), or when
+/// it still covers the caption keepout. Do not skip a monitor jump just
+/// because the chip is not overlapping the (new) caption strip.
+pub fn hud_overlay_should_apply(
+    force: bool,
+    current: Option<OverlayRect>,
+    desired: OverlayRect,
+    keepout: Option<OverlayRect>,
+    slop: i32,
+) -> bool {
+    if force {
+        return true;
+    }
+    let Some(current) = current else {
+        return true;
+    };
+    if overlay_rect_differs(current, desired, slop) {
+        return true;
+    }
+    keepout.is_some_and(|k| overlay_rects_overlap(current, k))
+}
+
+/// Channel login from a `points-hud-<login>` webview label.
+pub fn points_hud_channel_from_label(label: &str) -> Option<&str> {
+    let channel = label.strip_prefix("points-hud-")?;
+    if channel.is_empty() {
+        None
+    } else {
+        Some(channel)
+    }
+}
+
+/// `SetWindowPos` insert-after so the HUD sits immediately above the player.
+/// `player_prev` is `GW_HWNDPREV` of the player (0 if none). `None` means the
+/// HUD is already there — do not raise it over other apps.
+pub fn hud_z_insert_after(hud: isize, player_prev: isize) -> Option<isize> {
+    if player_prev == 0 {
+        Some(0)
+    } else if player_prev == hud {
+        None
+    } else {
+        Some(player_prev)
+    }
+}
+
+/// Tauri owns overlay webviews by the creator (main). Clearing
+/// GWLP_HWNDPARENT orphans the chip. Never re-own it to mpv either — that
+/// made the Rillmux main window impossible to activate while a stream ran.
+#[cfg(test)]
+pub fn hud_needs_detach_owner(_owner: isize) -> bool {
+    false
+}
+
+#[cfg(test)]
+pub fn hud_needs_reown(_current_owner: isize, _player: isize) -> bool {
+    false
+}
+
+/// Qt restores window-layout.json after a monitor change, often after 800ms.
+pub fn chatterino_place_retry_ms() -> &'static [u64] {
+    &[0, 80, 200, 400, 800, 1600, 3000]
+}
+
+/// Visible-frame slop. 64px hid the ~27px left-gap after DWM expand.
+pub fn chatterino_place_slop_px() -> i32 {
+    12
+}
+
+/// Keep retrying place when the dock still has a Chatterino process but no HWND
+/// (Qt recreates the window on monitor switch and drops the SetProp tag).
+pub fn chatterino_hwnd_lost_needs_retry(found_hwnd: bool, have_dock_pid: bool) -> bool {
+    !found_hwnd && have_dock_pid
+}
+
+/// Watchdog / place retry: missing HWND, unreadable frame, or visible drift.
+pub fn chatterino_watchdog_should_place(
+    found_hwnd: bool,
+    expect_chat: bool,
+    visible: Option<OverlayRect>,
+    target: OverlayRect,
+    slop: i32,
+) -> bool {
+    if chatterino_hwnd_lost_needs_retry(found_hwnd, expect_chat) {
+        return true;
+    }
+    match visible {
+        Some(got) => overlay_rect_drifted(got, target, slop),
+        None => found_hwnd,
+    }
+}
+
+pub fn overlay_rect_drifted(current: OverlayRect, target: OverlayRect, slop: i32) -> bool {
+    (current.x - target.x).abs() > slop
+        || (current.y - target.y).abs() > slop
+        || (current.width - target.width).abs() > slop
+        || (current.height - target.height).abs() > slop
+}
+
+/// Keep the HUD above its mpv window without WS_EX_TOPMOST (other apps stay in front).
+pub fn restack_hud_above_player(app: &AppHandle, label: &str) {
+    let Some(win) = app.get_webview_window(label) else {
+        return;
+    };
+    #[cfg(windows)]
+    {
+        let Ok(hwnd) = win.hwnd() else {
+            return;
+        };
+        if !is_hwnd_alive(hwnd.0) {
+            return;
+        }
+        restack_hud_hwnd(app, &win, label);
+        return;
+    }
+    #[cfg(not(windows))]
+    let _ = win.set_always_on_top(false);
+}
+
+pub fn restack_all_points_huds(app: &AppHandle) {
+    for (label, _) in app.webview_windows() {
+        if label.starts_with("points-hud-") {
+            restack_hud_above_player(app, &label);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn restack_hud_hwnd(app: &AppHandle, win: &tauri::WebviewWindow, label: &str) {
+    let Some(channel) = points_hud_channel_from_label(label) else {
+        return;
+    };
+    let Some(player) = find_player_window(channel) else {
+        return;
+    };
+    let Ok(hud) = win.hwnd() else {
+        return;
+    };
+    let hud_ptr = hud.0;
+    let main_ptr = app
+        .get_webview_window("main")
+        .and_then(|w| w.hwnd().ok())
+        .map(|h| h.0)
+        .filter(|p| !p.is_null())
+        .unwrap_or(std::ptr::null_mut());
+    if hud_ptr.is_null() || player.is_null() {
+        return;
+    }
+    let _ = main_ptr;
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+        fn SetWindowPos(
+            hwnd: *mut core::ffi::c_void,
+            after: *mut core::ffi::c_void,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+        fn GetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32) -> isize;
+        fn SetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32, value: isize) -> isize;
+        fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
+        fn ShowWindow(hwnd: *mut core::ffi::c_void, cmd: i32) -> i32;
+    }
+    const GW_HWNDPREV: u32 = 3;
+    const GWL_EXSTYLE: i32 = -20;
+    const WS_EX_TOPMOST: isize = 0x0008;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_FRAMECHANGED: u32 = 0x0020;
+    const SWP_SHOWWINDOW: u32 = 0x0040;
+    const SWP_NOZORDER: u32 = 0x0004;
+    const SW_SHOWNA: i32 = 8;
+    unsafe fn hwnd_is_above(
+        a: *mut core::ffi::c_void,
+        b: *mut core::ffi::c_void,
+        get_window: unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> *mut core::ffi::c_void,
+    ) -> bool {
+        if a.is_null() || b.is_null() || a == b {
+            return false;
+        }
+        const GW_HWNDNEXT: u32 = 2;
+        let mut cur = get_window(a, GW_HWNDNEXT);
+        for _ in 0..4096 {
+            if cur.is_null() {
+                return false;
+            }
+            if cur == b {
+                return true;
+            }
+            cur = get_window(cur, GW_HWNDNEXT);
+        }
+        false
+    }
+    unsafe {
+        if IsWindow(hud_ptr) == 0 {
+            let _ = win.close();
+            return;
+        }
+        if IsWindow(player) == 0 {
+            return;
+        }
+        let style = GetWindowLongPtrW(hud_ptr, GWL_EXSTYLE);
+        if style & WS_EX_TOPMOST != 0 {
+            SetWindowLongPtrW(hud_ptr, GWL_EXSTYLE, style & !WS_EX_TOPMOST);
+        }
+        let _ = ShowWindow(hud_ptr, SW_SHOWNA);
+        let prev = GetWindow(player, GW_HWNDPREV);
+        let Some(after) = hud_z_insert_after(hud_ptr as isize, prev as isize) else {
+            let _ = SetWindowPos(
+                hud_ptr,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOZORDER
+                    | SWP_SHOWWINDOW,
+            );
+            return;
+        };
+        let _ = SetWindowPos(
+            hud_ptr,
+            after as *mut core::ffi::c_void,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+        if !hwnd_is_above(hud_ptr, player, GetWindow) {
+            let _ = SetWindowPos(
+                hud_ptr,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+    }
+}
+
+/// Keep HUD overlays off the min/max/close strip. `force` always applies the
+/// rect (create / first place); otherwise only move if the HWND covers caption.
+pub fn place_hud_overlay(
+    app: &AppHandle,
+    label: &str,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    force: bool,
+) {
+    let Some(win) = app.get_webview_window(label) else {
+        return;
+    };
+    #[cfg(windows)]
+    {
+        let Ok(hwnd) = win.hwnd() else {
+            return;
+        };
+        if !is_hwnd_alive(hwnd.0) {
+            return;
+        }
+    }
+    let _ = win.set_min_size(Some(tauri::Size::Physical(tauri::PhysicalSize::new(
+        1, 1,
+    ))));
+    restack_hud_above_player(app, label);
+    let desired = OverlayRect {
+        x,
+        y,
+        width,
+        height,
+    };
+    let current = win.outer_position().ok().and_then(|pos| {
+        win.outer_size().ok().map(|size| OverlayRect {
+            x: pos.x,
+            y: pos.y,
+            width: size.width as i32,
+            height: size.height as i32,
+        })
+    });
+    let keepout = main_window_caption_avoid(app).map(|avoid| OverlayRect {
+        x: avoid.x,
+        y: avoid.y,
+        width: avoid.width,
+        height: avoid.height + 16 + 36,
+    });
+    if !hud_overlay_should_apply(force, current, desired, keepout, 12) {
+        return;
+    }
+    #[cfg(windows)]
+    if let Ok(hwnd) = win.hwnd() {
+        move_overlay_hwnd(hwnd.0, x, y, width, height);
+    }
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    fit_overlay_webview(&win, width, height);
+}
+
+/// Full player outer rect for the Channel Points HUD, or none when hidden.
+pub fn channel_points_hud_player_rect(
+    player: Option<OverlayRect>,
+    iconic: bool,
+) -> Option<OverlayRect> {
+    let rect = player?;
+    if iconic
+        || rect.width < CHANNEL_POINTS_HUD_MIN_WIDTH
+        || rect.height < CHANNEL_POINTS_HUD_MIN_HEIGHT
+    {
+        return None;
+    }
+    Some(rect)
+}
+
+#[cfg(windows)]
+pub fn channel_points_hud_host(channel_login: &str) -> Option<OverlayRect> {
+    let hwnd = find_player_window(channel_login)?;
+    let iconic = is_hwnd_iconic(hwnd);
+    channel_points_hud_player_rect(overlay_rect_from_hwnd(hwnd), iconic)
+}
+
+#[cfg(not(windows))]
+pub fn channel_points_hud_host(_channel_login: &str) -> Option<OverlayRect> {
+    None
+}
+
+/// Resize a transparent overlay HWND and its WebView2 child to `width`×`height`
+/// physical pixels. Tauri `setSize` often leaves the child at the previous size.
+/// Move + resize the overlay HWND in screen physical pixels. Tauri
+/// `setPosition` often no-ops when the window already exists on another monitor.
+#[cfg(windows)]
+fn move_overlay_hwnd(
+    hwnd: *mut core::ffi::c_void,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) {
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SetWindowPos(
+            hwnd: *mut core::ffi::c_void,
+            after: *mut core::ffi::c_void,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+        fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
+    }
+    const GW_CHILD: u32 = 5;
+    const SWP_NOZORDER: u32 = 0x0004;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_FRAMECHANGED: u32 = 0x0020;
+    const SWP_NOMOVE: u32 = 0x0002;
+    let width = width.max(1);
+    let height = height.max(1);
+    unsafe {
+        if hwnd.is_null() || IsWindow(hwnd) == 0 {
+            return;
+        }
+        let _ = SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            x,
+            y,
+            width,
+            height,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+        let child = GetWindow(hwnd, GW_CHILD);
+        if !child.is_null() && IsWindow(child) != 0 {
+            let _ = SetWindowPos(
+                child,
+                std::ptr::null_mut(),
+                0,
+                0,
+                width,
+                height,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+}
+
+#[cfg(windows)]
+pub fn fit_overlay_webview(win: &tauri::WebviewWindow, width: i32, height: i32) {
+    let Ok(hwnd) = win.hwnd() else {
+        return;
+    };
+    let width = width.max(1);
+    let height = height.max(1);
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SetWindowPos(
+            hwnd: *mut core::ffi::c_void,
+            after: *mut core::ffi::c_void,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+        fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
+    }
+    const GW_CHILD: u32 = 5;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOZORDER: u32 = 0x0004;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_FRAMECHANGED: u32 = 0x0020;
+    let flags = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED;
+    let ptr = hwnd.0;
+    unsafe {
+        if ptr.is_null() || IsWindow(ptr) == 0 {
+            return;
+        }
+        let _ = SetWindowPos(ptr, std::ptr::null_mut(), 0, 0, width, height, flags);
+        let child = GetWindow(ptr, GW_CHILD);
+        if !child.is_null() && IsWindow(child) != 0 {
+            let _ = SetWindowPos(child, std::ptr::null_mut(), 0, 0, width, height, flags);
+        }
+    }
+    let _ = win.set_size(tauri::PhysicalSize::new(width as u32, height as u32));
+}
+
+#[cfg(not(windows))]
+pub fn fit_overlay_webview(win: &tauri::WebviewWindow, width: i32, height: i32) {
+    let _ = win.set_size(tauri::PhysicalSize::new(
+        width.max(1) as u32,
+        height.max(1) as u32,
+    ));
 }
 
 /// Player first, then owned Chatterino. Main-window fallback is frontend-owned.
@@ -1437,77 +2523,253 @@ fn overlay_rect_from_reserved_chat() -> Option<OverlayRect> {
 /// Monotonic counter serializing layout_watching retile threads (latest wins).
 static LAYOUT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
+enum DockChatterinoSpawn {
+    Child(Child),
+    Adopted(u32),
+}
+
 fn launch_chatterino_with_path(
     path: &Path,
     channels_arg: &str,
     place_beside: bool,
+    track_pid: bool,
 ) -> Result<(), StreamError> {
-    // Chatterino shows "Show changelog?" when misc.currentVersion ≠ binary
-    // version. We often hard-restart it, so patch settings before spawn.
+    let dock_appdata = chatterino_dock_appdata();
+    let _ = fs::create_dir_all(&dock_appdata);
+    seed_chatterino_dock_home(&dock_appdata);
+    strip_dock_chatterino_window_layout(&dock_appdata);
+    // Patch the *dock* copy, never the user's %APPDATA%\Chatterino2.
     #[cfg(windows)]
-    suppress_chatterino_changelog_prompt(path);
+    suppress_chatterino_changelog_prompt(path, &dock_appdata);
 
-    let mut cmd = Command::new(path);
-    // Qt accepts -geometry before app args — open already sized (avoids big→small flash).
-    #[cfg(windows)]
-    if place_beside {
-        if let Some((w, h, x, y)) = chatterino_qt_geometry() {
-            cmd.arg("-geometry").arg(format!("{w}x{h}+{x}+{y}"));
+    crate::diagnostics::log_line(&format!(
+        "[chatterino] spawn exe={} channels={channels_arg} appdata={}",
+        path.display(),
+        dock_appdata.display()
+    ));
+    let spawn_epoch = current_chatterino_close_epoch();
+    let spawned = spawn_dock_chatterino_process(path, channels_arg, &dock_appdata)?;
+    if chatterino_spawn_is_stale(spawn_epoch, current_chatterino_close_epoch()) {
+        crate::diagnostics::log_line("[chatterino] spawn discarded; stream already closed");
+        match spawned {
+            DockChatterinoSpawn::Child(mut child) => {
+                let pid = child.id();
+                let _ = child.kill();
+                let _ = child.wait();
+                #[cfg(windows)]
+                terminate_pid(pid);
+            }
+            DockChatterinoSpawn::Adopted(pid) => {
+                #[cfg(windows)]
+                terminate_pid(pid);
+                let _ = pid;
+            }
         }
+        return Ok(());
     }
-    cmd.arg(format!("--channels={channels_arg}"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let child = cmd.spawn().map_err(|err| {
-        StreamError::Message(format!(
-            "failed to start Chatterino ({}): {err}",
-            path.display()
-        ))
-    })?;
-    let pid = child.id();
-    if let Ok(mut guard) = owned_chatterino_pid().lock() {
-        *guard = Some(pid);
+    let pid = match &spawned {
+        DockChatterinoSpawn::Child(child) => child.id(),
+        DockChatterinoSpawn::Adopted(pid) => *pid,
+    };
+    if track_pid {
+        if let Ok(mut guard) = owned_chatterino_pid().lock() {
+            *guard = Some(pid);
+        }
     }
     if place_beside {
         thread::spawn(move || {
-            // Place our PID only, as soon as its window exists.
-            for _ in 0..40 {
+            for i in 0..40 {
+                let pid = owned_chatterino_pid()
+                    .lock()
+                    .ok()
+                    .and_then(|g| *g)
+                    .or_else(find_rillmux_dock_chatterino_pid)
+                    .unwrap_or(pid);
                 place_chatterino_window_right(pid);
                 #[cfg(windows)]
                 if find_main_window_for_pid(pid).is_some() {
-                    // One more snap after first paint / DWM frame settle.
                     thread::sleep(Duration::from_millis(80));
                     place_chatterino_window_right(pid);
-                    break;
+                    // Isolated profiles open a blank notebook first. Keep
+                    // waiting until the --channels split exists, or we time out.
+                    if chatterino_pid_has_split_window(pid) || i >= 24 {
+                        break;
+                    }
                 }
                 thread::sleep(Duration::from_millis(50));
             }
         });
     }
-    thread::spawn(move || {
-        let mut child = child;
-        let _ = child.wait();
-        if let Ok(mut guard) = owned_chatterino_pid().lock() {
-            if *guard == Some(pid) {
-                *guard = None;
+    if let DockChatterinoSpawn::Child(child) = spawned {
+        thread::spawn(move || {
+            let mut child = child;
+            let status = child.wait();
+            crate::diagnostics::log_line(&format!(
+                "[chatterino] child pid={pid} exited status={status:?}"
+            ));
+            if !track_pid {
+                return;
+            }
+            let dock_pids = list_rillmux_dock_chatterino_pids();
+            if let Ok(mut guard) = owned_chatterino_pid().lock() {
+                let keep = chatterino_pid_after_child_exit(*guard, pid, &dock_pids);
+                if let Some(keep) = keep {
+                    if Some(keep) != Some(pid) {
+                        crate::diagnostics::log_line(&format!(
+                            "[chatterino] stub exited; keeping dock pid={keep}"
+                        ));
+                    }
+                }
+                *guard = keep;
+            }
+        });
+    }
+    Ok(())
+}
+
+fn spawnable_exe_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        const PREFIX: &str = r"\\?\";
+        if let Some(s) = path.to_str() {
+            if let Some(stripped) = s.strip_prefix(PREFIX) {
+                return PathBuf::from(stripped);
             }
         }
-    });
-    Ok(())
+    }
+    path.to_path_buf()
+}
+
+fn dock_chatterino_command(path: &Path, channels_arg: &str, dock_appdata: &Path) -> Command {
+    let mut cmd = Command::new(spawnable_exe_path(path));
+    cmd.env("APPDATA", dock_appdata);
+    cmd.env(CHATTERINO_DOCK_ENV, "1");
+    // WebView2/Tauri can leak Qt plugin paths. Chatterino then loads the
+    // wrong platform plugin and exits before a window exists.
+    for key in [
+        "QT_PLUGIN_PATH",
+        "QT_QPA_PLATFORM_PLUGIN_PATH",
+        "QT_QPA_PLATFORM",
+        "QTDIR",
+        "QML2_IMPORT_PATH",
+        "QT_DEBUG_PLUGINS",
+    ] {
+        cmd.env_remove(key);
+    }
+    if let Some(dir) = path.parent() {
+        cmd.current_dir(dir);
+    }
+    // Never pass -geometry / unknown flags: QCommandLineParser can exit 1.
+    cmd.arg(format!("--channels={channels_arg}"))
+        .stdin(Stdio::null())
+        .stdout(chatterino_dock_stdio())
+        .stderr(chatterino_dock_stdio());
+    cmd
+}
+
+#[cfg(windows)]
+fn windows_dock_spawn_flags() -> &'static [u32] {
+    const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
+    // Tauri/WebView2 jobs deny CREATE_BREAKAWAY_FROM_JOB (os error 5).
+    // Spawn without job flags; that is what actually stays alive.
+    &[0, CREATE_UNICODE_ENVIRONMENT]
+}
+
+fn spawn_dock_chatterino_process(
+    path: &Path,
+    channels_arg: &str,
+    dock_appdata: &Path,
+) -> Result<DockChatterinoSpawn, StreamError> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut last_spawn_err: Option<std::io::Error> = None;
+        let mut last_exit = String::from("exited");
+        for &flags in windows_dock_spawn_flags() {
+            let mut cmd = dock_chatterino_command(path, channels_arg, dock_appdata);
+            if flags != 0 {
+                cmd.creation_flags(flags);
+            }
+            crate::diagnostics::log_line(&format!(
+                "[chatterino] spawn attempt flags=0x{flags:08x} exe={}",
+                path.display()
+            ));
+            match cmd.spawn() {
+                Err(err) => {
+                    crate::diagnostics::log_line(&format!(
+                        "[chatterino] spawn failed flags=0x{flags:08x}: {err}"
+                    ));
+                    last_spawn_err = Some(err);
+                }
+                Ok(mut child) => {
+                    let pid = child.id();
+                    crate::diagnostics::log_line(&format!(
+                        "[chatterino] spawn pid={pid} flags=0x{flags:08x}"
+                    ));
+                    thread::sleep(Duration::from_millis(800));
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            last_exit = format!("{status:?}");
+                            crate::diagnostics::log_line(&format!(
+                                "[chatterino] child pid={pid} exited immediately status={status:?}"
+                            ));
+                            let dock_pids = list_rillmux_dock_chatterino_pids();
+                            if let Some(keep) =
+                                chatterino_pid_after_child_exit(Some(pid), pid, &dock_pids)
+                            {
+                                crate::diagnostics::log_line(&format!(
+                                    "[chatterino] adopted surviving dock pid={keep}"
+                                ));
+                                return Ok(DockChatterinoSpawn::Adopted(keep));
+                            }
+                        }
+                        Ok(None) | Err(_) => return Ok(DockChatterinoSpawn::Child(child)),
+                    }
+                }
+            }
+        }
+        if let Some(err) = last_spawn_err {
+            return Err(StreamError::Message(format!(
+                "failed to start Chatterino ({}): {err}",
+                path.display()
+            )));
+        }
+        return Err(StreamError::Message(format!(
+            "Chatterino exited immediately ({last_exit})"
+        )));
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = dock_chatterino_command(path, channels_arg, dock_appdata);
+        let child = cmd.spawn().map_err(|err| {
+            StreamError::Message(format!(
+                "failed to start Chatterino ({}): {err}",
+                path.display()
+            ))
+        })?;
+        crate::diagnostics::log_line(&format!("[chatterino] spawn pid={}", child.id()));
+        Ok(DockChatterinoSpawn::Child(child))
+    }
+}
+
+fn chatterino_dock_stdio() -> Stdio {
+    let path = crate::diagnostics::logs_dir().join("chatterino-dock.log");
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null())
 }
 
 /// Align `%APPDATA%\Chatterino2\Settings\settings.json` → `misc.currentVersion`
 /// with the executable's ProductVersion so the changelog QMessageBox is skipped.
 #[cfg(windows)]
-fn suppress_chatterino_changelog_prompt(exe: &Path) {
+fn suppress_chatterino_changelog_prompt(exe: &Path, appdata: &Path) {
     let Some(ver) = file_product_version(exe) else {
         return;
     };
-    let Ok(appdata) = std::env::var("APPDATA") else {
-        return;
-    };
-    let path = PathBuf::from(appdata)
+    let path = appdata
         .join("Chatterino2")
         .join("Settings")
         .join("settings.json");
@@ -1613,16 +2875,6 @@ fn file_product_version(exe: &Path) -> Option<String> {
             Some(format!("{major}.{minor}.{patch}.{build}"))
         }
     }
-}
-
-#[cfg(windows)]
-fn chatterino_qt_geometry() -> Option<(i32, i32, i32, i32)> {
-    let (_, Some(chat)) = chat_video_split(true)? else {
-        return None;
-    };
-    let w = (chat.right - chat.left).max(1);
-    let h = (chat.bottom - chat.top).max(1);
-    Some((w, h, chat.left, chat.top))
 }
 
 #[cfg(windows)]
@@ -2047,9 +3299,9 @@ fn move_hwnd_to(hwnd: *mut core::ffi::c_void, rect: WinRect, expand_dwm: bool) {
     const WS_MAXIMIZE: isize = 0x0100_0000;
     const WS_THICKFRAME: isize = 0x0004_0000;
     const WS_MAXIMIZEBOX: isize = 0x0001_0000;
+    const SWP_NOZORDER: u32 = 0x0004;
     const SWP_NOMOVE: u32 = 0x0002;
     const SWP_NOSIZE: u32 = 0x0001;
-    const SWP_NOZORDER: u32 = 0x0004;
     const SWP_FRAMECHANGED: u32 = 0x0020;
     const DPI_CTX: isize = -4;
 
@@ -2063,10 +3315,11 @@ fn move_hwnd_to(hwnd: *mut core::ffi::c_void, rect: WinRect, expand_dwm: bool) {
             style &= !WS_MAXIMIZE;
             SetWindowLongPtrW(hwnd, GWL_STYLE, style);
         }
-        // Dock owns Chatterino geometry — strip its resize border so dragging
-        // the chat edge can't desync it from mpv.
+        // Live dock: strip Chatterino's resize border so the visible frame
+        // fills the chat slot (otherwise a gap sits to the right of chat).
         if expand_dwm && style & (WS_THICKFRAME | WS_MAXIMIZEBOX) != 0 {
-            SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_THICKFRAME | WS_MAXIMIZEBOX));
+            style &= !(WS_THICKFRAME | WS_MAXIMIZEBOX);
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style);
             SetWindowPos(
                 hwnd,
                 std::ptr::null_mut(),
@@ -2279,13 +3532,14 @@ fn raise_dock_windows(channels: &[String], reserve_chat: bool) {
             raise_hwnd(hwnd, false);
         }
     }
-    // Grips above players, still not global TOPMOST.
     crate::dock::raise_grips();
     raise_poll_overlay();
 }
 
 /// Largest top-level window owned by `pid` (our spawned Chatterino only).
-/// Includes minimized windows so dock group min/restore can find chat.
+/// Visible --channels splits beat a cloaked/empty notebook, which otherwise
+/// covers chat as a white/black sheet. Minimized windows still count so dock
+/// group min/restore can find chat.
 #[cfg(windows)]
 fn find_main_window_for_pid(pid: u32) -> Option<*mut core::ffi::c_void> {
     if pid == 0 {
@@ -2303,6 +3557,7 @@ fn find_main_window_for_pid(pid: u32) -> Option<*mut core::ffi::c_void> {
         fn GetWindowThreadProcessId(hwnd: *mut core::ffi::c_void, pid: *mut u32) -> u32;
         fn GetWindowRect(hwnd: *mut core::ffi::c_void, rect: *mut WinRect) -> i32;
         fn GetWindowPlacement(hwnd: *mut core::ffi::c_void, place: *mut WindowPlacement) -> i32;
+        fn GetWindowTextW(hwnd: *mut core::ffi::c_void, buf: *mut u16, max: i32) -> i32;
     }
     #[repr(C)]
     struct WindowPlacement {
@@ -2318,8 +3573,17 @@ fn find_main_window_for_pid(pid: u32) -> Option<*mut core::ffi::c_void> {
     const GW_OWNER: u32 = 4;
     struct Data {
         pid: u32,
+        channels: String,
         best: *mut core::ffi::c_void,
-        best_area: i64,
+        best_key: (u8, u8, i64),
+    }
+    fn hwnd_title(hwnd: *mut core::ffi::c_void) -> String {
+        let mut buf = [0u16; 512];
+        let n = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+        if n <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buf[..n as usize])
     }
     unsafe extern "system" fn enum_cb(hwnd: *mut core::ffi::c_void, lparam: isize) -> i32 {
         let data = &mut *(lparam as *mut Data);
@@ -2328,10 +3592,6 @@ fn find_main_window_for_pid(pid: u32) -> Option<*mut core::ffi::c_void> {
         }
         let visible = IsWindowVisible(hwnd) != 0;
         let iconic = IsIconic(hwnd) != 0;
-        // Minimized windows are still "visible" to IsWindowVisible; accept either.
-        if !visible && !iconic {
-            return 1;
-        }
         let mut wpid = 0u32;
         GetWindowThreadProcessId(hwnd, &mut wpid);
         if wpid != data.pid {
@@ -2373,16 +3633,24 @@ fn find_main_window_for_pid(pid: u32) -> Option<*mut core::ffi::c_void> {
         if area < 10_000 {
             return 1;
         }
-        if area > data.best_area {
-            data.best_area = area;
+        let title_matches = chatterino_title_matches_channels(&hwnd_title(hwnd), &data.channels);
+        let key = chatterino_window_pick_key(title_matches, visible, iconic, area);
+        if key > data.best_key {
+            data.best_key = key;
             data.best = hwnd;
         }
         1
     }
+    let channels = last_chatterino_channels()
+        .lock()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default();
     let mut data = Data {
         pid,
+        channels,
         best: std::ptr::null_mut(),
-        best_area: 0,
+        best_key: (0, 0, 0),
     };
     unsafe {
         EnumWindows(enum_cb, &mut data as *mut _ as isize);
@@ -2392,6 +3660,485 @@ fn find_main_window_for_pid(pid: u32) -> Option<*mut core::ffi::c_void> {
     } else {
         Some(data.best)
     }
+}
+
+#[cfg(windows)]
+fn top_level_windows_for_pid(pid: u32) -> Vec<*mut core::ffi::c_void> {
+    if pid == 0 {
+        return Vec::new();
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn EnumWindows(
+            cb: unsafe extern "system" fn(*mut core::ffi::c_void, isize) -> i32,
+            lparam: isize,
+        ) -> i32;
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+        fn GetWindowThreadProcessId(hwnd: *mut core::ffi::c_void, pid: *mut u32) -> u32;
+        fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
+    }
+    const GW_OWNER: u32 = 4;
+    struct Data {
+        pid: u32,
+        hwnds: Vec<*mut core::ffi::c_void>,
+    }
+    unsafe extern "system" fn enum_cb(hwnd: *mut core::ffi::c_void, lparam: isize) -> i32 {
+        let data = &mut *(lparam as *mut Data);
+        if IsWindow(hwnd) == 0 || !GetWindow(hwnd, GW_OWNER).is_null() {
+            return 1;
+        }
+        let mut wpid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut wpid);
+        if wpid == data.pid {
+            data.hwnds.push(hwnd);
+        }
+        1
+    }
+    let mut data = Data {
+        pid,
+        hwnds: Vec::new(),
+    };
+    unsafe {
+        EnumWindows(enum_cb, &mut data as *mut _ as isize);
+    }
+    data.hwnds
+}
+
+#[cfg(windows)]
+fn close_extra_chatterino_windows(pid: u32, keep: *mut core::ffi::c_void) {
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn PostMessageW(hwnd: *mut core::ffi::c_void, msg: u32, w: usize, l: isize) -> i32;
+        fn IsWindowVisible(hwnd: *mut core::ffi::c_void) -> i32;
+        fn GetWindowRect(hwnd: *mut core::ffi::c_void, rect: *mut WinRect) -> i32;
+        fn GetWindowTextW(hwnd: *mut core::ffi::c_void, buf: *mut u16, max: i32) -> i32;
+    }
+    const WM_CLOSE: u32 = 0x0010;
+    let have_split = chatterino_pid_has_split_window(pid);
+    for hwnd in top_level_windows_for_pid(pid) {
+        if !is_hwnd_alive(hwnd) {
+            continue;
+        }
+        let visible = unsafe { IsWindowVisible(hwnd) } != 0;
+        let mut rect = WinRect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        let area = if unsafe { GetWindowRect(hwnd, &mut rect) } != 0 {
+            (rect.right - rect.left).max(0) as i64 * (rect.bottom - rect.top).max(0) as i64
+        } else {
+            0
+        };
+        let mut buf = [0u16; 512];
+        let n = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+        let title = if n > 0 {
+            String::from_utf16_lossy(&buf[..n as usize])
+        } else {
+            String::new()
+        };
+        if chatterino_should_close_duplicate_main(hwnd == keep, visible, area, &title, have_split) {
+            unsafe {
+                let _ = PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn chatterino_pid_has_split_window(pid: u32) -> bool {
+    let Some(hwnd) = find_main_window_for_pid(pid) else {
+        return false;
+    };
+    let channels = last_chatterino_channels()
+        .lock()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    if channels.is_empty() {
+        return true;
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindowTextW(hwnd: *mut core::ffi::c_void, buf: *mut u16, max: i32) -> i32;
+    }
+    let mut buf = [0u16; 512];
+    let n = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+    if n <= 0 {
+        return false;
+    }
+    let title = String::from_utf16_lossy(&buf[..n as usize]);
+    chatterino_title_matches_channels(&title, &channels)
+}
+
+#[cfg(not(windows))]
+fn chatterino_pid_has_split_window(_pid: u32) -> bool {
+    true
+}
+
+#[cfg(windows)]
+fn process_command_line(pid: u32) -> Option<String> {
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(
+            process: *mut core::ffi::c_void,
+            class: u32,
+            info: *mut core::ffi::c_void,
+            len: u32,
+            ret: *mut u32,
+        ) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const PROCESS_COMMAND_LINE_INFORMATION: u32 = 60;
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut buf = vec![0u8; 4096];
+    let mut needed = 0u32;
+    let status = unsafe {
+        NtQueryInformationProcess(
+            handle,
+            PROCESS_COMMAND_LINE_INFORMATION,
+            buf.as_mut_ptr() as *mut _,
+            buf.len() as u32,
+            &mut needed,
+        )
+    };
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    if status < 0 || needed < 8 {
+        return None;
+    }
+    command_line_from_nt_buffer(&buf)
+}
+
+/// ProcessCommandLineInformation copies a UNICODE_STRING. Buffer is often a
+/// remote pointer, not an address inside `buf` — the WCHAR payload then sits
+/// immediately after the 16-byte header.
+fn command_line_from_nt_buffer(buf: &[u8]) -> Option<String> {
+    if buf.len() < 16 {
+        return None;
+    }
+    let length = u16::from_le_bytes(buf[0..2].try_into().ok()?) as usize;
+    if length == 0 || length % 2 != 0 {
+        return None;
+    }
+    let ptr = usize::from_le_bytes(buf[8..16].try_into().ok()?);
+    let base = buf.as_ptr() as usize;
+    let bytes = if ptr >= base && ptr.checked_add(length)? <= base.saturating_add(buf.len()) {
+        let off = ptr - base;
+        buf.get(off..off + length)?
+    } else if buf.len() >= 16 + length {
+        &buf[16..16 + length]
+    } else {
+        return None;
+    };
+    let n = length / 2;
+    let mut wide = Vec::with_capacity(n);
+    for i in 0..n {
+        wide.push(u16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]));
+    }
+    Some(String::from_utf16_lossy(&wide))
+}
+
+#[cfg(windows)]
+fn process_env_block(pid: u32) -> Option<Vec<u16>> {
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(
+            process: *mut core::ffi::c_void,
+            class: u32,
+            info: *mut core::ffi::c_void,
+            len: u32,
+            ret: *mut u32,
+        ) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+        fn ReadProcessMemory(
+            process: *mut core::ffi::c_void,
+            addr: *const core::ffi::c_void,
+            buf: *mut core::ffi::c_void,
+            size: usize,
+            read: *mut usize,
+        ) -> i32;
+    }
+    const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
+    const PROCESS_VM_READ: u32 = 0x0010;
+    const PROCESS_BASIC_INFORMATION: u32 = 0;
+    #[repr(C)]
+    struct Pbi {
+        reserved1: usize,
+        peb: usize,
+        reserved2: [usize; 2],
+        pid: usize,
+        reserved3: usize,
+    }
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut pbi = Pbi {
+        reserved1: 0,
+        peb: 0,
+        reserved2: [0, 0],
+        pid: 0,
+        reserved3: 0,
+    };
+    let mut needed = 0u32;
+    let status = unsafe {
+        NtQueryInformationProcess(
+            handle,
+            PROCESS_BASIC_INFORMATION,
+            &mut pbi as *mut _ as *mut _,
+            std::mem::size_of::<Pbi>() as u32,
+            &mut needed,
+        )
+    };
+    if status < 0 || pbi.peb == 0 {
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+        return None;
+    }
+    unsafe fn read_usize(
+        handle: *mut core::ffi::c_void,
+        addr: usize,
+        read_mem: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            *const core::ffi::c_void,
+            *mut core::ffi::c_void,
+            usize,
+            *mut usize,
+        ) -> i32,
+    ) -> Option<usize> {
+        let mut value = 0usize;
+        let mut n = 0usize;
+        if read_mem(
+            handle,
+            addr as *const _,
+            &mut value as *mut _ as *mut _,
+            std::mem::size_of::<usize>(),
+            &mut n,
+        ) == 0
+            || n != std::mem::size_of::<usize>()
+        {
+            return None;
+        }
+        Some(value)
+    }
+    let params = unsafe { read_usize(handle, pbi.peb + 0x20, ReadProcessMemory) };
+    let Some(params) = params.filter(|p| *p != 0) else {
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+        return None;
+    };
+    // RTL_USER_PROCESS_PARAMETERS.Environment at 0x80 on x64.
+    let env_ptr = unsafe { read_usize(handle, params + 0x80, ReadProcessMemory) };
+    let Some(env_ptr) = env_ptr.filter(|p| *p != 0) else {
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+        return None;
+    };
+    let mut wide = vec![0u16; 32_768];
+    let mut n = 0usize;
+    let ok = unsafe {
+        ReadProcessMemory(
+            handle,
+            env_ptr as *const _,
+            wide.as_mut_ptr() as *mut _,
+            wide.len() * 2,
+            &mut n,
+        )
+    };
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    if ok == 0 || n < 4 {
+        return None;
+    }
+    wide.truncate(n / 2);
+    Some(wide)
+}
+
+#[cfg(windows)]
+fn process_has_dock_env(pid: u32) -> bool {
+    let Some(wide) = process_env_block(pid) else {
+        return false;
+    };
+    let needle: Vec<u16> = format!("{CHATTERINO_DOCK_ENV}=").encode_utf16().collect();
+    wide.windows(needle.len()).any(|w| w == needle.as_slice())
+}
+
+#[cfg(not(windows))]
+fn process_has_dock_env(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn list_chatterino_pids() -> Vec<u32> {
+    #[repr(C)]
+    struct ProcessEntryW {
+        size: u32,
+        usage: u32,
+        pid: u32,
+        heap_id: usize,
+        module_id: u32,
+        threads: u32,
+        parent: u32,
+        pri: i32,
+        flags: u32,
+        exe: [u16; 260],
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateToolhelp32Snapshot(flags: u32, pid: u32) -> *mut core::ffi::c_void;
+        fn Process32FirstW(snap: *mut core::ffi::c_void, pe: *mut ProcessEntryW) -> i32;
+        fn Process32NextW(snap: *mut core::ffi::c_void, pe: *mut ProcessEntryW) -> i32;
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+    }
+    const TH32CS_SNAPPROCESS: u32 = 0x0000_0002;
+    const INVALID: usize = usize::MAX;
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap.is_null() || snap as usize == INVALID {
+        return Vec::new();
+    }
+    let mut pe = ProcessEntryW {
+        size: std::mem::size_of::<ProcessEntryW>() as u32,
+        usage: 0,
+        pid: 0,
+        heap_id: 0,
+        module_id: 0,
+        threads: 0,
+        parent: 0,
+        pri: 0,
+        flags: 0,
+        exe: [0; 260],
+    };
+    let mut out = Vec::new();
+    unsafe {
+        if Process32FirstW(snap, &mut pe) != 0 {
+            loop {
+                let name = String::from_utf16_lossy(&pe.exe);
+                let name = name.trim_end_matches('\0');
+                if crate::overlay::image_path_looks_like_chatterino(name) {
+                    out.push(pe.pid);
+                }
+                pe.size = std::mem::size_of::<ProcessEntryW>() as u32;
+                if Process32NextW(snap, &mut pe) == 0 {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snap);
+    }
+    out
+}
+
+#[cfg(not(windows))]
+fn list_chatterino_pids() -> Vec<u32> {
+    Vec::new()
+}
+
+fn process_is_dock_chatterino(pid: u32) -> bool {
+    process_has_dock_env(pid)
+        || process_command_line(pid).is_some_and(|cmd| cmd.contains(CHATTERINO_DOCK_ENV))
+        || process_env_contains(pid, "chatterino-dock")
+}
+
+#[cfg(windows)]
+fn process_env_contains(pid: u32, needle: &str) -> bool {
+    let Some(wide) = process_env_block(pid) else {
+        return false;
+    };
+    let needle: Vec<u16> = needle.encode_utf16().collect();
+    if needle.is_empty() {
+        return false;
+    }
+    wide.windows(needle.len()).any(|w| w == needle.as_slice())
+}
+
+#[cfg(not(windows))]
+fn process_env_contains(_pid: u32, _needle: &str) -> bool {
+    false
+}
+
+fn list_rillmux_dock_chatterino_pids() -> Vec<u32> {
+    list_chatterino_pids()
+        .into_iter()
+        .filter(|&pid| process_is_dock_chatterino(pid))
+        .collect()
+}
+
+/// The dock instance is tagged with `RILLMUX_DOCK=1`. Never returns the user's own Chatterino.
+fn find_rillmux_dock_chatterino_pid() -> Option<u32> {
+    find_rillmux_dock_chatterino_pid_by_window()
+        .or_else(|| list_rillmux_dock_chatterino_pids().into_iter().next())
+}
+
+#[cfg(windows)]
+fn find_rillmux_dock_chatterino_pid_by_window() -> Option<u32> {
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn EnumWindows(
+            cb: unsafe extern "system" fn(*mut core::ffi::c_void, isize) -> i32,
+            lparam: isize,
+        ) -> i32;
+        fn GetWindowThreadProcessId(hwnd: *mut core::ffi::c_void, pid: *mut u32) -> u32;
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+    }
+    const GW_OWNER: u32 = 4;
+    struct Data {
+        pid: u32,
+    }
+    unsafe extern "system" fn enum_cb(hwnd: *mut core::ffi::c_void, lparam: isize) -> i32 {
+        let data = &mut *(lparam as *mut Data);
+        if !GetWindow(hwnd, GW_OWNER).is_null() {
+            return 1;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 || !pid_is_alive(pid) {
+            return 1;
+        }
+        let looks = pid_image_path(pid)
+            .is_some_and(|p| crate::overlay::image_path_looks_like_chatterino(&p));
+        if !looks {
+            return 1;
+        }
+        if process_is_dock_chatterino(pid) {
+            data.pid = pid;
+            return 0;
+        }
+        1
+    }
+    let mut data = Data { pid: 0 };
+    unsafe {
+        EnumWindows(enum_cb, &mut data as *mut _ as isize);
+    }
+    (data.pid != 0).then_some(data.pid)
+}
+
+#[cfg(not(windows))]
+fn find_rillmux_dock_chatterino_pid_by_window() -> Option<u32> {
+    None
+}
+
+#[cfg(not(windows))]
+fn process_command_line(_pid: u32) -> Option<String> {
+    None
 }
 
 #[cfg(windows)]
@@ -2407,10 +4154,12 @@ fn place_chatterino_window_right(pid: u32) {
             .lock()
             .ok()
             .and_then(|g| *g)
+            .or_else(find_rillmux_dock_chatterino_pid)
             .unwrap_or(0)
     };
     if let Some(hwnd) = find_main_window_for_pid(target_pid) {
         move_hwnd_to(hwnd, chat, true);
+        close_extra_chatterino_windows(target_pid, hwnd);
     }
 }
 
@@ -2428,7 +4177,7 @@ fn retile_player_windows(channels: &[String], reserve_chat: bool, layout: &str) 
     for (i, channel) in channels.iter().take(n).enumerate() {
         let tile = tile_rect(video, i, eff);
         if let Some(hwnd) = find_player_window(channel) {
-            // Borderless mpv: plain MoveWindow (DWM expand breaks no-border windows).
+            // Borderless mpv: no DWM frame expand (that breaks no-border windows).
             move_hwnd_to(hwnd, tile, false);
             found += 1;
         }
@@ -3533,6 +5282,87 @@ mod tests {
     use super::*;
 
     #[test]
+    fn chatterino_reuses_a_live_instance_for_the_same_channels() {
+        assert!(chatterino_should_reuse(true, "t:forsen", "t:forsen"));
+        assert!(!chatterino_should_reuse(false, "t:forsen", "t:forsen"));
+        assert!(!chatterino_should_reuse(true, "", "t:forsen"));
+        assert!(!chatterino_should_reuse(true, "t:forsen", "t:forsen;t:xqc"));
+        assert_eq!(
+            chatterino_launch_plan(true, "t:forsen", "t:forsen"),
+            ChatterinoLaunchPlan::Reuse
+        );
+        assert_eq!(
+            chatterino_launch_plan(true, "t:forsen", "t:forsen;t:xqc"),
+            ChatterinoLaunchPlan::RestartOwned
+        );
+        // A Chatterino window the user already had open is not "owned".
+        assert_eq!(
+            chatterino_launch_plan(false, "", "t:forsen"),
+            ChatterinoLaunchPlan::SpawnFresh
+        );
+        assert_eq!(
+            chatterino_launch_plan(true, "", "t:forsen"),
+            ChatterinoLaunchPlan::RestartOwned
+        );
+    }
+
+    #[test]
+    fn chatterino_dock_appdata_is_not_the_user_chatterino_folder() {
+        let dock = chatterino_dock_appdata();
+        let name = dock.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        assert_eq!(name, "chatterino-dock");
+        assert!(!dock.ends_with("Chatterino2"));
+    }
+
+    #[test]
+    fn chatterino_picks_the_channels_split_over_a_blank_notebook() {
+        let split = chatterino_window_pick_key(true, true, false, 80_000);
+        let blank = chatterino_window_pick_key(false, true, false, 400_000);
+        let cloaked = chatterino_window_pick_key(false, false, false, 400_000);
+        assert!(split > blank);
+        assert!(blank > cloaked);
+        assert!(chatterino_title_matches_channels(
+            "forsen - Chatterino",
+            "t:forsen"
+        ));
+        assert!(!chatterino_title_matches_channels("Chatterino", "t:forsen"));
+    }
+
+    #[test]
+    fn command_line_from_nt_buffer_reads_payload_after_header_when_pointer_is_foreign() {
+        let text = "chatterino.exe --channels=t:forsen";
+        let wide: Vec<u16> = text.encode_utf16().collect();
+        let length = (wide.len() * 2) as u16;
+        let mut buf = vec![0u8; 16 + wide.len() * 2];
+        buf[0..2].copy_from_slice(&length.to_le_bytes());
+        buf[2..4].copy_from_slice(&length.to_le_bytes());
+        // Fake remote pointer — parser must use the packed payload at offset 16.
+        buf[8..16].copy_from_slice(&0x7FFF_0000_1234_5678u64.to_le_bytes());
+        for (i, unit) in wide.iter().enumerate() {
+            let off = 16 + i * 2;
+            buf[off..off + 2].copy_from_slice(&unit.to_le_bytes());
+        }
+        assert_eq!(command_line_from_nt_buffer(&buf).as_deref(), Some(text));
+    }
+
+    #[test]
+    fn command_line_from_nt_buffer_reads_payload_when_pointer_is_inside_buffer() {
+        let text = "chatterino.exe";
+        let wide: Vec<u16> = text.encode_utf16().collect();
+        let length = (wide.len() * 2) as u16;
+        let mut buf = vec![0u8; 16 + wide.len() * 2];
+        buf[0..2].copy_from_slice(&length.to_le_bytes());
+        buf[2..4].copy_from_slice(&length.to_le_bytes());
+        for (i, unit) in wide.iter().enumerate() {
+            let off = 16 + i * 2;
+            buf[off..off + 2].copy_from_slice(&unit.to_le_bytes());
+        }
+        let ptr = buf.as_ptr() as u64 + 16;
+        buf[8..16].copy_from_slice(&ptr.to_le_bytes());
+        assert_eq!(command_line_from_nt_buffer(&buf).as_deref(), Some(text));
+    }
+
+    #[test]
     fn opening_stream_is_starting_not_ready() {
         // Regression: "Opening stream" was treated as ready, which started
         // the layout/handoff/missing-window timers before the player existed.
@@ -3622,6 +5452,461 @@ mod tests {
         assert!(session_title_scan_needed(false));
         assert_eq!(session_watchdog_timeout_ms(0), 2500);
         assert_eq!(session_watchdog_timeout_ms(3), 1500);
+    }
+
+    #[test]
+    fn points_hud_channel_from_overlay_label() {
+        assert_eq!(
+            points_hud_channel_from_label("points-hud-forsen"),
+            Some("forsen")
+        );
+        assert_eq!(points_hud_channel_from_label("raid-overlay"), None);
+        assert_eq!(points_hud_channel_from_label("points-hud-"), None);
+    }
+
+    #[test]
+    fn hud_stacks_just_above_the_player_not_the_desktop() {
+        // 0 = HWND_TOP (player is already front-most among peers).
+        assert_eq!(hud_z_insert_after(10, 0), Some(0));
+        // Already immediately above the player: do not raise over other apps.
+        assert_eq!(hud_z_insert_after(10, 10), None);
+        assert_eq!(hud_z_insert_after(10, 20), Some(20));
+    }
+
+    #[test]
+    fn hud_stays_owned_so_the_chip_does_not_vanish() {
+        assert!(!hud_needs_detach_owner(1));
+        assert!(!hud_needs_detach_owner(0));
+    }
+
+    #[test]
+    fn hud_never_reowns_to_mpv() {
+        assert!(!hud_needs_reown(1, 42));
+        assert!(!hud_needs_reown(42, 42));
+        assert!(!hud_needs_reown(1, 0));
+    }
+
+    #[test]
+    fn chatterino_retries_outlast_qt_screen_restore() {
+        let ms = chatterino_place_retry_ms();
+        assert!(ms.last().copied().unwrap_or(0) >= 3000);
+        assert!(ms.len() >= 6);
+    }
+
+    #[test]
+    fn chatterino_place_redoes_when_qt_snaps_back() {
+        let target = OverlayRect {
+            x: 1600,
+            y: 0,
+            width: 320,
+            height: 1080,
+        };
+        let old_monitor = OverlayRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 1080,
+        };
+        assert!(overlay_rect_drifted(
+            old_monitor,
+            target,
+            chatterino_place_slop_px()
+        ));
+        assert!(!overlay_rect_drifted(
+            target,
+            target,
+            chatterino_place_slop_px()
+        ));
+    }
+
+    #[test]
+    fn chatterino_27px_left_gap_counts_as_drift() {
+        let target = OverlayRect {
+            x: 1540,
+            y: 0,
+            width: 380,
+            height: 1032,
+        };
+        let gapped = OverlayRect {
+            x: 1567,
+            y: 0,
+            width: 380,
+            height: 1032,
+        };
+        assert!(overlay_rect_drifted(
+            gapped,
+            target,
+            chatterino_place_slop_px()
+        ));
+        let aligned = OverlayRect {
+            x: 1547,
+            y: 0,
+            width: 380,
+            height: 1032,
+        };
+        assert!(!overlay_rect_drifted(
+            aligned,
+            target,
+            chatterino_place_slop_px()
+        ));
+    }
+
+    #[test]
+    fn chatterino_retries_when_hwnd_vanishes_but_dock_still_runs() {
+        assert!(chatterino_hwnd_lost_needs_retry(false, true));
+        assert!(!chatterino_hwnd_lost_needs_retry(true, true));
+        assert!(!chatterino_hwnd_lost_needs_retry(false, false));
+    }
+
+    #[test]
+    fn chatterino_watchdog_places_when_hwnd_is_gone() {
+        let target = OverlayRect {
+            x: 1540,
+            y: 0,
+            width: 380,
+            height: 1032,
+        };
+        assert!(chatterino_watchdog_should_place(
+            false,
+            true,
+            None,
+            target,
+            chatterino_place_slop_px()
+        ));
+        assert!(!chatterino_watchdog_should_place(
+            true,
+            true,
+            Some(target),
+            target,
+            chatterino_place_slop_px()
+        ));
+    }
+
+    #[test]
+    fn channel_points_hud_hides_missing_iconic_or_tiny_players() {
+        assert_eq!(channel_points_hud_player_rect(None, false), None);
+        assert_eq!(
+            channel_points_hud_player_rect(
+                Some(OverlayRect {
+                    x: 0,
+                    y: 0,
+                    width: 800,
+                    height: 450,
+                }),
+                true,
+            ),
+            None
+        );
+        assert_eq!(
+            channel_points_hud_player_rect(
+                Some(OverlayRect {
+                    x: 0,
+                    y: 0,
+                    width: 199,
+                    height: 120,
+                }),
+                false,
+            ),
+            None
+        );
+        assert_eq!(
+            channel_points_hud_player_rect(
+                Some(OverlayRect {
+                    x: 10,
+                    y: 20,
+                    width: 800,
+                    height: 450,
+                }),
+                false,
+            ),
+            Some(OverlayRect {
+                x: 10,
+                y: 20,
+                width: 800,
+                height: 450,
+            })
+        );
+    }
+
+    #[test]
+    fn caption_avoid_matches_scaled_window_controls() {
+        let main = OverlayRect {
+            x: 100,
+            y: 50,
+            width: 1280,
+            height: 800,
+        };
+        assert_eq!(
+            caption_avoid_from_main(main.clone(), 1.0),
+            OverlayRect {
+                x: 100 + 1280 - 138,
+                y: 50,
+                width: 138,
+                height: 38,
+            }
+        );
+        assert_eq!(
+            caption_avoid_from_main(main, 1.5),
+            OverlayRect {
+                x: 100 + 1280 - 207,
+                y: 50,
+                width: 207,
+                height: 57,
+            }
+        );
+    }
+
+    #[test]
+    fn player_caption_avoid_sits_on_the_stream_tile() {
+        let player = OverlayRect {
+            x: 0,
+            y: 38,
+            width: 1000,
+            height: 800,
+        };
+        let avoid = caption_avoid_from_main(player, 1.0);
+        assert_eq!(avoid.y, 38);
+        assert_eq!(avoid.x, 1000 - 138);
+        assert!(overlay_rects_overlap(avoid, player));
+    }
+
+    #[test]
+    fn union_overlay_covers_plugin_and_dwm_caption_buttons() {
+        let plugin = OverlayRect {
+            x: 1439,
+            y: 75,
+            width: 138,
+            height: 42,
+        };
+        let dwm = OverlayRect {
+            x: 1432,
+            y: 74,
+            width: 146,
+            height: 30,
+        };
+        assert_eq!(
+            union_overlay_rect(plugin, dwm),
+            OverlayRect {
+                x: 1432,
+                y: 74,
+                width: 146,
+                height: 43,
+            }
+        );
+    }
+
+    #[test]
+    fn overlay_rects_overlap_detects_caption_coverage() {
+        let caption = OverlayRect {
+            x: 1142,
+            y: 50,
+            width: 138,
+            height: 42,
+        };
+        let covering = OverlayRect {
+            x: 1100,
+            y: 40,
+            width: 200,
+            height: 80,
+        };
+        let below = OverlayRect {
+            x: 1100,
+            y: 50 + 42 + 16,
+            width: 120,
+            height: 36,
+        };
+        assert!(overlay_rects_overlap(covering, caption.clone()));
+        assert!(!overlay_rects_overlap(below, caption));
+    }
+
+    #[test]
+    fn hud_overlay_moves_when_the_player_jumps_monitors() {
+        let old_chip = OverlayRect {
+            x: 1199,
+            y: 8,
+            width: 120,
+            height: 36,
+        };
+        let new_chip = OverlayRect {
+            x: 1199,
+            y: -1072,
+            width: 120,
+            height: 36,
+        };
+        let caption = OverlayRect {
+            x: 1782,
+            y: 0,
+            width: 138,
+            height: 38,
+        };
+        assert!(hud_overlay_should_apply(
+            false,
+            Some(old_chip),
+            new_chip,
+            Some(caption),
+            12
+        ));
+        assert!(!hud_overlay_should_apply(
+            false,
+            Some(new_chip),
+            new_chip,
+            Some(caption),
+            12
+        ));
+        assert!(hud_overlay_should_apply(
+            true,
+            Some(new_chip),
+            new_chip,
+            Some(caption),
+            12
+        ));
+    }
+
+    #[test]
+    fn chatterino_watchdog_relaunches_after_the_owned_process_dies() {
+        assert!(chatterino_watchdog_should_relaunch(
+            false, true, true, 3_000, 2_000
+        ));
+        assert!(!chatterino_watchdog_should_relaunch(
+            true, true, true, 3_000, 2_000
+        ));
+        assert!(!chatterino_watchdog_should_relaunch(
+            false, true, true, 500, 2_000
+        ));
+        assert!(!chatterino_watchdog_should_relaunch(
+            false, true, false, 3_000, 2_000
+        ));
+        assert!(!chatterino_watchdog_should_relaunch(
+            false, false, true, 3_000, 2_000
+        ));
+    }
+
+    #[test]
+    fn chatterino_pid_after_child_exit_adopts_a_surviving_dock_pid() {
+        assert_eq!(
+            chatterino_pid_after_child_exit(Some(10), 10, &[10, 22]),
+            Some(22)
+        );
+        assert_eq!(chatterino_pid_after_child_exit(Some(10), 10, &[10]), None);
+        assert_eq!(
+            chatterino_pid_after_child_exit(Some(7), 10, &[22]),
+            Some(7)
+        );
+        assert_eq!(chatterino_pid_after_child_exit(None, 10, &[22]), None);
+    }
+
+    #[test]
+    fn chatterino_close_targets_include_owned_and_other_dock_pids() {
+        assert_eq!(
+            chatterino_pids_to_close(Some(10), &[10, 22]),
+            vec![10, 22]
+        );
+        assert_eq!(chatterino_pids_to_close(None, &[22]), vec![22]);
+        assert_eq!(chatterino_pids_to_close(Some(10), &[]), vec![10]);
+        assert!(chatterino_pids_to_close(None, &[]).is_empty());
+    }
+
+    #[test]
+    fn chatterino_spawn_after_close_is_stale() {
+        assert!(chatterino_spawn_is_stale(1, 2));
+        assert!(!chatterino_spawn_is_stale(3, 3));
+    }
+
+    #[test]
+    fn chatterino_picks_a_discovered_dock_pid_when_owned_died() {
+        assert_eq!(
+            chatterino_pick_owned_pid(Some(10), false, Some(22)),
+            Some(22)
+        );
+        assert_eq!(
+            chatterino_pick_owned_pid(Some(10), true, Some(22)),
+            Some(10)
+        );
+        assert_eq!(chatterino_pick_owned_pid(None, false, Some(22)), Some(22));
+        assert_eq!(chatterino_pick_owned_pid(None, false, None), None);
+    }
+
+    #[test]
+    fn chatterino_does_not_wm_close_qt_helper_windows() {
+        assert!(
+            !chatterino_should_close_duplicate_main(
+                false, false, 80_000, "Chatterino", true
+            ),
+            "hidden Qt helpers must not receive WM_CLOSE"
+        );
+        assert!(
+            !chatterino_should_close_duplicate_main(false, true, 200, "Chatterino", true),
+            "tiny surfaces must not receive WM_CLOSE"
+        );
+        assert!(
+            !chatterino_should_close_duplicate_main(
+                false, true, 80_000, "Chatterino", false
+            ),
+            "do not close extras until the --channels split exists"
+        );
+        assert!(
+            !chatterino_should_close_duplicate_main(
+                true, true, 80_000, "eliasn97 - Chatterino", true
+            ),
+            "keep hwnd must stay"
+        );
+        assert!(chatterino_should_close_duplicate_main(
+            false,
+            true,
+            80_000,
+            "Chatterino",
+            true
+        ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn dock_chatterino_spawn_stays_alive_and_opens_a_window() {
+        let path = find_chatterino_path().expect("Chatterino is installed on this machine");
+        for pid in list_rillmux_dock_chatterino_pids() {
+            terminate_pid(pid);
+        }
+        thread::sleep(Duration::from_millis(250));
+        launch_chatterino_with_path(&path, "t:eliasn97", false, true)
+            .expect("dock Chatterino must spawn and stay running");
+        let pid = owned_chatterino_pid()
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .expect("owned dock pid must be tracked");
+        let started = Instant::now();
+        let mut hwnd = None;
+        while started.elapsed() < Duration::from_secs(8) {
+            let alive = pid_is_alive(pid) || find_rillmux_dock_chatterino_pid().is_some();
+            assert!(
+                alive,
+                "dock Chatterino pid={pid} died before a window appeared"
+            );
+            hwnd = find_main_window_for_pid(pid).or_else(|| {
+                find_rillmux_dock_chatterino_pid().and_then(find_main_window_for_pid)
+            });
+            if hwnd.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert!(
+            hwnd.is_some(),
+            "dock Chatterino pid={pid} must create a window"
+        );
+        thread::sleep(Duration::from_secs(3));
+        assert!(
+            pid_is_alive(pid) || find_rillmux_dock_chatterino_pid().is_some(),
+            "dock Chatterino pid={pid} died within 3s (watchdog-loop failure)"
+        );
+        eprintln!(
+            "PROOF dock Chatterino alive pid={pid} hwnd={hwnd:?} after {:?}",
+            started.elapsed()
+        );
+        close_owned_chatterino_wait(Duration::from_secs(2));
+        for leftover in list_rillmux_dock_chatterino_pids() {
+            terminate_pid(leftover);
+        }
     }
 
     #[test]

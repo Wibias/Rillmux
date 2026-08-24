@@ -3419,6 +3419,7 @@ dependencies = [
  "keyring",
  "keyring-core",
  "reqwest",
+ "rustls",
  "sentry",
  "serde",
  "serde_json",

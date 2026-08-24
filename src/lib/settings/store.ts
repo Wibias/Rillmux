@@ -29,6 +29,19 @@ interface SettingsState {
   ) => void;
 }
 
+function parseChannelPointsHudOffset(
+  raw: unknown,
+): { x: number; y: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as { x?: unknown; y?: unknown };
+  if (typeof value.x !== "number" || typeof value.y !== "number") return null;
+  if (!Number.isFinite(value.x) || !Number.isFinite(value.y)) return null;
+  return {
+    x: Math.min(1, Math.max(0, value.x)),
+    y: Math.min(1, Math.max(0, value.y)),
+  };
+}
+
 /** Migrate older settings blobs toward the current schema. */
 export function migrateSettings(raw: unknown): AppSettings {
   const base = defaultSettings();
@@ -74,6 +87,11 @@ export function migrateSettings(raw: unknown): AppSettings {
       followRaids: input.streaming?.followRaids ?? base.streaming.followRaids,
       channelPointsPolls:
         input.streaming?.channelPointsPolls ?? base.streaming.channelPointsPolls,
+      channelPointsHud:
+        input.streaming?.channelPointsHud ?? base.streaming.channelPointsHud,
+      channelPointsHudOffset: parseChannelPointsHudOffset(
+        input.streaming?.channelPointsHudOffset,
+      ),
       streamLanguages: (() => {
         const raw = input.streaming?.streamLanguages;
         if (!Array.isArray(raw)) return base.streaming.streamLanguages;
@@ -112,6 +130,7 @@ export function migrateSettings(raw: unknown): AppSettings {
       hideMatureFollowed: Boolean(
         input.gui?.hideMatureFollowed ?? base.gui.hideMatureFollowed,
       ),
+      debugMode: Boolean(input.gui?.debugMode ?? base.gui.debugMode),
       pinnedFollowed: (() => {
         const raw = input.gui?.pinnedFollowed;
         if (!Array.isArray(raw)) return base.gui.pinnedFollowed;

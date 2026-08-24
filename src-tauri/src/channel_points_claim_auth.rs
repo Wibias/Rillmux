@@ -14,8 +14,9 @@ const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 const TV_ORIGIN: &str = "https://android.tv.twitch.tv";
 const TV_REFERER: &str = "https://android.tv.twitch.tv/";
 const TV_USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 7.1; Smart Box C1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36";
-const SCOPES: &str =
-    "channel_read chat:read user_blocks_edit user_blocks_read user_follows_edit user_read";
+// Bonus claiming only needs an authenticated Twitch identity. The broad scope
+// set used by older mining tools included unrelated account-write privileges.
+const SCOPES: &str = "user_read";
 
 pub(crate) const TV_CLIENT_ID: &str = "ue6666qo983tsx6so1t0vnawi233wa";
 
@@ -356,11 +357,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tv_identity_matches_current_claiming_miner() {
+    fn tv_identity_matches_current_claiming_client() {
         assert_eq!(TV_CLIENT_ID, "ue6666qo983tsx6so1t0vnawi233wa");
         assert!(TV_ORIGIN.contains("android.tv.twitch.tv"));
         assert!(!device_id().is_empty());
         assert_eq!(device_id(), device_id());
         assert_eq!(client_session_id(), client_session_id());
+    }
+
+    #[test]
+    fn bonus_claim_scopes_are_read_only() {
+        assert_eq!(SCOPES, "user_read");
+        assert!(!SCOPES.contains("_edit"));
     }
 }

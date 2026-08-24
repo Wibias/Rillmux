@@ -29,27 +29,44 @@ jobs:
         run: |
           @'
           from pathlib import Path
+          import re
 
           path = Path("src-tauri/src/streaming/windows_layout.rs")
           text = path.read_text(encoding="utf-8")
-          replacements = [
-              (
-                  """        let Some(buf_end) = buf_start.checked_add(buf.len()) else {\n            return None;\n        };""",
-                  "        let buf_end = buf_start.checked_add(buf.len())?;",
-              ),
-              (
-                  """        let Some(info_end) = info_addr.checked_add(std::mem::size_of::<VsFixedFileInfo>()) else {\n            return None;\n        };""",
-                  "        let info_end = info_addr.checked_add(std::mem::size_of::<VsFixedFileInfo>())?;",
-              ),
-              (
-                  "        || info_addr % std::mem::align_of::<VsFixedFileInfo>() != 0",
-                  "        || !info_addr.is_multiple_of(std::mem::align_of::<VsFixedFileInfo>())",
-              ),
-          ]
-          for old, new in replacements:
-              if text.count(old) != 1:
-                  raise SystemExit(f"expected exactly one clippy target, found {text.count(old)}: {old!r}")
-              text = text.replace(old, new, 1)
+          pattern = re.compile(
+              r"\s*let info_ptr = ptr\.cast::<VsFixedFileInfo>\(\);\n"
+              r"\s*let info_addr = info_ptr as usize;\n"
+              r"\s*let buf_start = buf\.as_ptr\(\) as usize;\n"
+              r"\s*let Some\(buf_end\) = buf_start\.checked_add\(buf\.len\(\)\) else \{\n"
+              r"\s*return None;\n"
+              r"\s*\};\n"
+              r"\s*let Some\(info_end\) = info_addr\.checked_add\(std::mem::size_of::<VsFixedFileInfo>\(\)\) else \{\n"
+              r"\s*return None;\n"
+              r"\s*\};\n"
+              r"\s*if info_addr < buf_start\n"
+              r"\s*\|\| info_end > buf_end\n"
+              r"\s*\|\| info_addr % std::mem::align_of::<VsFixedFileInfo>\(\) != 0\n"
+              r"\s*\{\n"
+              r"\s*return None;\n"
+              r"\s*\}\n"
+              r"\s*let info = &\*info_ptr;"
+          )
+          replacement = '''
+        let info_ptr = ptr.cast::<VsFixedFileInfo>();
+        let info_addr = info_ptr as usize;
+        let buf_start = buf.as_ptr() as usize;
+        let buf_end = buf_start.checked_add(buf.len())?;
+        let info_end = info_addr.checked_add(std::mem::size_of::<VsFixedFileInfo>())?;
+        if info_addr < buf_start
+            || info_end > buf_end
+            || !info_addr.is_multiple_of(std::mem::align_of::<VsFixedFileInfo>())
+        {
+            return None;
+        }
+        let info = &*info_ptr;'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"expected exactly one version-info validation block, replaced {count}")
           path.write_text(text, encoding="utf-8", newline="\n")
           '@ | python -
 

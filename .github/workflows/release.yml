@@ -87,6 +87,15 @@ jobs:
           Set-Content -Path "src-tauri/tauri.windows.conf.json" -Value $cfg -Encoding utf8
           Write-Host "Authenticode enabled for thumbprint $thumb"
 
+      - name: Validate release Twitch identity
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TWITCH_CLIENT_ID)) {
+            throw "TWITCH_CLIENT_ID must be configured before building a release"
+          }
+
       - name: Build Tauri (NSIS + MSI)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

@@ -342,21 +342,17 @@ fn file_product_version(exe: &Path) -> Option<String> {
             return None;
         }
         let info_ptr = ptr.cast::<VsFixedFileInfo>();
-let info_addr = info_ptr as usize;
-let buf_start = buf.as_ptr() as usize;
-let Some(buf_end) = buf_start.checked_add(buf.len()) else {
-    return None;
-};
-let Some(info_end) = info_addr.checked_add(std::mem::size_of::<VsFixedFileInfo>()) else {
-    return None;
-};
-if info_addr < buf_start
-    || info_end > buf_end
-    || info_addr % std::mem::align_of::<VsFixedFileInfo>() != 0
-{
-    return None;
-}
-let info = &*info_ptr;
+        let info_addr = info_ptr as usize;
+        let buf_start = buf.as_ptr() as usize;
+        let buf_end = buf_start.checked_add(buf.len())?;
+        let info_end = info_addr.checked_add(std::mem::size_of::<VsFixedFileInfo>())?;
+        if info_addr < buf_start
+            || info_end > buf_end
+            || !info_addr.is_multiple_of(std::mem::align_of::<VsFixedFileInfo>())
+        {
+            return None;
+        }
+        let info = &*info_ptr;
         let major = (info.product_version_ms >> 16) & 0xffff;
         let minor = info.product_version_ms & 0xffff;
         let patch = (info.product_version_ls >> 16) & 0xffff;

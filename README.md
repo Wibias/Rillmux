@@ -20,8 +20,9 @@ About includes **View changelog** and a setup check once Streamlink, mpv, and Ch
 
 ## What it does
 
-- Twitch login (OAuth Device Code); tokens live in the OS keyring
-- **Website auth** for Streamlink playback; experimental **Channel Points** (presence, bonus claims, polls, predictions) when you turn that on in Settings
+- Twitch login (OAuth Device Code); normal app OAuth tokens live in the OS keyring
+- **Website auth** for Streamlink playback; the website token is kept in the OS credential manager and mirrored to Streamlink's per-user `config.twitch` while connected because Streamlink must read it
+- Experimental **Channel Points** (presence, bonus claims, polls, predictions) when you turn that on in Settings; bonus claims use a separate read-only Twitch TV device session
 - Followed (list or grid, search, pins, hide mature), top streams, categories with viewer counts, search, channel pages, teams
 - Language filter on top/category streams
 - Follow outgoing raids from a prompt over mpv or Chatterino
@@ -118,7 +119,7 @@ Timestamp server used when signing: `http://timestamp.digicert.com`.
 
 ## Lineage
 
-This is the Tauri rewrite that used to live at [`Wibias/streamlink-twitch-gui`](https://github.com/Wibias/streamlink-twitch-gui) (archived). The original NW.js app is [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui). The old frontend is under [`legacy/`](legacy/) for reference.
+This is the Tauri rewrite that used to live at [`Wibias/streamlink-twitch-gui`](https://github.com/Wibias/streamlink-twitch-gui) (archived). The original NW.js app is [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui).
 
 ## License
 

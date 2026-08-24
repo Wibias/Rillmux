@@ -7,34 +7,17 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 
 use crate::http::shared_client;
+use crate::twitch_gql_operations::{
+    CHANNEL_POINTS_CONTEXT_HASHES, CLAIM_COMMUNITY_POINTS_HASH, MAKE_PREDICTION_HASH,
+    MAKE_PREDICTION_QUERY, PREDICTION_QUERY, PREDICTION_QUERY_BARE, PREDICTION_QUERY_USER,
+    VIEWABLE_POLL_HASHES, VIEWABLE_POLL_QUERIES, VOTE_IN_POLL_QUERY, VOTE_POLL_QUERY,
+};
 
 const TWITCH_URL: &str = "https://www.twitch.tv";
 const GQL_URL: &str = "https://gql.twitch.tv/gql";
 const USER_AGENT_VALUE: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const FALLBACK_CLIENT_VERSION: &str = "ef928475-9403-42f2-8a34-55784bd08e16";
-const CHANNEL_POINTS_CONTEXT_HASHES: [&str; 2] = [
-    "7fe050e3761eb2cf258d70ee1a21cbd76fa8cf3d7e7b12fc437e7029d446b5e3",
-    "374314de591e69925fce3ddc2bcf085796f56ebb8cad67a0daa3165c03adc345",
-];
-const VIEWABLE_POLL_HASHES: [&str; 1] =
-    ["d37a38ac165e9a15c26cd631d70070ee4339d48ff4975053e622b918ce638e0f"];
-const VIEWABLE_POLL_QUERIES: [&str; 3] = [
-    r#"query ViewableChannelPoll($login: String!) { channel(name: $login) { currentPoll { id title status remainingDurationMilliseconds settings { communityPointsVotes { isEnabled cost } } self { voter { choices { pollChoice { id } } } } choices { id title totalVoters votes { total communityPoints } } } } }"#,
-    r#"query ViewableChannelPoll($login: String!) { user(login: $login) { channel { currentPoll { id title status remainingDurationMilliseconds settings { communityPointsVotes { isEnabled cost } } self { voter { choices { pollChoice { id } } } } choices { id title totalVoters votes { total communityPoints } } } } } }"#,
-    r#"query ViewableChannelPoll($login: String!) { user(login: $login) { currentPoll { id title status remainingDurationMilliseconds settings { communityPointsVotes { isEnabled cost } } choices { id title totalVoters votes { total communityPoints } } } } }"#,
-];
-const PREDICTION_QUERY: &str = r#"query ViewablePredictions($login: String!) { channel(name: $login) { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } self { prediction { points outcome { id } } } } } }"#;
-const PREDICTION_QUERY_USER: &str = r#"query ViewablePredictions($login: String!) { user(login: $login) { channel { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } self { prediction { points outcome { id } } } } } } }"#;
-const PREDICTION_QUERY_BARE: &str = r#"query ViewablePredictions($login: String!) { channel(name: $login) { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } } } }"#;
-const MAKE_PREDICTION_HASH: &str =
-    "b44682ecc88358817009f20e69d75081b1e58825bb40aa53d5dbadcc17c881d8";
-const MAKE_PREDICTION_QUERY: &str = r#"mutation MakePrediction($input: MakePredictionInput!) { makePrediction(input: $input) { error { code } prediction { id points outcome { id } event { id title status } } } }"#;
-const CLAIM_COMMUNITY_POINTS_HASH: &str =
-    "46aaeebe02c99afdf4fc97c7c0cba964124bf6b0af229395f1f6d1feed05b3d0";
-const VOTE_POLL_HASH: &str = "6b21d6e5c8c6c8d6f0c0c6e6a0b0d0e0f0a1b2c3d4e5f60718293a4b5c6d7e8";
-const VOTE_POLL_QUERY: &str = r#"mutation VotePoll($input: VotePollInput!) { votePoll(input: $input) { poll { id title status remainingDurationMilliseconds settings { communityPointsVotes { isEnabled cost } } choices { id title totalVoters votes { total communityPoints } } } } }"#;
-const VOTE_IN_POLL_QUERY: &str = r#"mutation VoteInPoll($input: VoteInPollInput!) { voteInPoll(input: $input) { poll { id } } }"#;
 const CLIENT_VERSION_TTL: Duration = Duration::from_secs(30 * 60);
 const POLL_GQL_MISS_TTL: Duration = Duration::from_secs(20);
 
@@ -311,21 +294,6 @@ fn vote_poll_input(poll_id: &str, choice_id: &str, cost: u64) -> Value {
         "pollID": poll_id,
         "choiceID": choice_id,
         "cost": cost
-    })
-}
-
-fn vote_poll_payload(poll_id: &str, choice_id: &str, cost: u64) -> Value {
-    json!({
-        "operationName": "VotePoll",
-        "variables": {
-            "input": vote_poll_input(poll_id, choice_id, cost)
-        },
-        "extensions": {
-            "persistedQuery": {
-                "version": 1,
-                "sha256Hash": VOTE_POLL_HASH
-            }
-        }
     })
 }
 
@@ -1466,7 +1434,6 @@ pub async fn vote_poll(
     let client_version = current_client_version().await;
     let cost = cost.min(1_000_000);
     let payloads = [
-        vote_poll_payload(poll_id.trim(), choice_id.trim(), cost),
         vote_poll_query_payload(poll_id.trim(), choice_id.trim(), cost),
         vote_in_poll_query_payload(poll_id.trim(), choice_id.trim(), cost),
     ];
@@ -1662,16 +1629,13 @@ mod tests {
     }
 
     #[test]
-    fn builds_vote_poll_payload() {
-        let payload = vote_poll_payload("poll-1", "choice-2", 10);
+    fn builds_vote_poll_query_payload_without_persisted_hash() {
+        let payload = vote_poll_query_payload("poll-1", "choice-2", 10);
         assert_eq!(payload["operationName"], "VotePoll");
         assert_eq!(payload["variables"]["input"]["pollID"], "poll-1");
         assert_eq!(payload["variables"]["input"]["choiceID"], "choice-2");
         assert_eq!(payload["variables"]["input"]["cost"], 10);
-        assert_eq!(
-            payload["extensions"]["persistedQuery"]["sha256Hash"],
-            VOTE_POLL_HASH
-        );
+        assert!(payload.get("extensions").is_none());
     }
 
     #[test]

@@ -10,6 +10,7 @@ const AUTH_URL: &str = "https://id.twitch.tv/oauth2/device";
 const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
 const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 const REVOKE_URL: &str = "https://id.twitch.tv/oauth2/revoke";
+const DEV_CLIENT_ID: &str = "phiay4sq36lfv9zu7cbqwz2ndnesfd8";
 
 /// Least privilege: only what the UI actually calls (followed streams).
 /// Blocked-user scopes were dropped — the app has no block/unblock feature.
@@ -106,18 +107,36 @@ struct HelixUser {
     profile_image_url: String,
 }
 
-fn client_id() -> Result<String, AuthError> {
-    // Releases MUST set TWITCH_CLIENT_ID (and VITE_TWITCH_CLIENT_ID) to this
-    // project's own registered Twitch application — rate limits, revocation
-    // and ToS apply per application. The literal below is the upstream
-    // streamlink-twitch-gui public client ID and only exists so local dev
-    // builds work out of the box. Do not ship it in releases.
-    if let Ok(id) = std::env::var("TWITCH_CLIENT_ID") {
-        if !id.is_empty() {
-            return Ok(id);
-        }
+fn select_client_id(
+    compiled: Option<&str>,
+    runtime: Option<&str>,
+    allow_dev_fallback: bool,
+) -> Result<String, AuthError> {
+    if let Some(id) = compiled.map(str::trim).filter(|id| !id.is_empty()) {
+        return Ok(id.to_string());
     }
-    Ok("phiay4sq36lfv9zu7cbqwz2ndnesfd8".to_string())
+    if allow_dev_fallback {
+        if let Some(id) = runtime.map(str::trim).filter(|id| !id.is_empty()) {
+            return Ok(id.to_string());
+        }
+        return Ok(DEV_CLIENT_ID.to_string());
+    }
+    Err(AuthError::Message(
+        "release build is missing its Twitch client ID".into(),
+    ))
+}
+
+fn client_id() -> Result<String, AuthError> {
+    // Official releases compile the registered Rillmux client ID into the
+    // binary. Runtime environment variables are intentionally a debug-only
+    // convenience so an installed release cannot silently fall back to the
+    // upstream Streamlink Twitch GUI application identity.
+    let runtime = std::env::var("TWITCH_CLIENT_ID").ok();
+    select_client_id(
+        option_env!("TWITCH_CLIENT_ID"),
+        runtime.as_deref(),
+        cfg!(debug_assertions),
+    )
 }
 
 fn http() -> reqwest::Client {
@@ -393,6 +412,27 @@ mod tests {
         let json = serde_json::to_string(&dto).unwrap();
         assert!(json.contains("userCode"));
         assert!(json.contains("verificationUri"));
+    }
+
+    #[test]
+    fn release_client_id_prefers_compiled_identity() {
+        let id = select_client_id(Some("release-client"), Some("runtime-client"), false).unwrap();
+        assert_eq!(id, "release-client");
+    }
+
+    #[test]
+    fn release_client_id_does_not_fall_back_at_runtime() {
+        let err = select_client_id(None, Some("runtime-client"), false).unwrap_err();
+        assert_eq!(err.to_string(), "release build is missing its Twitch client ID");
+    }
+
+    #[test]
+    fn debug_client_id_supports_runtime_override_and_dev_fallback() {
+        assert_eq!(
+            select_client_id(None, Some("runtime-client"), true).unwrap(),
+            "runtime-client"
+        );
+        assert_eq!(select_client_id(None, None, true).unwrap(), DEV_CLIENT_ID);
     }
 
     #[test]

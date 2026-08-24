@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/react";
 import { useEffect, useRef } from "react";
 import { useSettingsStore } from "./settings/store";
+import { invoke, isTauri } from "./tauri";
 
 const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
@@ -22,7 +23,11 @@ const SCRUB_PATTERNS: RegExp[] = [
 function scrubString(value: string): string {
   let out = value;
   for (const re of SCRUB_PATTERNS) {
-    out = out.replace(re, (m) => (m.startsWith("?") || m.startsWith("&") ? m[0] + "[redacted]" : "[redacted]"));
+    out = out.replace(re, (m) =>
+      m.startsWith("?") || m.startsWith("&")
+        ? m[0] + "[redacted]"
+        : "[redacted]",
+    );
   }
   return out;
 }
@@ -43,7 +48,8 @@ function scrubData(value: unknown): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value)) {
-      out[key] = key.toLowerCase() === "authorization" ? "[redacted]" : scrubData(v);
+      out[key] =
+        key.toLowerCase() === "authorization" ? "[redacted]" : scrubData(v);
     }
     return out;
   }
@@ -93,21 +99,32 @@ function ensureInit(): boolean {
   return true;
 }
 
-/** Syncs the settings toggle with Sentry client state. */
+/** Syncs the persisted consent toggle with both React and native Sentry. */
 export function SentryBootstrap({ children }: { children: React.ReactNode }) {
   const enabled = useSettingsStore((s) => s.settings.sentryEnabled);
   const hydrated = useSettingsStore((s) => s.hydrated);
   const last = useRef<boolean | null>(null);
 
   useEffect(() => {
-    if (!hydrated || !dsn) return;
-    if (!ensureInit()) return;
-    if (last.current === enabled) return;
+    if (!hydrated) return;
+
+    // Native Sentry must follow the same persisted opt-out even when the
+    // frontend DSN is not configured.
+    if (isTauri()) {
+      void invoke("diagnostics_set_sentry_enabled", { enabled }).catch(
+        () => undefined,
+      );
+    }
+
+    if (!dsn || last.current === enabled) return;
     last.current = enabled;
+
+    // Do not initialise telemetry for an opted-out user merely to disable it.
+    if (enabled && !ensureInit()) return;
     const client = Sentry.getClient();
-    if (!client) return;
-    // Toggle capture without tearing down the whole SDK.
-    client.getOptions().enabled = enabled;
+    if (client) {
+      client.getOptions().enabled = enabled;
+    }
   }, [enabled, hydrated]);
 
   return children;

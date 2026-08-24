@@ -32,10 +32,8 @@ jobs:
 
           path = Path("src-tauri/src/streaming/windows_layout.rs")
           text = path.read_text(encoding="utf-8")
-          old = '''        let info = &*(ptr as *const VsFixedFileInfo);
-          let major = (info.product_version_ms >> 16) & 0xffff;
-          '''
-          new = '''        let info_ptr = ptr.cast::<VsFixedFileInfo>();
+          needle = "        let info = &*(ptr as *const VsFixedFileInfo);"
+          replacement = """        let info_ptr = ptr.cast::<VsFixedFileInfo>();
           let info_addr = info_ptr as usize;
           let buf_start = buf.as_ptr() as usize;
           let Some(buf_end) = buf_start.checked_add(buf.len()) else {
@@ -50,15 +48,10 @@ jobs:
           {
               return None;
           }
-          let info = &*info_ptr;
-          let major = (info.product_version_ms >> 16) & 0xffff;
-          '''
-          # Remove YAML indentation deliberately present in the embedded literals.
-          old = "\n".join(line[8:] if line.startswith("        ") else line for line in old.splitlines()) + "\n"
-          new = "\n".join(line[8:] if line.startswith("        ") else line for line in new.splitlines()) + "\n"
-          if text.count(old) != 1:
-              raise SystemExit(f"expected exactly one VS_FIXEDFILEINFO dereference block, found {text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+          let info = &*info_ptr;"""
+          if text.count(needle) != 1:
+              raise SystemExit(f"expected exactly one VS_FIXEDFILEINFO dereference, found {text.count(needle)}")
+          path.write_text(text.replace(needle, replacement, 1), encoding="utf-8", newline="\n")
           '@ | python -
 
       - name: Verify native suite

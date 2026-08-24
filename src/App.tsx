@@ -136,7 +136,7 @@ export default function App() {
                         <UpdateBanner />
                         <RaidBanner />
                         <ChannelPointsPollOverlay />
-                        <Sentry.ErrorBoundary fallback={null}>
+                        <Sentry.ErrorBoundary fallback={<span hidden />}>
                           <ChannelPointsHudSync />
                         </Sentry.ErrorBoundary>
                         <AppRoutes />

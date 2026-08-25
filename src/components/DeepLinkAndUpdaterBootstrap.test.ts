@@ -33,7 +33,7 @@ describe("DeepLinkBootstrap lifecycle", () => {
     const source = readFileSync(
       new URL("./DeepLinkAndUpdaterBootstrap.tsx", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     expect(source).toContain("if (disposed) {\n        stopListening();");
   });
 });

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseDeepLinkChannel } from "./DeepLinkAndUpdaterBootstrap";
 
@@ -24,5 +25,15 @@ describe("parseDeepLinkChannel", () => {
     expect(parseDeepLinkChannel("https://watch/some_streamer")).toBeNull();
     expect(parseDeepLinkChannel("stg://watch/not-valid!")).toBeNull();
     expect(parseDeepLinkChannel("stg://watch/abcdefghijklmnopqrstuvwxyz")).toBeNull();
+  });
+});
+
+describe("DeepLinkBootstrap lifecycle", () => {
+  it("unsubscribes when listener registration finishes after cleanup", () => {
+    const source = readFileSync(
+      new URL("./DeepLinkAndUpdaterBootstrap.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("if (disposed) {\n        stopListening();");
   });
 });

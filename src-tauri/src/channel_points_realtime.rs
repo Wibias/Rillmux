@@ -65,7 +65,8 @@ fn hermes_error_class(error: &str) -> &'static str {
         "subscription"
     } else if error.contains("reconnect") {
         "reconnect"
-    } else if error.contains("socket") || error.contains("close frame") || error.contains("closed") {
+    } else if error.contains("socket") || error.contains("close frame") || error.contains("closed")
+    {
         "socket"
     } else if error.contains("connect") || error.contains("connection") {
         "connect"
@@ -850,6 +851,9 @@ mod tests {
             hermes_error_class("Hermes requested reconnect"),
             "reconnect"
         );
-        assert_eq!(hermes_error_class("Hermes read: connection closed"), "socket");
+        assert_eq!(
+            hermes_error_class("Hermes read: connection closed"),
+            "socket"
+        );
     }
 }

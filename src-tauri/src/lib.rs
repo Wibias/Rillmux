@@ -146,7 +146,7 @@ async fn viewer_presence_sync(
             &format!("target_count={target_count} channels={channels}"),
         );
         diagnostics::log_event(
-            diagnostics::DebugCategory::PointsClaim,
+            diagnostics::DebugCategory::PointsCredit,
             "hermes.connect",
             &format!("target_count={target_count} channels={channels}"),
         );
@@ -163,20 +163,15 @@ async fn viewer_presence_sync(
     let (realtime_result, presence_result) = tokio::join!(realtime, presence);
     match &realtime_result {
         Ok(()) => diagnostics::log_event(
-            diagnostics::DebugCategory::PointsClaim,
+            diagnostics::DebugCategory::PointsCredit,
             "hermes.ready",
             &format!("enabled={enabled} target_count={target_count}"),
         ),
-        Err(error) => {
-            diagnostics::log_event(
-                diagnostics::DebugCategory::PointsClaim,
-                "hermes.not_ready",
-                &format!("enabled={enabled} target_count={target_count} error_present=true"),
-            );
-            diagnostics::log_line(&format!(
-                "[channel-points] realtime presence unavailable; watch credit continues: {error}"
-            ));
-        }
+        Err(_) => diagnostics::log_event(
+            diagnostics::DebugCategory::PointsCredit,
+            "hermes.not_ready",
+            &format!("enabled={enabled} target_count={target_count} error_present=true"),
+        ),
     }
     diagnostics::log_event(
         diagnostics::DebugCategory::PointsCredit,

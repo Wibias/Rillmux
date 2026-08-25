@@ -179,10 +179,7 @@ async fn connect_eventsub(url: &str) -> Result<EventSubSocket, String> {
     let (socket, _) = connect_async(url)
         .await
         .map_err(|error| format!("ws connect: {error}"))?;
-    debug_raid(
-        "eventsub.connect.ok",
-        &format!("handoff={}", url != WS_URL),
-    );
+    debug_raid("eventsub.connect.ok", &format!("handoff={}", url != WS_URL));
     Ok(socket)
 }
 
@@ -329,7 +326,11 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
     .await?;
     debug_raid(
         "eventsub.subscription.ready",
-        &format!("desired_count={} active_count={}", desired.len(), subs.len()),
+        &format!(
+            "desired_count={} active_count={}",
+            desired.len(),
+            subs.len()
+        ),
     );
 
     loop {
@@ -798,9 +799,18 @@ mod tests {
 
     #[test]
     fn classifies_eventsub_errors_without_echoing_details() {
-        assert_eq!(eventsub_error_class("auth: token unavailable"), "authentication");
+        assert_eq!(
+            eventsub_error_class("auth: token unavailable"),
+            "authentication"
+        );
         assert_eq!(eventsub_error_class("create sub 500"), "subscription");
-        assert_eq!(eventsub_error_class("session_reconnect missing reconnect_url"), "reconnect");
-        assert_eq!(eventsub_error_class("EventSub welcome timed out"), "welcome");
+        assert_eq!(
+            eventsub_error_class("session_reconnect missing reconnect_url"),
+            "reconnect"
+        );
+        assert_eq!(
+            eventsub_error_class("EventSub welcome timed out"),
+            "welcome"
+        );
     }
 }

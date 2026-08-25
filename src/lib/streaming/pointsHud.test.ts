@@ -12,6 +12,7 @@ import {
   offsetFromChipRect,
   overlayRectForHud,
   hudDragSurfaceRect,
+  hudGeometryTransitionNeedsConceal,
   chipRectFromDrag,
   physicalDeltaFromScreen,
   cssPx,
@@ -355,5 +356,34 @@ describe("rewards", () => {
       "cooldown",
     );
     expect(rewardUnavailableReason({ ...base, balance: 50 })).toBe("notEnough");
+  });
+});
+
+
+describe("HUD geometry transition concealment", () => {
+  it("conceals a catalog opening that shifts the native HUD window left", () => {
+    const chip = chipRectForPlayer(player, null, 120);
+    const closed = overlayRectForHud(chip, null);
+    const panel = catalogRectForChip(player, chip, 280, 360);
+    const open = overlayRectForHud(chip, panel);
+    expect(open.x).toBeLessThan(closed.x);
+    expect(hudGeometryTransitionNeedsConceal(closed, open)).toBe(true);
+    expect(hudGeometryTransitionNeedsConceal(open, closed)).toBe(true);
+  });
+
+  it("does not conceal a resize whose native origin stays fixed", () => {
+    const chip = { x: 108, y: 66, width: 120, height: 36 };
+    const panel = catalogRectForChip(player, chip, 280, 300);
+    const closed = overlayRectForHud(chip, null);
+    const open = overlayRectForHud(chip, panel);
+    expect(open.x).toBe(closed.x);
+    expect(open.y).toBe(closed.y);
+    expect(hudGeometryTransitionNeedsConceal(closed, open)).toBe(false);
+  });
+
+  it("keeps same-size position changes visible for dragging", () => {
+    const current = { x: 700, y: 60, width: 120, height: 36 };
+    const next = { ...current, x: 640 };
+    expect(hudGeometryTransitionNeedsConceal(current, next)).toBe(false);
   });
 });

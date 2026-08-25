@@ -366,6 +366,24 @@ export function catalogRectForChip(
   });
 }
 
+/**
+* Moving a transparent HUD window's origin while resizing can expose a stale
+* WebView2 frame for one compositor tick. Conceal only transitions where the
+* native origin and size both change; ordinary drag/follow movement stays live.
+*/
+export function hudGeometryTransitionNeedsConceal(
+  current: OverlayRect,
+  next: OverlayRect,
+): boolean {
+  const originMoved =
+    Math.round(current.x) !== Math.round(next.x) ||
+    Math.round(current.y) !== Math.round(next.y);
+  const sizeChanged =
+    Math.round(current.width) !== Math.round(next.width) ||
+    Math.round(current.height) !== Math.round(next.height);
+  return originMoved && sizeChanged;
+}
+
 /** Convert a physical overlay length (HWND pixels) into CSS pixels. */
 export function cssPx(physical: number, scale: number): number {
   const factor = Number.isFinite(scale) && scale > 0 ? scale : 1;

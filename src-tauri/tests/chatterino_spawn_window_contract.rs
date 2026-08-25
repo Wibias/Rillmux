@@ -68,38 +68,29 @@ fn duplicate_cleanup_targets_only_blank_notebooks_not_real_chatterino_dialogs() 
 }
 
 #[test]
-fn current_chatterino_main_window_is_selected_by_version_title_not_channel_name() {
-    let foundation = include_str!("../src/streaming/foundation.rs");
+fn current_chatterino_version_title_is_accepted_as_the_expected_main_window() {
+    let source = include_str!("../src/streaming/foundation.rs");
+    let classifier = source
+        .find("fn chatterino_title_is_main_window")
+        .expect("current Chatterino Windows main windows need a version-title classifier");
+    let classifier_body = &source[classifier..];
     assert!(
-        foundation.contains("fn chatterino_title_is_main_window"),
-        "current Chatterino Windows main windows need a version-title classifier"
+        classifier_body.contains("starts_with(\"Chatterino \")"),
+        "Chatterino fullVersion titles are `Chatterino <version>` / `Chatterino Nightly <version>`"
+    );
+
+    let matcher = source
+        .find("fn chatterino_title_matches_channels")
+        .expect("missing Chatterino title matcher");
+    let matcher_body = &source[matcher..];
+    assert!(
+        matcher_body.contains("chatterino_title_is_main_window(title)"),
+        "the existing HWND selector/readiness path must recognize current version-titled main windows"
     );
 
     let windows = include_str!("../src/streaming/windows_layout.rs");
-    let select_start = windows
-        .find("fn find_main_window_for_pid(pid: u32)")
-        .expect("missing Chatterino main-window selector");
-    let select_body = &windows[select_start..];
-    let select_end = select_body
-        .find("fn top_level_windows_for_pid")
-        .expect("missing selector boundary");
-    let selector = &select_body[..select_end];
     assert!(
-        selector.contains("chatterino_title_is_main_window"),
-        "the HWND selector must prefer Chatterino's current version-titled main window"
-    );
-
-    let ready_start = windows
-        .find("fn chatterino_pid_has_split_window(pid: u32) -> bool")
-        .expect("missing split readiness detector");
-    let ready_body = &windows[ready_start..];
-    let ready_end = ready_body
-        .find("fn chatterino_pid_has_split_window(_pid: u32) -> bool")
-        .expect("missing non-Windows readiness boundary");
-    let readiness = &ready_body[..ready_end];
-    assert!(readiness.contains("chatterino_title_is_main_window"));
-    assert!(
-        !readiness.contains("chatterino_title_matches_channels"),
-        "current Chatterino Windows titles do not contain the Twitch channel"
+        windows.matches("chatterino_title_matches_channels").count() >= 2,
+        "both HWND selection and split readiness must use the corrected matcher"
     );
 }

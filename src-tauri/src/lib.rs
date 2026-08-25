@@ -387,6 +387,29 @@ fn channel_points_hud_place(
     })
 }
 
+#[tauri::command]
+fn points_hud_place_window(
+    app: AppHandle,
+    channel_login: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    force: bool,
+) {
+    let channel = channel_login.trim().to_ascii_lowercase();
+    if channel.is_empty()
+        || channel.len() > 25
+        || !channel
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return;
+    }
+    let label = format!("points-hud-{}", channel);
+    streaming::place_hud_overlay(&app, &label, x, y, width, height, force);
+}
+
 /// Force the overlay HWND and its WebView2 child to the physical size.
 /// Transparent windows often keep the old child size after `setSize`.
 #[tauri::command]
@@ -396,15 +419,25 @@ fn overlay_fit_webview(window: tauri::WebviewWindow, width: i32, height: i32) {
 
 #[tauri::command]
 fn overlay_place_hud(
-    app: AppHandle,
-    label: String,
+    window: tauri::WebviewWindow,
     x: i32,
     y: i32,
     width: i32,
     height: i32,
     force: bool,
 ) {
-    streaming::place_hud_overlay(&app, &label, x, y, width, height, force);
+    if streaming::points_hud_channel_from_label(window.label()).is_none() {
+        return;
+    }
+    streaming::place_hud_overlay(
+        window.app_handle(),
+        window.label(),
+        x,
+        y,
+        width,
+        height,
+        force,
+    );
 }
 
 #[tauri::command]
@@ -614,6 +647,7 @@ pub fn run() {
             eventsub_sync,
             raid_overlay_place,
             channel_points_hud_place,
+            points_hud_place_window,
             overlay_fit_webview,
             overlay_place_hud,
             poll_overlay_place,

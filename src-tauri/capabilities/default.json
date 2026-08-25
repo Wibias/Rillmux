@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Privileged capability for the main Rillmux window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-hide",
@@ -73,8 +75,7 @@
     "allow-eventsub-sync",
     "allow-raid-overlay-place",
     "allow-channel-points-hud-place",
-    "allow-overlay-fit-webview",
-    "allow-overlay-place-hud",
+    "allow-points-hud-place-window",
     "allow-poll-overlay-place",
     "allow-poll-overlay-raise",
     "allow-app-quit",

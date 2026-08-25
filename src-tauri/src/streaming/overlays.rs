@@ -596,8 +596,39 @@ pub fn channel_points_hud_player_rect(
 }
 
 #[cfg(windows)]
+fn hud_host_is_hwnd_visible(hwnd: *mut core::ffi::c_void) -> bool {
+    if hwnd.is_null() {
+        return false;
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn IsWindowVisible(hwnd: *mut core::ffi::c_void) -> i32;
+    }
+    unsafe { IsWindowVisible(hwnd) != 0 }
+}
+
+#[cfg(windows)]
+fn hud_host_hwnd_has_monitor(hwnd: *mut core::ffi::c_void) -> bool {
+    if hwnd.is_null() {
+        return false;
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn MonitorFromWindow(
+            hwnd: *mut core::ffi::c_void,
+            flags: u32,
+        ) -> *mut core::ffi::c_void;
+    }
+    const MONITOR_DEFAULTTONULL: u32 = 0;
+    !unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL) }.is_null()
+}
+
+#[cfg(windows)]
 pub fn channel_points_hud_host(channel_login: &str) -> Option<OverlayRect> {
     let hwnd = find_player_window(channel_login)?;
+    if !hud_host_is_hwnd_visible(hwnd) || !hud_host_hwnd_has_monitor(hwnd) {
+        return None;
+    }
     let iconic = is_hwnd_iconic(hwnd);
     channel_points_hud_player_rect(overlay_rect_from_hwnd(hwnd), iconic)
 }

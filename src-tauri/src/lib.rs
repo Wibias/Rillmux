@@ -230,7 +230,8 @@ async fn channel_points_refresh(
     include_poll: Option<bool>,
 ) -> Result<channel_points::ChannelPointsSnapshot, String> {
     let include_poll = include_poll.unwrap_or(false);
-    let previous_balance = channel_points::cached_snapshot(&channel_login).map(|snapshot| snapshot.balance);
+    let previous_balance =
+        channel_points::cached_snapshot(&channel_login).map(|snapshot| snapshot.balance);
     diagnostics::log_event(
         diagnostics::DebugCategory::Rewards,
         "context.query",
@@ -244,17 +245,15 @@ async fn channel_points_refresh(
             diagnostics::log_event(
                 diagnostics::DebugCategory::Rewards,
                 "context.candidate.configured",
-                &format!(
-                    "index={index} hash={}",
-                    diagnostics::redact_hash(hash)
-                ),
+                &format!("index={index} hash={}", diagnostics::redact_hash(hash)),
             );
         }
     }
     let result = channel_points::refresh(&channel_login, include_poll).await;
     match &result {
         Ok(snapshot) => {
-            let balance_delta = previous_balance.map(|previous| snapshot.balance as i128 - previous as i128);
+            let balance_delta =
+                previous_balance.map(|previous| snapshot.balance as i128 - previous as i128);
             diagnostics::log_event(
                 diagnostics::DebugCategory::PointsCredit,
                 "balance.snapshot",
@@ -300,9 +299,7 @@ async fn channel_points_refresh(
                     "claim.result",
                     &format!(
                         "channel={} claimed={} http_status={:?} state={claim_state}",
-                        snapshot.channel_login,
-                        snapshot.bonus_claimed,
-                        snapshot.claim_http_status
+                        snapshot.channel_login, snapshot.bonus_claimed, snapshot.claim_http_status
                     ),
                 );
             }

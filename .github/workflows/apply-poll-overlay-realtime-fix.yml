@@ -37,9 +37,7 @@ jobs:
           path = Path("src-tauri/src/channel_points_realtime.rs")
           source = path.read_text(encoding="utf-8")
 
-          ready_old = """    mark_ready(generation);
-              subscribe_poll_topics(&mut socket, &desired.channel_ids).await;
-          """.replace("              ", "")
+          ready_old = "    mark_ready(generation);\n    subscribe_poll_topics(&mut socket, &desired.channel_ids).await;\n"
           ready_new = """    if let Err(error) = subscribe_poll_topics(&mut socket, &desired.channel_ids).await {
               crate::diagnostics::log_line(&format!(
                   "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
@@ -50,7 +48,7 @@ jobs:
               return Ok(());
           }
           mark_ready(generation);
-          """.replace("          ", "")
+          """
           if source.count(ready_old) != 1:
               raise SystemExit(f"ready transition anchor mismatch: {source.count(ready_old)}")
           source = source.replace(ready_old, ready_new, 1)
@@ -76,28 +74,26 @@ jobs:
               .await
               .map_err(|_| "Hermes poll/prediction subscription confirmation timed out".to_string())?
           }
-          """.replace("          ", "")
+          """
           source = source[:start] + subscribe_fn + source[end:]
 
           start = source.index("async fn wait_for_subscriptions(")
           end = source.index("\nasync fn receive_json", start)
           function = source[start:end]
-          wait_old = """        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
-              continue;
-          }
-          """.replace("          ", "")
-          wait_new = """        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
+          needle = 'if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {'
+          condition = function.index(needle)
+          block_start = function.rfind("\n", 0, condition) + 1
+          continue_at = function.index("continue;", condition)
+          block_end = function.index("\n        }", continue_at) + len("\n        }")
+          replacement = """        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
               if let Some((topic, message)) = pubsub_topic_and_message(&value) {
                   if crate::channel_points::ingest_pubsub(&topic, &message) {
                       emit_frontend("channel-points-pubsub");
                   }
               }
               continue;
-          }
-          """.replace("          ", "")
-          if function.count(wait_old) != 1:
-              raise SystemExit(f"subscription wait anchor mismatch: {function.count(wait_old)}")
-          function = function.replace(wait_old, wait_new, 1)
+          }"""
+          function = function[:block_start] + replacement + function[block_end:]
           source = source[:start] + function + source[end:]
 
           path.write_text(source, encoding="utf-8", newline="\n")

@@ -30,83 +30,73 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(path: Path, old: str, new: str, label: str):
-              text = path.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected one match, found {count}")
-              path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
-
           tools = Path("src-tauri/src/streaming/tools_process.rs")
-          replace_once(
-              tools,
-              '''    let spawn_epoch = current_chatterino_close_epoch();
-          launch_chatterino_with_path(&path, &list, true, true)?;
-          if chatterino_spawn_is_stale(spawn_epoch, current_chatterino_close_epoch()) {
-              close_owned_chatterino();
-              return Ok(path.to_string_lossy().into_owned());
-          }
-          if let Ok(mut guard) = last_chatterino_channels().lock() {
-              *guard = list.clone();
-          }
-          Ok(path.to_string_lossy().into_owned())
-          '''.replace('      ', ''),
-              '''    // Publish the expected split before launch: the spawned placement thread
-          // can start immediately and must never select the blank notebook using stale state.
-          let previous_channels = last_chatterino_channels()
-              .lock()
-              .ok()
-              .map(|guard| guard.clone())
-              .unwrap_or_default();
-          if let Ok(mut guard) = last_chatterino_channels().lock() {
-              *guard = list.clone();
-          }
-          let spawn_epoch = current_chatterino_close_epoch();
-          if let Err(error) = launch_chatterino_with_path(&path, &list, true, true) {
+          source = tools.read_text(encoding="utf-8")
+          fn_start = source.index("pub fn launch_chatterino_for_channels(")
+          fn_end = source.index("\nfn normalize_layout", fn_start)
+          function = source[fn_start:fn_end]
+          tail_start = function.rindex("    let spawn_epoch = current_chatterino_close_epoch();")
+          close = function.rfind("\n}")
+          if close <= tail_start:
+              raise SystemExit("could not bound Chatterino launch tail")
+          replacement = '''    // Publish the expected split before launch: the spawned placement thread
+              // can start immediately and must never select the blank notebook using stale state.
+              let previous_channels = last.clone();
               if let Ok(mut guard) = last_chatterino_channels().lock() {
-                  *guard = previous_channels;
+                  *guard = list.clone();
               }
-              return Err(error);
-          }
-          if chatterino_spawn_is_stale(spawn_epoch, current_chatterino_close_epoch()) {
-              close_owned_chatterino();
-              return Ok(path.to_string_lossy().into_owned());
-          }
-          Ok(path.to_string_lossy().into_owned())
-          '''.replace('      ', ''),
-              "launch ordering",
-          )
+              let spawn_epoch = current_chatterino_close_epoch();
+              if let Err(error) = launch_chatterino_with_path(&path, &list, true, true) {
+                  if let Ok(mut guard) = last_chatterino_channels().lock() {
+                      if *guard == list {
+                          *guard = previous_channels;
+                      }
+                  }
+                  return Err(error);
+              }
+              if chatterino_spawn_is_stale(spawn_epoch, current_chatterino_close_epoch()) {
+                  close_owned_chatterino();
+                  return Ok(path.to_string_lossy().into_owned());
+              }
+              Ok(path.to_string_lossy().into_owned())
+          '''.replace('              ', '')
+          function = function[:tail_start] + replacement + function[close:]
+          source = source[:fn_start] + function + source[fn_end:]
+          tools.write_text(source, encoding="utf-8", newline="\n")
 
           layout = Path("src-tauri/src/streaming/windows_layout.rs")
-          replace_once(
-              layout,
-              '''    if channels.is_empty() {
+          source = layout.read_text(encoding="utf-8")
+          fn_start = source.index("fn chatterino_pid_has_split_window(pid: u32) -> bool")
+          fn_end = source.index("\n#[cfg(not(windows))]", fn_start)
+          function = source[fn_start:fn_end]
+          old = """    if channels.is_empty() {
               return true;
           }
-          '''.replace('      ', ''),
-              '''    if channels.is_empty() {
+          """.replace("          ", "")
+          new = """    if channels.is_empty() {
               return false;
           }
-          '''.replace('      ', ''),
-              "empty expected channels",
-          )
+          """.replace("          ", "")
+          if function.count(old) != 1:
+              raise SystemExit(f"empty-channel guard mismatch: {function.count(old)}")
+          function = function.replace(old, new, 1)
+          source = source[:fn_start] + function + source[fn_end:]
+          layout.write_text(source, encoding="utf-8", newline="\n")
 
           foundation = Path("src-tauri/src/streaming/foundation.rs")
-          replace_once(
-              foundation,
-              '''    if is_keep || !visible || !have_split || area < 10_000 {
-              return false;
-          }
-          title.to_ascii_lowercase().contains("chatterino")
-          '''.replace('      ', ''),
-              '''    if is_keep || !visible || !have_split || area < 10_000 {
-              return false;
-          }
-          let title = title.trim();
-          title.is_empty() || title.eq_ignore_ascii_case("Chatterino")
-          '''.replace('      ', ''),
-              "duplicate notebook predicate",
-          )
+          source = foundation.read_text(encoding="utf-8")
+          fn_start = source.index("fn chatterino_should_close_duplicate_main(")
+          fn_end = source.index("\n/// `--channels", fn_start)
+          function = source[fn_start:fn_end]
+          old = '    title.to_ascii_lowercase().contains("chatterino")\n'
+          new = '''    title.trim().is_empty()
+              || title.trim().eq_ignore_ascii_case("Chatterino")
+          '''.replace('          ', '')
+          if function.count(old) != 1:
+              raise SystemExit(f"duplicate predicate mismatch: {function.count(old)}")
+          function = function.replace(old, new, 1)
+          source = source[:fn_start] + function + source[fn_end:]
+          foundation.write_text(source, encoding="utf-8", newline="\n")
           PY
           cargo fmt --manifest-path src-tauri/Cargo.toml
 

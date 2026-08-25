@@ -8,7 +8,7 @@ describe("formatDebugFields", () => {
     ).toBe("channel=forsen session=abc ready=true status=204");
   });
 
-  it("drops sensitive or structured fields before IPC", () => {
+  it("drops sensitive, free-form error, or structured fields before IPC", () => {
     const formatted = formatDebugFields({
       token: "oauth-secret",
       cookie: "auth-cookie",
@@ -16,10 +16,13 @@ describe("formatDebugFields", () => {
       payload: { private: true },
       rewardInput: "do not log this",
       deviceId: "device-secret",
+      reason: "request failed https://example.invalid/?oauth=secret",
+      errorMessage: "upstream returned private material",
       channel: "forsen\nspoofed",
     });
     expect(formatted).toBe("channel=forsen spoofed");
     expect(formatted).not.toContain("secret");
     expect(formatted).not.toContain("do not log");
+    expect(formatted).not.toContain("private material");
   });
 });

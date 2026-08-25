@@ -209,25 +209,57 @@ fn viewer_presence_status(
     Ok(status)
 }
 
+fn claim_error_class(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("different twitch account") || lower.contains("does not match") {
+        "account_mismatch"
+    } else if lower.contains("not configured") {
+        "not_configured"
+    } else if lower.contains("timed out") {
+        "timeout"
+    } else if lower.contains("connection") {
+        "connection"
+    } else {
+        "mutation_error"
+    }
+}
+
 #[tauri::command]
 async fn channel_points_refresh(
     channel_login: String,
     include_poll: Option<bool>,
 ) -> Result<channel_points::ChannelPointsSnapshot, String> {
     let include_poll = include_poll.unwrap_or(false);
+    let previous_balance = channel_points::cached_snapshot(&channel_login).map(|snapshot| snapshot.balance);
     diagnostics::log_event(
         diagnostics::DebugCategory::Rewards,
         "context.query",
         &format!("channel={} include_poll={include_poll}", channel_login),
     );
+    if diagnostics::debug_enabled() {
+        for (index, hash) in twitch_gql_operations::CHANNEL_POINTS_CONTEXT_HASHES
+            .iter()
+            .enumerate()
+        {
+            diagnostics::log_event(
+                diagnostics::DebugCategory::Rewards,
+                "context.candidate.configured",
+                &format!(
+                    "index={index} hash={}",
+                    diagnostics::redact_hash(hash)
+                ),
+            );
+        }
+    }
     let result = channel_points::refresh(&channel_login, include_poll).await;
     match &result {
         Ok(snapshot) => {
+            let balance_delta = previous_balance.map(|previous| snapshot.balance as i128 - previous as i128);
             diagnostics::log_event(
                 diagnostics::DebugCategory::PointsCredit,
                 "balance.snapshot",
                 &format!(
-                    "channel={} balance={} bonus_available={} bonus_claimed={}",
+                    "channel={} balance={} previous={previous_balance:?} delta={balance_delta:?} bonus_available={} bonus_claimed={}",
                     snapshot.channel_login,
                     snapshot.balance,
                     snapshot.bonus_available,
@@ -252,18 +284,37 @@ async fn channel_points_refresh(
                     "claim.attempt",
                     &format!("channel={}", snapshot.channel_login),
                 );
+                let claim_state = snapshot
+                    .claim_error
+                    .as_deref()
+                    .map(claim_error_class)
+                    .unwrap_or(if snapshot.bonus_claimed {
+                        "claimed"
+                    } else if snapshot.bonus_available {
+                        "available"
+                    } else {
+                        "none"
+                    });
                 diagnostics::log_event(
                     diagnostics::DebugCategory::PointsClaim,
                     "claim.result",
                     &format!(
-                        "channel={} claimed={} http_status={:?} error_present={}",
+                        "channel={} claimed={} http_status={:?} state={claim_state}",
                         snapshot.channel_login,
                         snapshot.bonus_claimed,
-                        snapshot.claim_http_status,
-                        snapshot.claim_error.is_some()
+                        snapshot.claim_http_status
                     ),
                 );
             }
+            diagnostics::log_event(
+                diagnostics::DebugCategory::Rewards,
+                "context.query.result",
+                &format!(
+                    "channel={} ok=true reward_count={}",
+                    snapshot.channel_login,
+                    snapshot.rewards.len()
+                ),
+            );
             diagnostics::log_event(
                 diagnostics::DebugCategory::Rewards,
                 "reward.catalog",
@@ -477,7 +528,8 @@ async fn open_chatterino_chat(channels: Vec<String>) -> Result<String, String> {
     );
     tauri::async_runtime::spawn_blocking(move || {
         streaming::debug_chatterino_windows("open.before");
-        let result = streaming::launch_chatterino_for_channels(&channels).map_err(|e| e.to_string());
+        let result =
+            streaming::launch_chatterino_for_channels(&channels).map_err(|e| e.to_string());
         streaming::debug_chatterino_windows("open.after");
         diagnostics::log_event(
             diagnostics::DebugCategory::Windows,
@@ -747,15 +799,7 @@ fn overlay_place_hud(
             "label={label} phase=overlay x={x} y={y} width={width} height={height} force={force}"
         ),
     );
-    streaming::place_hud_overlay(
-        window.app_handle(),
-        &label,
-        x,
-        y,
-        width,
-        height,
-        force,
-    );
+    streaming::place_hud_overlay(window.app_handle(), &label, x, y, width, height, force);
     diagnostics::log_event(
         diagnostics::DebugCategory::Windows,
         "hud.place.applied",

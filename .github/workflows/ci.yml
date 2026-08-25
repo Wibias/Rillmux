@@ -137,7 +137,7 @@ jobs:
         with:
           workspaces: src-tauri
       - name: Apply exact remaining review fixes
-        shell: python
+        shell: pwsh
         run: python scripts/apply-full-review-fixes.py
       - name: Verify frontend capability contract
         shell: pwsh

@@ -10,6 +10,47 @@ import {
 
 /** Twitch logins are 1–25 chars: lowercase letters, digits, underscore. */
 const TWITCH_LOGIN = /^[a-z0-9_]{1,25}$/;
+const DEEP_LINK_ROUTES = new Set(["watch", "channel"]);
+
+/** Parse only the documented `stg://watch/<login>` / `stg://channel/<login>` routes. */
+export function parseDeepLinkChannel(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== "stg:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port
+    ) {
+      return null;
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    let route: string | undefined;
+    let login: string | undefined;
+
+    if (DEEP_LINK_ROUTES.has(host) && segments.length === 1) {
+      route = host;
+      login = segments[0];
+    } else if (
+      !host &&
+      segments.length === 2 &&
+      DEEP_LINK_ROUTES.has(segments[0]!.toLowerCase())
+    ) {
+      route = segments[0]!.toLowerCase();
+      login = segments[1];
+    }
+
+    if (!route || !login) {
+      return null;
+    }
+    const channel = login.toLowerCase();
+    return TWITCH_LOGIN.test(channel) ? channel : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Handle `stg://watch/<login>` and `stg://channel/<login>` deep links. */
 export function DeepLinkBootstrap({ children }: { children: React.ReactNode }) {
@@ -27,40 +68,28 @@ export function DeepLinkBootstrap({ children }: { children: React.ReactNode }) {
       );
 
       const handleUrl = async (url: string) => {
+        const channel = parseDeepLinkChannel(url);
+        if (!channel || disposed) return;
+
+        navigate(`/channel/${channel}`);
+
+        // Auto-starting a stream spawns Streamlink/mpv/Chatterino — only do
+        // that when the user explicitly opted in (Settings → GUI).
+        if (!useSettingsStore.getState().settings.gui.deepLinkAutoWatch) {
+          return;
+        }
         try {
-          const parsed = new URL(url);
-          const host = parsed.hostname || parsed.host;
-          const path = parsed.pathname.replace(/^\/+/, "");
-          const login =
-            (host === "watch" || host === "channel" ? path : "") ||
-            (path.startsWith("watch/") ? path.slice(6) : "") ||
-            (path.startsWith("channel/") ? path.slice(8) : "") ||
-            path;
-
-          const channel = login.split(/[/?#]/)[0]?.toLowerCase();
-          // Reject anything that is not a plausible Twitch login: deep links
-          // arrive from the OS and can be triggered by any website.
-          if (!channel || !TWITCH_LOGIN.test(channel)) return;
-
-          navigate(`/channel/${channel}`);
-
-          // Auto-starting a stream spawns Streamlink/mpv/Chatterino — only do
-          // that when the user explicitly opted in (Settings → GUI).
-          if (!useSettingsStore.getState().settings.gui.deepLinkAutoWatch) {
-            return;
-          }
-          try {
-            const page = await getChannelStreams(channel);
-            const live = page.data[0] as HelixStream | undefined;
-            if (live) {
-              await watchStream(live);
+          const page = await getChannelStreams(channel);
+          if (disposed) return;
+          const live = page.data[0] as HelixStream | undefined;
+          if (live) {
+            await watchStream(live);
+            if (!disposed) {
               navigate("/watching");
             }
-          } catch {
-            // Channel page is enough if auth/network fails.
           }
         } catch {
-          // ignore malformed urls
+          // Channel page is enough if auth/network fails.
         }
       };
 
@@ -71,9 +100,14 @@ export function DeepLinkBootstrap({ children }: { children: React.ReactNode }) {
         }
       }
 
-      unlisten = await onOpenUrl((urls) => {
+      const stopListening = await onOpenUrl((urls) => {
         for (const u of urls) void handleUrl(u);
       });
+      if (disposed) {
+        stopListening();
+      } else {
+        unlisten = stopListening;
+      }
     })();
 
     return () => {

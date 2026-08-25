@@ -21,10 +21,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      actions: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.actions }}
-      javascript: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.javascript }}
-      python: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.python }}
-      rust: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.rust }}
+      languages: ${{ steps.matrix.outputs.languages }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -51,19 +48,39 @@ jobs:
               - 'scripts/**/*.py'
             rust:
               - 'src-tauri/**'
+      - name: Build CodeQL language matrix
+        id: matrix
+        shell: bash
+        env:
+          SCHEDULE: ${{ github.event_name == 'schedule' }}
+          ACTIONS_CHANGED: ${{ steps.filter.outputs.actions }}
+          JAVASCRIPT_CHANGED: ${{ steps.filter.outputs.javascript }}
+          PYTHON_CHANGED: ${{ steps.filter.outputs.python }}
+          RUST_CHANGED: ${{ steps.filter.outputs.rust }}
+        run: |
+          if [[ "$SCHEDULE" == "true" ]]; then
+            languages='["actions","javascript-typescript","python","rust"]'
+          else
+            languages="$(jq -cn \
+              --arg actions "$ACTIONS_CHANGED" \
+              --arg javascript "$JAVASCRIPT_CHANGED" \
+              --arg python "$PYTHON_CHANGED" \
+              --arg rust "$RUST_CHANGED" \
+              '[if $actions == "true" then "actions" else empty end,
+                if $javascript == "true" then "javascript-typescript" else empty end,
+                if $python == "true" then "python" else empty end,
+                if $rust == "true" then "rust" else empty end]')"
+          fi
+          echo "languages=$languages" >> "$GITHUB_OUTPUT"
 
   analyze:
     needs: changes
-    if: |
-      (matrix.language == 'actions' && needs.changes.outputs.actions == 'true') ||
-      (matrix.language == 'javascript-typescript' && needs.changes.outputs.javascript == 'true') ||
-      (matrix.language == 'python' && needs.changes.outputs.python == 'true') ||
-      (matrix.language == 'rust' && needs.changes.outputs.rust == 'true')
+    if: needs.changes.outputs.languages != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        language: [actions, javascript-typescript, python, rust]
+        language: ${{ fromJSON(needs.changes.outputs.languages) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: github/codeql-action/init@37f2634a92ba38a0926ef79a0748ac8ae7d95ab2 # v4.37.8

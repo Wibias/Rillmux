@@ -283,39 +283,61 @@ fn suppress_chatterino_changelog_prompt(exe: &Path, appdata: &Path) {
     }
 }
 
+const VS_FIXED_FILE_INFO_SIGNATURE: u32 = 0xFEEF04BD;
+const DWORD_BYTES: usize = std::mem::size_of::<u32>();
+const VS_FIXED_FILE_INFO_SIZE: usize = 13 * DWORD_BYTES;
+const PRODUCT_VERSION_MS_OFFSET: usize = 4 * DWORD_BYTES;
+const PRODUCT_VERSION_LS_OFFSET: usize = 5 * DWORD_BYTES;
+
+fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
+    let end = offset.checked_add(DWORD_BYTES)?;
+    let raw: [u8; 4] = bytes.get(offset..end)?.try_into().ok()?;
+    Some(u32::from_le_bytes(raw))
+}
+
+fn fixed_file_product_version(
+    buf: &[u8],
+    offset: usize,
+    reported_len: usize,
+) -> Option<String> {
+    if reported_len < VS_FIXED_FILE_INFO_SIZE {
+        return None;
+    }
+    let end = offset.checked_add(VS_FIXED_FILE_INFO_SIZE)?;
+    let info = buf.get(offset..end)?;
+    if read_u32_le(info, 0)? != VS_FIXED_FILE_INFO_SIGNATURE {
+        return None;
+    }
+    let product_version_ms = read_u32_le(info, PRODUCT_VERSION_MS_OFFSET)?;
+    let product_version_ls = read_u32_le(info, PRODUCT_VERSION_LS_OFFSET)?;
+    let major = (product_version_ms >> 16) & 0xffff;
+    let minor = product_version_ms & 0xffff;
+    let patch = (product_version_ls >> 16) & 0xffff;
+    let build = product_version_ls & 0xffff;
+    if build == 0 {
+        Some(format!("{major}.{minor}.{patch}"))
+    } else {
+        Some(format!("{major}.{minor}.{patch}.{build}"))
+    }
+}
+
 #[cfg(windows)]
 fn file_product_version(exe: &Path) -> Option<String> {
     #[link(name = "version")]
     unsafe extern "system" {
         fn GetFileVersionInfoSizeW(path: *const u16, handle: *mut u32) -> u32;
         fn GetFileVersionInfoW(
-            path: *const u16,
-            handle: u32,
-            len: u32,
-            data: *mut core::ffi::c_void,
+  path: *const u16,
+  handle: u32,
+  len: u32,
+  data: *mut core::ffi::c_void,
         ) -> i32;
         fn VerQueryValueW(
-            block: *const core::ffi::c_void,
-            sub: *const u16,
-            buf: *mut *mut core::ffi::c_void,
-            len: *mut u32,
+  block: *const core::ffi::c_void,
+  sub: *const u16,
+  buf: *mut *mut core::ffi::c_void,
+  len: *mut u32,
         ) -> i32;
-    }
-    #[repr(C)]
-    struct VsFixedFileInfo {
-        signature: u32,
-        struc_version: u32,
-        file_version_ms: u32,
-        file_version_ls: u32,
-        product_version_ms: u32,
-        product_version_ls: u32,
-        file_flags_mask: u32,
-        file_flags: u32,
-        file_os: u32,
-        file_type: u32,
-        file_subtype: u32,
-        file_date_ms: u32,
-        file_date_ls: u32,
     }
     let wide: Vec<u16> = exe
         .as_os_str()
@@ -326,43 +348,25 @@ fn file_product_version(exe: &Path) -> Option<String> {
         let mut dummy = 0u32;
         let size = GetFileVersionInfoSizeW(wide.as_ptr(), &mut dummy);
         if size == 0 {
-            return None;
+  return None;
         }
         let mut buf = vec![0u8; size as usize];
         if GetFileVersionInfoW(wide.as_ptr(), 0, size, buf.as_mut_ptr().cast()) == 0 {
-            return None;
+  return None;
         }
         let sub: Vec<u16> = "\\".encode_utf16().chain(std::iter::once(0)).collect();
         let mut ptr: *mut core::ffi::c_void = std::ptr::null_mut();
         let mut len = 0u32;
         if VerQueryValueW(buf.as_ptr().cast(), sub.as_ptr(), &mut ptr, &mut len) == 0
-            || ptr.is_null()
-            || (len as usize) < std::mem::size_of::<VsFixedFileInfo>()
+  || ptr.is_null()
         {
-            return None;
+  return None;
         }
-        let info_ptr = ptr.cast::<VsFixedFileInfo>();
-        let info_addr = info_ptr as usize;
+        // The API returns an address into `buf`. Use it only to derive
+        // a checked offset, then parse the owned bytes safely.
         let buf_start = buf.as_ptr() as usize;
-        let buf_end = buf_start.checked_add(buf.len())?;
-        let info_end = info_addr.checked_add(std::mem::size_of::<VsFixedFileInfo>())?;
-        if info_addr < buf_start
-            || info_end > buf_end
-            || !info_addr.is_multiple_of(std::mem::align_of::<VsFixedFileInfo>())
-        {
-            return None;
-        }
-        let info = &*info_ptr;
-        let major = (info.product_version_ms >> 16) & 0xffff;
-        let minor = info.product_version_ms & 0xffff;
-        let patch = (info.product_version_ls >> 16) & 0xffff;
-        // Chatterino prints "7.5.5" (3-part); omit build when zero.
-        let build = info.product_version_ls & 0xffff;
-        if build == 0 {
-            Some(format!("{major}.{minor}.{patch}"))
-        } else {
-            Some(format!("{major}.{minor}.{patch}.{build}"))
-        }
+        let offset = (ptr as usize).checked_sub(buf_start)?;
+        fixed_file_product_version(&buf, offset, len as usize)
     }
 }
 

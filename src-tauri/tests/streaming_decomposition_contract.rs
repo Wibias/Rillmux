@@ -29,20 +29,16 @@ fn streaming_is_composed_from_ordered_focused_shards() {
 }
 
 #[test]
-fn win32_version_info_pointer_is_validated_before_dereference() {
+fn win32_version_info_pointer_is_never_dereferenced() {
     let source = include_str!("../src/streaming/windows_layout.rs");
     let query = source
         .find("VerQueryValueW")
         .expect("missing Win32 version-info query");
-    let dereference = source[query..]
-        .find("let info = &*info_ptr;")
-        .map(|offset| query + offset)
-        .expect("missing validated VS_FIXEDFILEINFO dereference");
-    let guard = &source[query..dereference];
+    let tail = &source[query..];
 
-    assert!(guard.contains("checked_add(buf.len())?"));
-    assert!(guard.contains("checked_add(std::mem::size_of::<VsFixedFileInfo>())?"));
-    assert!(guard.contains("info_addr < buf_start"));
-    assert!(guard.contains("info_end > buf_end"));
-    assert!(guard.contains("is_multiple_of(std::mem::align_of::<VsFixedFileInfo>())"));
+    assert!(!tail.contains("&*info_ptr"));
+    assert!(!tail.contains("ptr.cast::<VsFixedFileInfo>()"));
+    assert!(tail.contains("(ptr as usize).checked_sub(buf_start)?"));
+    assert!(tail.contains("fixed_file_product_version(&buf, offset, len as usize)"));
+    assert!(source.contains("let info = buf.get(offset..end)?;"));
 }

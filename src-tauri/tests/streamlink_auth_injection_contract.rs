@@ -1,7 +1,7 @@
 #[test]
 fn website_token_is_injected_at_streamlink_launch_not_persisted() {
     let auth = include_str!("../src/twitch_web_auth.rs");
-    let streaming = include_str!("../src/streaming.rs");
+    let streaming = include_str!("../src/streaming/runtime.rs");
 
     assert!(auth.contains("streamlink_auth_arg"));
     assert!(auth.contains("--twitch-api-header=Authorization=OAuth"));

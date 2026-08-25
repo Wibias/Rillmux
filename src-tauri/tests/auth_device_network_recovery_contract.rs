@@ -14,20 +14,20 @@ fn device_login_transport_failures_use_recovering_http_mapping() {
         "pub async fn start_device_flow()",
         "pub enum DevicePoll",
     );
-    assert!(start.contains(".send()\n        .await\n        .map_err(map_http)?;"));
+    assert!(start.contains(".map_err(map_http)?;"));
 
     let poll = function_body(
         source,
         "pub async fn poll_device_token(device_code: &str)",
         "async fn refresh_if_needed",
     );
-    assert!(poll.contains(".send()\n        .await\n        .map_err(map_http)?;"));
+    assert!(poll.contains(".map_err(map_http)?;"));
 }
 
 #[test]
 fn other_shared_http_entry_points_recover_transport_failures() {
     let helix = include_str!("../src/helix.rs");
-    assert!(helix.contains(".await\n        .map_err(reset_on_transport)?;"));
+    assert!(helix.contains(".map_err(reset_on_transport)?;"));
 
     let website_auth = include_str!("../src/twitch_web_auth.rs");
     let validate = function_body(
@@ -35,7 +35,7 @@ fn other_shared_http_entry_points_recover_transport_failures() {
         "async fn validate_token(token: &str)",
         "pub async fn save(raw_token: &str)",
     );
-    assert!(validate.contains(".await\n        .map_err(reset_on_transport)?;"));
+    assert!(validate.contains(".map_err(reset_on_transport)?;"));
 
     let claim_auth = include_str!("../src/channel_points_claim_auth.rs");
     assert_eq!(

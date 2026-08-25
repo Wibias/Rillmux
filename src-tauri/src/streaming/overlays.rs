@@ -614,10 +614,7 @@ fn hud_host_hwnd_has_monitor(hwnd: *mut core::ffi::c_void) -> bool {
     }
     #[link(name = "user32")]
     unsafe extern "system" {
-        fn MonitorFromWindow(
-            hwnd: *mut core::ffi::c_void,
-            flags: u32,
-        ) -> *mut core::ffi::c_void;
+        fn MonitorFromWindow(hwnd: *mut core::ffi::c_void, flags: u32) -> *mut core::ffi::c_void;
     }
     const MONITOR_DEFAULTTONULL: u32 = 0;
     !unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL) }.is_null()

@@ -293,8 +293,8 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
     }
     if let Err(error) = subscribe_poll_topics(&mut socket, &desired.channel_ids).await {
         crate::diagnostics::log_line(&format!(
-        "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
-    ));
+            "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
+        ));
     }
     if !generation_matches(generation) {
         let _ = socket.send(Message::Close(None)).await;

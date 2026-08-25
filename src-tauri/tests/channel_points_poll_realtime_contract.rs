@@ -29,4 +29,8 @@ fn poll_and_prediction_subscriptions_are_acknowledged_before_ready() {
         function.contains("Result<(), String>"),
         "poll/prediction subscription failures must be observable"
     );
+    assert!(
+        !function.contains("let _ = send_subscription"),
+        "interactive topics must not silently discard subscription results"
+    );
 }

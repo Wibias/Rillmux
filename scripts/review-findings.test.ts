@@ -47,9 +47,21 @@ describe("full-review regression gates", () => {
     expect(authRead).toBeGreaterThan(disabledGuard);
   });
 
+  test("stale Channel Points HUD sync cannot recreate windows after cleanup", () => {
+    const source = read("src/components/ChannelPointsHudSync.tsx");
+    expect(source).toContain("isActive: () => boolean");
+    expect(source).toContain("if (!isActive()) return false;");
+    const syncBody = source.slice(source.indexOf("const sync = async"));
+    const authRead = syncBody.indexOf("getTwitchWebsiteAuthStatus");
+    const activeCheck = syncBody.indexOf("if (!active) return;", authRead);
+    expect(activeCheck).toBeGreaterThan(authRead);
+    expect(syncBody).toContain("if (!hudReady || !active) return;");
+  });
+
   test("diagnostics bounds the always-on log", () => {
     const source = read("src-tauri/src/diagnostics.rs");
     expect(source).toContain("MAX_LOG_BYTES");
     expect(source).toContain("rotate_log_if_needed");
+    expect(source).toContain("bounded_log_line");
   });
 });

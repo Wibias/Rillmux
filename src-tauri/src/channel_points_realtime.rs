@@ -46,9 +46,9 @@ struct RealtimeState {
     started: AtomicBool,
 }
 
-fn debug_claim(event: &str, fields: &str) {
+fn debug_credit(event: &str, fields: &str) {
     crate::diagnostics::log_event(
-        crate::diagnostics::DebugCategory::PointsClaim,
+        crate::diagnostics::DebugCategory::PointsCredit,
         event,
         fields,
     );
@@ -65,12 +65,12 @@ fn hermes_error_class(error: &str) -> &'static str {
         "subscription"
     } else if error.contains("reconnect") {
         "reconnect"
+    } else if error.contains("socket") || error.contains("close frame") || error.contains("closed") {
+        "socket"
     } else if error.contains("connect") || error.contains("connection") {
         "connect"
     } else if error.contains("keepalive") || error.contains("pong") {
         "keepalive"
-    } else if error.contains("socket") || error.contains("close frame") {
-        "socket"
     } else if error.contains("timed out") {
         "timeout"
     } else if error.contains("read") || error.contains("JSON") {
@@ -124,7 +124,7 @@ pub async fn sync(
     targets: &[crate::viewer_presence::ViewerPresenceTarget],
 ) -> Result<(), String> {
     if !enabled || targets.is_empty() {
-        debug_claim(
+        debug_credit(
             "hermes.sync.skip",
             &format!("enabled={enabled} target_count={}", targets.len()),
         );
@@ -142,7 +142,7 @@ pub async fn sync(
         .user_id
         .ok_or_else(|| "log in with Twitch before enabling channel points".to_string())?;
     if !auth_session.logged_in || web_auth.user_id != viewer_id {
-        debug_claim("hermes.sync.reject", "reason=account_mismatch");
+        debug_credit("hermes.sync.reject", "reason=account_mismatch");
         clear();
         return Err(
             "Twitch Website Authentication does not match the current Twitch account".into(),
@@ -162,7 +162,7 @@ pub async fn sync(
     channel_ids.sort();
     channel_ids.dedup();
     if channel_ids.is_empty() {
-        debug_claim("hermes.sync.skip", "reason=no_valid_channels");
+        debug_credit("hermes.sync.skip", "reason=no_valid_channels");
         clear();
         return Ok(());
     }
@@ -189,7 +189,7 @@ pub async fn sync(
             (realtime.generation.fetch_add(1, Ordering::AcqRel) + 1, true)
         }
     };
-    debug_claim(
+    debug_credit(
         "hermes.sync.desired",
         &format!(
             "generation={generation} changed={changed} channel_count={} viewer={}",
@@ -201,7 +201,7 @@ pub async fn sync(
     ensure_supervisor();
     realtime.wake.notify_waiters();
     let result = wait_until_ready(generation).await;
-    debug_claim(
+    debug_credit(
         "hermes.sync.result",
         &format!("generation={generation} ready={}", result.is_ok()),
     );
@@ -216,7 +216,7 @@ pub fn clear() {
     }
     realtime.ready.store(false, Ordering::Release);
     let generation = realtime.generation.fetch_add(1, Ordering::AcqRel) + 1;
-    debug_claim("hermes.clear", &format!("generation={generation}"));
+    debug_credit("hermes.clear", &format!("generation={generation}"));
     realtime.wake.notify_waiters();
     realtime.changed.notify_waiters();
 }
@@ -226,7 +226,7 @@ fn ensure_supervisor() {
     if realtime.started.swap(true, Ordering::AcqRel) {
         return;
     }
-    debug_claim("hermes.supervisor.start", "started=true");
+    debug_credit("hermes.supervisor.start", "started=true");
     tauri::async_runtime::spawn(async {
         run_supervisor().await;
     });
@@ -237,14 +237,14 @@ async fn wait_until_ready(generation: u64) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
     loop {
         if realtime.generation.load(Ordering::Acquire) != generation {
-            debug_claim(
+            debug_credit(
                 "hermes.wait.cancelled",
                 &format!("generation={generation} reason=reconfigured"),
             );
             return Err("Channel Points realtime presence was reconfigured".into());
         }
         if realtime.ready.load(Ordering::Acquire) {
-            debug_claim("hermes.wait.ready", &format!("generation={generation}"));
+            debug_credit("hermes.wait.ready", &format!("generation={generation}"));
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
@@ -254,7 +254,7 @@ async fn wait_until_ready(generation: u64) -> Result<(), String> {
                 .ok()
                 .and_then(|error| error.clone())
                 .unwrap_or_else(|| "waiting for Twitch realtime presence".to_string());
-            debug_claim(
+            debug_credit(
                 "hermes.wait.timeout",
                 &format!(
                     "generation={generation} reason={}",
@@ -283,7 +283,7 @@ async fn run_supervisor() {
 
         realtime.ready.store(false, Ordering::Release);
         realtime.changed.notify_waiters();
-        debug_claim(
+        debug_credit(
             "hermes.session.start",
             &format!(
                 "generation={generation} channel_count={} backoff_ms={}",
@@ -293,7 +293,7 @@ async fn run_supervisor() {
         );
         match run_session(&desired, generation).await {
             Ok(()) => {
-                debug_claim(
+                debug_credit(
                     "hermes.session.end",
                     &format!("generation={generation} reason=reconfigured"),
                 );
@@ -301,7 +301,7 @@ async fn run_supervisor() {
             }
             Err(error) => {
                 let reason = hermes_error_class(&error);
-                debug_claim(
+                debug_credit(
                     "hermes.reconnect",
                     &format!(
                         "generation={generation} reason={reason} backoff_ms={}",
@@ -339,7 +339,7 @@ fn mark_ready(generation: u64) {
             *error = None;
         }
         realtime.ready.store(true, Ordering::Release);
-        debug_claim("hermes.ready", &format!("generation={generation}"));
+        debug_credit("hermes.ready", &format!("generation={generation}"));
         realtime.changed.notify_waiters();
         emit_frontend("viewer-presence-changed");
     }
@@ -350,7 +350,7 @@ fn mark_not_ready(generation: u64, error: Option<String>) {
     if generation_matches(generation) {
         realtime.ready.store(false, Ordering::Release);
         let reason = error.as_deref().map(hermes_error_class).unwrap_or("none");
-        debug_claim(
+        debug_credit(
             "hermes.not_ready",
             &format!("generation={generation} reason={reason}"),
         );
@@ -363,7 +363,7 @@ fn mark_not_ready(generation: u64, error: Option<String>) {
 }
 
 async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), String> {
-    debug_claim(
+    debug_credit(
         "hermes.connect.attempt",
         &format!(
             "generation={generation} channel_count={}",
@@ -384,9 +384,9 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         .await
         .map_err(|_| "Hermes connection timed out".to_string())?
         .map_err(|error| format!("Hermes connect: {error}"))?;
-    debug_claim("hermes.connect.ok", &format!("generation={generation}"));
+    debug_credit("hermes.connect.ok", &format!("generation={generation}"));
 
-    debug_claim(
+    debug_credit(
         "hermes.auth.request",
         &format!(
             "generation={generation} viewer={}",
@@ -395,7 +395,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
     );
     send_json(&mut socket, authenticate_request(&desired.token)).await?;
     wait_for_authentication(&mut socket).await?;
-    debug_claim("hermes.auth.ack", &format!("generation={generation}"));
+    debug_credit("hermes.auth.ack", &format!("generation={generation}"));
 
     let mut subscriptions = HashSet::new();
     let viewer_topic = format!("community-points-user-v1.{}", desired.viewer_id);
@@ -404,7 +404,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         let topic = format!("video-playback-by-id.{channel_id}");
         subscriptions.insert(send_subscription(&mut socket, &topic).await?);
     }
-    debug_claim(
+    debug_credit(
         "hermes.subscription.request",
         &format!(
             "generation={generation} viewer_topics=1 playback_topics={}",
@@ -412,7 +412,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         ),
     );
     wait_for_subscriptions(&mut socket, &mut subscriptions).await?;
-    debug_claim(
+    debug_credit(
         "hermes.subscription.ack",
         &format!(
             "generation={generation} viewer_topics=1 playback_topics={}",
@@ -421,7 +421,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
     );
 
     if !generation_matches(generation) {
-        debug_claim(
+        debug_credit(
             "hermes.session.cancelled",
             &format!("generation={generation} phase=private_topics"),
         );
@@ -443,9 +443,6 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
                 hermes_error_class(&error)
             ),
         );
-        crate::diagnostics::log_line(&format!(
-            "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
-        ));
     } else {
         debug_poll(
             "poll.subscription.ack",
@@ -456,7 +453,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         );
     }
     if !generation_matches(generation) {
-        debug_claim(
+        debug_credit(
             "hermes.session.cancelled",
             &format!("generation={generation} phase=poll_topics"),
         );
@@ -471,7 +468,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         tokio::select! {
             _ = state().wake.notified() => {
                 if !generation_matches(generation) {
-                    debug_claim(
+                    debug_credit(
                         "hermes.session.cancelled",
                         &format!("generation={generation} phase=active"),
                     );
@@ -500,7 +497,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
                     Message::Text(text) => {
                         if let Ok(value) = serde_json::from_str::<Value>(&text) {
                             if value.get("type").and_then(Value::as_str) == Some("reconnect") {
-                                debug_claim(
+                                debug_credit(
                                     "hermes.reconnect.requested",
                                     &format!("generation={generation}"),
                                 );
@@ -517,7 +514,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
                                         ),
                                     );
                                 } else {
-                                    debug_claim(
+                                    debug_credit(
                                         "hermes.pubsub",
                                         &format!(
                                             "generation={generation} topic={kind} changed={changed}"
@@ -679,7 +676,7 @@ async fn wait_for_subscriptions(
             return Err(format!("Hermes subscription failed: {error} ({code})"));
         }
         pending.remove(subscription_id);
-        debug_claim(
+        debug_credit(
             "hermes.subscription.ack.item",
             &format!("remaining={}", pending.len()),
         );
@@ -853,5 +850,6 @@ mod tests {
             hermes_error_class("Hermes requested reconnect"),
             "reconnect"
         );
+        assert_eq!(hermes_error_class("Hermes read: connection closed"), "socket");
     }
 }

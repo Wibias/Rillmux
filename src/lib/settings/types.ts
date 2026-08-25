@@ -35,6 +35,15 @@ export type PlayerId = "mpv" | "vlc" | "mpc" | "potplayer" | "custom";
 /** How Streamlink feeds the player. Passthrough is intentionally omitted. */
 export type PlayerInput = "default" | "fifo" | "http";
 
+export interface DebugCategories {
+  windows: boolean;
+  pointsCredit: boolean;
+  pointsClaim: boolean;
+  rewards: boolean;
+  polls: boolean;
+  raids: boolean;
+}
+
 export interface ChannelOverride {
   quality?: string;
   lowLatency?: boolean;
@@ -138,6 +147,8 @@ export interface AppSettings {
     hideMatureFollowed: boolean;
     /** Extra logging, a debug console, and local crash files. */
     debugMode: boolean;
+    /** Category filters for local debug output. Retained while debug mode is off. */
+    debugCategories: DebugCategories;
   };
   notifications: {
     followedOnline: boolean;
@@ -154,7 +165,16 @@ export interface AppSettings {
   closeToTray?: boolean;
 }
 
-export const SETTINGS_SCHEMA_VERSION = 19;
+export const SETTINGS_SCHEMA_VERSION = 20;
+
+export const defaultDebugCategories = (): DebugCategories => ({
+  windows: true,
+  pointsCredit: true,
+  pointsClaim: true,
+  rewards: true,
+  polls: true,
+  raids: true,
+});
 
 export const defaultHotkeys = (): HotkeySettings => ({
   refresh: "F5",
@@ -218,6 +238,7 @@ export const defaultSettings = (): AppSettings => ({
     pinnedFollowed: [],
     hideMatureFollowed: false,
     debugMode: false,
+    debugCategories: defaultDebugCategories(),
   },
   notifications: {
     followedOnline: true,

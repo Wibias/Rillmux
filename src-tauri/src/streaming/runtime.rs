@@ -463,8 +463,13 @@ pub fn start_stream(
         }
     }
 
-    let streamlink_auth_config = crate::twitch_web_auth::streamlink_auth_config()
-        .map_err(|error| StreamError::Message(error.to_string()))?;
+    let streamlink_auth_config = match crate::twitch_web_auth::streamlink_auth_config() {
+        Ok(config) => config,
+        Err(error) => {
+            close_fast_player(&mut fast_player, false);
+            return Err(StreamError::Message(error.to_string()));
+        }
+    };
     let mut args: Vec<String> = Vec::new();
     if let Some(config) = streamlink_auth_config.as_ref() {
         args.push("--config".into());

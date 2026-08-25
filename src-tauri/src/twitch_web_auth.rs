@@ -162,6 +162,9 @@ fn streamlink_auth_config_for(token: &str) -> Result<StreamlinkAuthConfig, Twitc
 }
 
 pub(crate) fn streamlink_auth_config() -> Result<Option<StreamlinkAuthConfig>, TwitchWebAuthError> {
+    // Streamlink loads plugin-specific config.twitch after a custom --config,
+    // so remove only auth blocks managed by Rillmux before every launch.
+    remove_streamlink_auth()?;
     let Some(token) = load_token()? else {
         return Ok(None);
     };
@@ -314,22 +317,27 @@ fn write_secure(path: &Path, content: &str) -> Result<(), TwitchWebAuthError> {
     Ok(())
 }
 
-fn remove_streamlink_auth() -> Result<PathBuf, TwitchWebAuthError> {
-    let path = streamlink_config_path()?;
-    let existing = read_config(&path)?;
+fn remove_streamlink_auth_at(path: &Path) -> Result<(), TwitchWebAuthError> {
+    let existing = read_config(path)?;
     if existing.is_empty() {
-        return Ok(path);
+        return Ok(());
     }
     let updated = remove_managed_block(&existing);
     if updated.trim().is_empty() {
-        match std::fs::remove_file(&path) {
+        match std::fs::remove_file(path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
     } else if updated != existing {
-        write_secure(&path, &updated)?;
+        write_secure(path, &updated)?;
     }
+    Ok(())
+}
+
+fn remove_streamlink_auth() -> Result<PathBuf, TwitchWebAuthError> {
+    let path = streamlink_config_path()?;
+    remove_streamlink_auth_at(&path)?;
     Ok(path)
 }
 
@@ -448,6 +456,32 @@ mod tests {
         );
         let cleaned = remove_managed_block(existing);
         assert_eq!(cleaned, "player=mpv\n\nretry-streams=1\n");
+    }
+
+    #[test]
+    fn removes_legacy_managed_auth_from_existing_plugin_config() {
+        let dir = std::env::temp_dir().join(format!(
+            "rillmux-streamlink-config-{}-{}",
+            std::process::id(),
+            Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.twitch");
+        let existing = concat!(
+            "player=mpv\n\n",
+            "# BEGIN streamlink-twitch-gui managed Twitch auth\n",
+            "twitch-api-header=Authorization=OAuth stale-token\n",
+            "# END streamlink-twitch-gui managed Twitch auth\n\n",
+            "retry-streams=1\n",
+        );
+        std::fs::write(&path, existing).unwrap();
+
+        remove_streamlink_auth_at(&path).unwrap();
+        let cleaned = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(cleaned, "player=mpv\n\nretry-streams=1\n");
+        assert!(!cleaned.contains("twitch-api-header"));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

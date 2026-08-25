@@ -92,31 +92,46 @@ pub fn log_debug(msg: &str) {
     log_line(msg);
 }
 
-fn rotate_log_if_needed(path: &Path, incoming_bytes: u64) {
+fn rotate_log_if_needed(path: &Path, incoming_bytes: u64) -> bool {
     let current = fs::metadata(path)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
     if current.saturating_add(incoming_bytes) <= MAX_LOG_BYTES {
-        return;
+        return true;
     }
     let rotated = path.with_file_name("rillmux.log.1");
     let _ = fs::remove_file(&rotated);
-    if fs::rename(path, &rotated).is_err() {
-        let _ = fs::remove_file(path);
+    fs::rename(path, &rotated).is_ok()
+}
+
+fn bounded_log_line(msg: &str) -> String {
+    let mut line = format!("{msg}\n");
+    let max = MAX_LOG_BYTES as usize;
+    if line.len() <= max {
+        return line;
     }
+    let mut end = max.saturating_sub(1);
+    while !line.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    line.truncate(end);
+    line.push('\n');
+    line
 }
 
 /// Always append to `rillmux.log` (monitor/chat placement traces), rotating
 /// one previous generation before the file grows beyond 10 MiB.
 pub fn log_line(msg: &str) {
     ensure_dirs();
-    let line = format!("{msg}\n");
+    let line = bounded_log_line(msg);
     write_debug_output(line.as_bytes());
     let _guard = log_write_lock()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     let path = logs_dir().join("rillmux.log");
-    rotate_log_if_needed(&path, line.len() as u64);
+    if !rotate_log_if_needed(&path, line.len() as u64) {
+        return;
+    }
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = file.write_all(line.as_bytes());
     }
@@ -360,5 +375,36 @@ mod tests {
     fn log_rotation_threshold_is_bounded() {
         assert_eq!(MAX_LOG_BYTES, 10 * 1024 * 1024);
         assert!(MAX_LOG_BYTES.saturating_add(1) > MAX_LOG_BYTES);
+    }
+
+    #[test]
+    fn oversized_log_line_is_bounded_and_utf8_safe() {
+        let msg = "é".repeat((MAX_LOG_BYTES as usize / 2) + 1);
+        let line = bounded_log_line(&msg);
+        assert!(line.len() as u64 <= MAX_LOG_BYTES);
+        assert!(line.ends_with('\n'));
+        assert!(std::str::from_utf8(line.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn failed_rotation_preserves_current_log() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "rillmux-log-rotation-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rillmux.log");
+        let rotated = dir.join("rillmux.log.1");
+        fs::write(&path, b"history").unwrap();
+        fs::create_dir(&rotated).unwrap();
+
+        assert!(!rotate_log_if_needed(&path, MAX_LOG_BYTES));
+        assert_eq!(fs::read(&path).unwrap(), b"history");
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

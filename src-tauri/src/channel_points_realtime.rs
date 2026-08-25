@@ -46,6 +46,54 @@ struct RealtimeState {
     started: AtomicBool,
 }
 
+fn debug_claim(event: &str, fields: &str) {
+    crate::diagnostics::log_event(
+        crate::diagnostics::DebugCategory::PointsClaim,
+        event,
+        fields,
+    );
+}
+
+fn debug_poll(event: &str, fields: &str) {
+    crate::diagnostics::log_event(crate::diagnostics::DebugCategory::Polls, event, fields);
+}
+
+fn hermes_error_class(error: &str) -> &'static str {
+    if error.contains("authentication") {
+        "authentication"
+    } else if error.contains("subscription") {
+        "subscription"
+    } else if error.contains("connect") || error.contains("connection") {
+        "connect"
+    } else if error.contains("keepalive") || error.contains("pong") {
+        "keepalive"
+    } else if error.contains("reconnect") {
+        "reconnect"
+    } else if error.contains("socket") || error.contains("close frame") {
+        "socket"
+    } else if error.contains("timed out") {
+        "timeout"
+    } else if error.contains("read") || error.contains("JSON") {
+        "read"
+    } else {
+        "other"
+    }
+}
+
+fn topic_kind(topic: &str) -> &'static str {
+    if topic.starts_with("community-points-user-v1.") {
+        "viewer"
+    } else if topic.starts_with("video-playback-by-id.") {
+        "playback"
+    } else if topic.starts_with("polls.") {
+        "poll"
+    } else if topic.starts_with("predictions-channel-v1.") {
+        "prediction"
+    } else {
+        "other"
+    }
+}
+
 fn state() -> &'static RealtimeState {
     static STATE: OnceLock<RealtimeState> = OnceLock::new();
     STATE.get_or_init(|| RealtimeState {
@@ -76,6 +124,10 @@ pub async fn sync(
     targets: &[crate::viewer_presence::ViewerPresenceTarget],
 ) -> Result<(), String> {
     if !enabled || targets.is_empty() {
+        debug_claim(
+            "hermes.sync.skip",
+            &format!("enabled={enabled} target_count={}", targets.len()),
+        );
         clear();
         return Ok(());
     }
@@ -90,6 +142,7 @@ pub async fn sync(
         .user_id
         .ok_or_else(|| "log in with Twitch before enabling channel points".to_string())?;
     if !auth_session.logged_in || web_auth.user_id != viewer_id {
+        debug_claim("hermes.sync.reject", "reason=account_mismatch");
         clear();
         return Err(
             "Twitch Website Authentication does not match the current Twitch account".into(),
@@ -109,6 +162,7 @@ pub async fn sync(
     channel_ids.sort();
     channel_ids.dedup();
     if channel_ids.is_empty() {
+        debug_claim("hermes.sync.skip", "reason=no_valid_channels");
         clear();
         return Ok(());
     }
@@ -119,26 +173,42 @@ pub async fn sync(
         channel_ids,
     };
     let realtime = state();
-    let generation = {
+    let (generation, changed) = {
         let mut current = realtime
             .desired
             .lock()
             .map_err(|_| "Channel Points realtime state is poisoned".to_string())?;
         if current.as_ref() == Some(&desired) {
-            realtime.generation.load(Ordering::Acquire)
+            (realtime.generation.load(Ordering::Acquire), false)
         } else {
-            *current = Some(desired);
+            *current = Some(desired.clone());
             realtime.ready.store(false, Ordering::Release);
             if let Ok(mut error) = realtime.last_error.lock() {
                 *error = None;
             }
-            realtime.generation.fetch_add(1, Ordering::AcqRel) + 1
+            (
+                realtime.generation.fetch_add(1, Ordering::AcqRel) + 1,
+                true,
+            )
         }
     };
+    debug_claim(
+        "hermes.sync.desired",
+        &format!(
+            "generation={generation} changed={changed} channel_count={} viewer={}",
+            desired.channel_ids.len(),
+            crate::diagnostics::redact_id(&desired.viewer_id)
+        ),
+    );
 
     ensure_supervisor();
     realtime.wake.notify_waiters();
-    wait_until_ready(generation).await
+    let result = wait_until_ready(generation).await;
+    debug_claim(
+        "hermes.sync.result",
+        &format!("generation={generation} ready={}", result.is_ok()),
+    );
+    result
 }
 
 pub fn clear() {
@@ -148,7 +218,8 @@ pub fn clear() {
         *desired = None;
     }
     realtime.ready.store(false, Ordering::Release);
-    realtime.generation.fetch_add(1, Ordering::AcqRel);
+    let generation = realtime.generation.fetch_add(1, Ordering::AcqRel) + 1;
+    debug_claim("hermes.clear", &format!("generation={generation}"));
     realtime.wake.notify_waiters();
     realtime.changed.notify_waiters();
 }
@@ -158,6 +229,7 @@ fn ensure_supervisor() {
     if realtime.started.swap(true, Ordering::AcqRel) {
         return;
     }
+    debug_claim("hermes.supervisor.start", "started=true");
     tauri::async_runtime::spawn(async {
         run_supervisor().await;
     });
@@ -168,9 +240,14 @@ async fn wait_until_ready(generation: u64) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
     loop {
         if realtime.generation.load(Ordering::Acquire) != generation {
+            debug_claim(
+                "hermes.wait.cancelled",
+                &format!("generation={generation} reason=reconfigured"),
+            );
             return Err("Channel Points realtime presence was reconfigured".into());
         }
         if realtime.ready.load(Ordering::Acquire) {
+            debug_claim("hermes.wait.ready", &format!("generation={generation}"));
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
@@ -180,6 +257,13 @@ async fn wait_until_ready(generation: u64) -> Result<(), String> {
                 .ok()
                 .and_then(|error| error.clone())
                 .unwrap_or_else(|| "waiting for Twitch realtime presence".to_string());
+            debug_claim(
+                "hermes.wait.timeout",
+                &format!(
+                    "generation={generation} reason={}",
+                    hermes_error_class(&detail)
+                ),
+            );
             return Err(format!("Channel Points realtime is not ready: {detail}"));
         }
         tokio::select! {
@@ -202,11 +286,31 @@ async fn run_supervisor() {
 
         realtime.ready.store(false, Ordering::Release);
         realtime.changed.notify_waiters();
+        debug_claim(
+            "hermes.session.start",
+            &format!(
+                "generation={generation} channel_count={} backoff_ms={}",
+                desired.channel_ids.len(),
+                backoff.as_millis()
+            ),
+        );
         match run_session(&desired, generation).await {
             Ok(()) => {
+                debug_claim(
+                    "hermes.session.end",
+                    &format!("generation={generation} reason=reconfigured"),
+                );
                 backoff = Duration::from_secs(1);
             }
             Err(error) => {
+                let reason = hermes_error_class(&error);
+                debug_claim(
+                    "hermes.reconnect",
+                    &format!(
+                        "generation={generation} reason={reason} backoff_ms={}",
+                        backoff.as_millis()
+                    ),
+                );
                 mark_not_ready(generation, Some(error));
                 tokio::select! {
                     _ = realtime.wake.notified() => {
@@ -238,6 +342,7 @@ fn mark_ready(generation: u64) {
             *error = None;
         }
         realtime.ready.store(true, Ordering::Release);
+        debug_claim("hermes.ready", &format!("generation={generation}"));
         realtime.changed.notify_waiters();
         emit_frontend("viewer-presence-changed");
     }
@@ -247,6 +352,14 @@ fn mark_not_ready(generation: u64, error: Option<String>) {
     let realtime = state();
     if generation_matches(generation) {
         realtime.ready.store(false, Ordering::Release);
+        let reason = error
+            .as_deref()
+            .map(hermes_error_class)
+            .unwrap_or("none");
+        debug_claim(
+            "hermes.not_ready",
+            &format!("generation={generation} reason={reason}"),
+        );
         if let Ok(mut last_error) = realtime.last_error.lock() {
             *last_error = error;
         }
@@ -256,6 +369,13 @@ fn mark_not_ready(generation: u64, error: Option<String>) {
 }
 
 async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), String> {
+    debug_claim(
+        "hermes.connect.attempt",
+        &format!(
+            "generation={generation} channel_count={}",
+            desired.channel_ids.len()
+        ),
+    );
     let mut request = format!(
         "{HERMES_URL_PREFIX}{}",
         crate::twitch_web_auth::WEB_CLIENT_ID
@@ -270,9 +390,21 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         .await
         .map_err(|_| "Hermes connection timed out".to_string())?
         .map_err(|error| format!("Hermes connect: {error}"))?;
+    debug_claim(
+        "hermes.connect.ok",
+        &format!("generation={generation}"),
+    );
 
+    debug_claim(
+        "hermes.auth.request",
+        &format!(
+            "generation={generation} viewer={}",
+            crate::diagnostics::redact_id(&desired.viewer_id)
+        ),
+    );
     send_json(&mut socket, authenticate_request(&desired.token)).await?;
     wait_for_authentication(&mut socket).await?;
+    debug_claim("hermes.auth.ack", &format!("generation={generation}"));
 
     let mut subscriptions = HashSet::new();
     let viewer_topic = format!("community-points-user-v1.{}", desired.viewer_id);
@@ -281,18 +413,62 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         let topic = format!("video-playback-by-id.{channel_id}");
         subscriptions.insert(send_subscription(&mut socket, &topic).await?);
     }
+    debug_claim(
+        "hermes.subscription.request",
+        &format!(
+            "generation={generation} viewer_topics=1 playback_topics={}",
+            desired.channel_ids.len()
+        ),
+    );
     wait_for_subscriptions(&mut socket, &mut subscriptions).await?;
+    debug_claim(
+        "hermes.subscription.ack",
+        &format!(
+            "generation={generation} viewer_topics=1 playback_topics={}",
+            desired.channel_ids.len()
+        ),
+    );
 
     if !generation_matches(generation) {
+        debug_claim(
+            "hermes.session.cancelled",
+            &format!("generation={generation} phase=private_topics"),
+        );
         let _ = socket.send(Message::Close(None)).await;
         return Ok(());
     }
+    debug_poll(
+        "poll.subscription.request",
+        &format!(
+            "generation={generation} channel_count={}",
+            desired.channel_ids.len()
+        ),
+    );
     if let Err(error) = subscribe_poll_topics(&mut socket, &desired.channel_ids).await {
+        debug_poll(
+            "poll.subscription.fallback",
+            &format!(
+                "generation={generation} reason={}",
+                hermes_error_class(&error)
+            ),
+        );
         crate::diagnostics::log_line(&format!(
             "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
         ));
+    } else {
+        debug_poll(
+            "poll.subscription.ack",
+            &format!(
+                "generation={generation} channel_count={}",
+                desired.channel_ids.len()
+            ),
+        );
     }
     if !generation_matches(generation) {
+        debug_claim(
+            "hermes.session.cancelled",
+            &format!("generation={generation} phase=poll_topics"),
+        );
         let _ = socket.send(Message::Close(None)).await;
         return Ok(());
     }
@@ -304,6 +480,10 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         tokio::select! {
             _ = state().wake.notified() => {
                 if !generation_matches(generation) {
+                    debug_claim(
+                        "hermes.session.cancelled",
+                        &format!("generation={generation} phase=active"),
+                    );
                     let _ = socket.send(Message::Close(None)).await;
                     return Ok(());
                 }
@@ -329,10 +509,31 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
                     Message::Text(text) => {
                         if let Ok(value) = serde_json::from_str::<Value>(&text) {
                             if value.get("type").and_then(Value::as_str) == Some("reconnect") {
+                                debug_claim(
+                                    "hermes.reconnect.requested",
+                                    &format!("generation={generation}"),
+                                );
                                 return Err("Hermes requested reconnect".into());
                             }
                             if let Some((topic, message)) = pubsub_topic_and_message(&value) {
-                                if crate::channel_points::ingest_pubsub(&topic, &message) {
+                                let kind = topic_kind(&topic);
+                                let changed = crate::channel_points::ingest_pubsub(&topic, &message);
+                                if matches!(kind, "poll" | "prediction") {
+                                    debug_poll(
+                                        "poll.pubsub",
+                                        &format!(
+                                            "generation={generation} topic={kind} changed={changed}"
+                                        ),
+                                    );
+                                } else {
+                                    debug_claim(
+                                        "hermes.pubsub",
+                                        &format!(
+                                            "generation={generation} topic={kind} changed={changed}"
+                                        ),
+                                    );
+                                }
+                                if changed {
                                     emit_frontend("channel-points-pubsub");
                                 }
                             }
@@ -450,7 +651,15 @@ async fn wait_for_subscriptions(
         let value = receive_json(socket).await?;
         if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
             if let Some((topic, message)) = pubsub_topic_and_message(&value) {
-                if crate::channel_points::ingest_pubsub(&topic, &message) {
+                let kind = topic_kind(&topic);
+                let changed = crate::channel_points::ingest_pubsub(&topic, &message);
+                if matches!(kind, "poll" | "prediction") {
+                    debug_poll(
+                        "poll.pubsub.before_ready",
+                        &format!("topic={kind} changed={changed}"),
+                    );
+                }
+                if changed {
                     emit_frontend("channel-points-pubsub");
                 }
             }
@@ -479,6 +688,10 @@ async fn wait_for_subscriptions(
             return Err(format!("Hermes subscription failed: {error} ({code})"));
         }
         pending.remove(subscription_id);
+        debug_claim(
+            "hermes.subscription.ack.item",
+            &format!("remaining={}", pending.len()),
+        );
     }
     Ok(())
 }
@@ -625,5 +838,20 @@ mod tests {
         assert_eq!(topic, "polls.123");
         assert_eq!(message["type"], "POLL_UPDATE");
         assert_eq!(message["data"]["poll"]["poll_id"], "p1");
+    }
+
+    #[test]
+    fn classifies_private_topics_without_logging_ids() {
+        assert_eq!(topic_kind("community-points-user-v1.123"), "viewer");
+        assert_eq!(topic_kind("video-playback-by-id.456"), "playback");
+        assert_eq!(topic_kind("polls.789"), "poll");
+        assert_eq!(topic_kind("predictions-channel-v1.789"), "prediction");
+    }
+
+    #[test]
+    fn classifies_hermes_errors_without_echoing_details() {
+        assert_eq!(hermes_error_class("Hermes authentication failed"), "authentication");
+        assert_eq!(hermes_error_class("Hermes subscription failed"), "subscription");
+        assert_eq!(hermes_error_class("Hermes requested reconnect"), "reconnect");
     }
 }

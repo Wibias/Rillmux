@@ -1,4 +1,10 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Sentry from "@sentry/react";
 import { useTranslation } from "react-i18next";
@@ -30,6 +36,8 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { LaunchErrorBanner } from "./components/LaunchErrorBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { RaidBanner } from "./components/RaidBanner";
+import { DebugDiagnosticsBootstrap } from "./components/DebugDiagnosticsBootstrap";
+import { DebugOutputSettings } from "./components/DebugOutputSettings";
 import {
   ChannelPointsPollOverlay,
   isPollOverlayWindow,
@@ -39,6 +47,7 @@ import {
   isPointsHudOverlayWindow,
 } from "./components/ChannelPointsHud";
 import { ChannelPointsHudSync } from "./components/ChannelPointsHudSync";
+import { settingsTabFromPath } from "./lib/settings/tabs";
 import { SentryBootstrap } from "./lib/sentry";
 import "./styles/global.css";
 
@@ -51,6 +60,29 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function SettingsRoute() {
+  const location = useLocation();
+  const showDebugFilters = settingsTabFromPath(location.pathname) === "general";
+
+  return (
+    <>
+      <SettingsPage />
+      {showDebugFilters ? (
+        <section className="settings" aria-label="Debug output filters">
+          <div className="settings__layout">
+            <div className="settings__nav" aria-hidden="true" />
+            <div className="settings__main">
+              <div className="settings__group">
+                <DebugOutputSettings />
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+    </>
+  );
+}
 
 function AppRoutes() {
   const { t } = useTranslation("errors");
@@ -75,7 +107,7 @@ function AppRoutes() {
         <Route path="/team/:teamName" element={<TeamPage />} />
         <Route path="/watching" element={<WatchingPage />} />
         <Route path="/multistream" element={<MultistreamPage />} />
-        <Route path="/settings/*" element={<SettingsPage />} />
+        <Route path="/settings/*" element={<SettingsRoute />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -122,31 +154,33 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <SettingsBootstrap>
-          <SentryBootstrap>
-            <AuthBootstrap>
-              <BrowserRouter>
-                <HotkeyProvider>
-                  <DeepLinkBootstrap>
-                    <StreamingBootstrap>
-                      <OnboardingWizard />
-                      <AppShell>
-                        <DesktopChrome />
-                        <TauriGuardBanner />
-                        <LaunchErrorBanner />
-                        <UpdateBanner />
-                        <RaidBanner />
-                        <ChannelPointsPollOverlay />
-                        <Sentry.ErrorBoundary fallback={<span hidden />}>
-                          <ChannelPointsHudSync />
-                        </Sentry.ErrorBoundary>
-                        <AppRoutes />
-                      </AppShell>
-                    </StreamingBootstrap>
-                  </DeepLinkBootstrap>
-                </HotkeyProvider>
-              </BrowserRouter>
-            </AuthBootstrap>
-          </SentryBootstrap>
+          <DebugDiagnosticsBootstrap>
+            <SentryBootstrap>
+              <AuthBootstrap>
+                <BrowserRouter>
+                  <HotkeyProvider>
+                    <DeepLinkBootstrap>
+                      <StreamingBootstrap>
+                        <OnboardingWizard />
+                        <AppShell>
+                          <DesktopChrome />
+                          <TauriGuardBanner />
+                          <LaunchErrorBanner />
+                          <UpdateBanner />
+                          <RaidBanner />
+                          <ChannelPointsPollOverlay />
+                          <Sentry.ErrorBoundary fallback={<span hidden />}>
+                            <ChannelPointsHudSync />
+                          </Sentry.ErrorBoundary>
+                          <AppRoutes />
+                        </AppShell>
+                      </StreamingBootstrap>
+                    </DeepLinkBootstrap>
+                  </HotkeyProvider>
+                </BrowserRouter>
+              </AuthBootstrap>
+            </SentryBootstrap>
+          </DebugDiagnosticsBootstrap>
         </SettingsBootstrap>
       </ThemeProvider>
     </QueryClientProvider>

@@ -241,8 +241,7 @@ fn chatterino_should_close_duplicate_main(
     if is_keep || !visible || !have_split || area < 10_000 {
         return false;
     }
-    title.trim().is_empty()
-    || title.trim().eq_ignore_ascii_case("Chatterino")
+    title.trim().is_empty() || title.trim().eq_ignore_ascii_case("Chatterino")
 }
 
 /// `--channels=t:forsen` windows are titled like "forsen - Chatterino".
@@ -292,4 +291,3 @@ fn cached_chatterino_path() -> Option<PathBuf> {
     }
     Some(found)
 }
-

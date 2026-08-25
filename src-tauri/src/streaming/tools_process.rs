@@ -200,7 +200,7 @@ pub fn launch_chatterino_for_channels(channels: &[String]) -> Result<String, Str
     if let Err(error) = launch_chatterino_with_path(&path, &list, true, true) {
         if let Ok(mut guard) = last_chatterino_channels().lock() {
             if *guard == list {
-  *guard = previous_channels;
+                *guard = previous_channels;
             }
         }
         return Err(error);
@@ -210,7 +210,6 @@ pub fn launch_chatterino_for_channels(channels: &[String]) -> Result<String, Str
         return Ok(path.to_string_lossy().into_owned());
     }
     Ok(path.to_string_lossy().into_owned())
-
 }
 
 fn normalize_layout(layout: Option<&str>) -> String {
@@ -432,4 +431,3 @@ fn terminate_job(slot: &mut JobSlot) {
     #[cfg(not(windows))]
     let _ = slot;
 }
-

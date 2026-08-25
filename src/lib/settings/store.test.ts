@@ -31,6 +31,14 @@ describe("migrateSettings", () => {
     expect(result.streaming.streamLanguages).toEqual([]);
     expect(result.gui.onboardingDone).toBe(false);
     expect(result.gui.debugMode).toBe(false);
+    expect(result.gui.debugCategories).toEqual({
+      windows: true,
+      pointsCredit: true,
+      pointsClaim: true,
+      rewards: true,
+      polls: true,
+      raids: true,
+    });
     expect(result.player.input).toBe("default");
     expect(result.player.mpv).toEqual(defaultMpvPresets());
     expect(result.hotkeys.refresh).toBe("F5");
@@ -140,6 +148,44 @@ describe("migrateSettings", () => {
       streaming: { channelPointsHudOffset: { x: 1.5, y: -0.2 } },
     });
     expect(clamped.streaming.channelPointsHudOffset).toEqual({ x: 1, y: 0 });
+  });
+
+  it("defaults missing debug categories to enabled and preserves explicit filters", () => {
+    const missing = migrateSettings({
+      schemaVersion: 19,
+      gui: { debugMode: true },
+    });
+    expect(missing.gui.debugCategories).toEqual({
+      windows: true,
+      pointsCredit: true,
+      pointsClaim: true,
+      rewards: true,
+      polls: true,
+      raids: true,
+    });
+
+    const kept = migrateSettings({
+      schemaVersion: 19,
+      gui: {
+        debugMode: true,
+        debugCategories: {
+          windows: false,
+          pointsCredit: true,
+          pointsClaim: false,
+          rewards: true,
+          polls: false,
+          raids: true,
+        },
+      },
+    });
+    expect(kept.gui.debugCategories).toEqual({
+      windows: false,
+      pointsCredit: true,
+      pointsClaim: false,
+      rewards: true,
+      polls: false,
+      raids: true,
+    });
   });
 
   it("turns off webbrowser when migrating from schema < 8", () => {

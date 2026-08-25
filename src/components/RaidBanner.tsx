@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke, isTauri } from "../lib/tauri";
+import { debugRuntimeEvent } from "../lib/diagnostics/runtimeDebug";
 import {
   enqueueRaid,
   raidDedupeKey,
@@ -167,8 +168,19 @@ export function RaidBanner() {
       if (!useSettingsStore.getState().settings.streaming.followRaids) return;
       const payload = event.payload;
       if (!payload?.fromChannel || !payload?.toChannel) return;
+      debugRuntimeEvent("raids", "raid.received", {
+        from: payload.fromChannel.toLowerCase(),
+        to: payload.toChannel.toLowerCase(),
+        viewers: payload.viewers ?? 0,
+      });
       const key = raidDedupeKey(payload);
-      if (cooldownRef.current.has(key)) return;
+      if (cooldownRef.current.has(key)) {
+        debugRuntimeEvent("raids", "raid.received.duplicate", {
+          from: payload.fromChannel.toLowerCase(),
+          to: payload.toChannel.toLowerCase(),
+        });
+        return;
+      }
       setQueue((q) => enqueueRaid(q, payload));
     }).then((fn) => {
       unlisten = fn;

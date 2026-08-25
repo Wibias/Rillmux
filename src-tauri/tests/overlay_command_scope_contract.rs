@@ -11,6 +11,11 @@ fn overlay_self_placement_cannot_target_an_arbitrary_label() {
 #[test]
 fn main_hud_placement_derives_the_window_label_from_channel() {
     let lib = include_str!("../src/lib.rs");
-    assert!(lib.contains("fn points_hud_place_window"));
-    assert!(lib.contains("format!(\"points-hud-{}\""));
+    let start = lib
+        .find("fn points_hud_place_window")
+        .expect("main HUD placement command");
+    let body = &lib[start..lib.find("fn overlay_fit_webview").expect("next command")];
+    assert!(body.contains("let channel = channel_login.trim().to_ascii_lowercase()"));
+    assert!(body.contains("let label = format!(\"points-hud-{channel}\")"));
+    assert!(!body.contains("label: String"));
 }

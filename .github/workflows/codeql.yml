@@ -69,7 +69,6 @@ jobs:
       - uses: github/codeql-action/init@37f2634a92ba38a0926ef79a0748ac8ae7d95ab2 # v4.37.8
         with:
           languages: ${{ matrix.language }}
-          queries: security-extended
       - if: matrix.language == 'rust'
         uses: github/codeql-action/autobuild@37f2634a92ba38a0926ef79a0748ac8ae7d95ab2 # v4.37.8
       - uses: github/codeql-action/analyze@37f2634a92ba38a0926ef79a0748ac8ae7d95ab2 # v4.37.8

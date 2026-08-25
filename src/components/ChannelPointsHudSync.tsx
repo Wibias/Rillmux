@@ -92,15 +92,22 @@ export function ChannelPointsHudSync() {
     if (!isTauri()) return;
     let active = true;
 
+    const closeWantedHuds = async () => {
+      for (const channel of wantedRef.current) {
+        await closeHud(pointsHudLabel(channel));
+      }
+      wantedRef.current = [];
+    };
+
     const sync = async () => {
       if (!active) return;
+      if (!hudEnabled) {
+        await closeWantedHuds();
+        return;
+      }
       const website = await getTwitchWebsiteAuthStatus().catch(() => null);
-      const enabled = Boolean(hudEnabled && website?.configured);
-      if (!enabled) {
-        for (const channel of wantedRef.current) {
-          await closeHud(pointsHudLabel(channel));
-        }
-        wantedRef.current = [];
+      if (!website?.configured) {
+        await closeWantedHuds();
         return;
       }
       const wanted = [
@@ -120,8 +127,6 @@ export function ChannelPointsHudSync() {
           { channelLogin: channel },
         ).catch(() => null);
         if (!place?.player) {
-          // A retile/SW_RESTORE can miss the HWND for a frame. Closing the
-          // overlay here remounts it against a stale settings.json offset.
           const misses = (missesRef.current[channel] ?? 0) + 1;
           missesRef.current[channel] = misses;
           if (misses >= PLAYER_MISS_GRACE) {

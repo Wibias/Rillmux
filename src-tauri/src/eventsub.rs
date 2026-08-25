@@ -5,18 +5,29 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
+use tokio::net::TcpStream;
 use tokio::sync::Notify;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio::time::Instant;
+use tokio_tungstenite::{
+    connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream,
+};
 
 use crate::auth;
 use crate::http::shared_client;
 
 const WS_URL: &str = "wss://eventsub.wss.twitch.tv/ws";
 const HELIX_EVENTSUB: &str = "https://api.twitch.tv/helix/eventsub/subscriptions";
+const WELCOME_TIMEOUT: Duration = Duration::from_secs(15);
+const KEEPALIVE_GRACE: Duration = Duration::from_secs(2);
+
+type EventSubSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type EventSubWrite = SplitSink<EventSubSocket, Message>;
+type EventSubRead = SplitStream<EventSubSocket>;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,18 +83,16 @@ pub fn sync(enabled: bool, logins: Vec<String>) {
     wake().notify_waiters();
 }
 
+fn desired_state() -> Result<(bool, HashSet<String>), String> {
+    let g = state().lock().map_err(|error| error.to_string())?;
+    Ok((g.enabled, g.logins.clone()))
+}
+
 async fn run_supervisor(app: AppHandle) {
     let mut backoff = Duration::from_secs(1);
     loop {
-        let (enabled, logins) = {
-            let g = state().lock().ok();
-            match g {
-                Some(g) => (g.enabled, g.logins.clone()),
-                None => (false, HashSet::new()),
-            }
-        };
+        let (enabled, logins) = desired_state().unwrap_or((false, HashSet::new()));
         if !enabled || logins.is_empty() {
-            // Idle until sync wakes us.
             wake().notified().await;
             continue;
         }
@@ -100,48 +109,154 @@ async fn run_supervisor(app: AppHandle) {
     }
 }
 
+async fn connect_eventsub(url: &str) -> Result<EventSubSocket, String> {
+    let parsed = url::Url::parse(url).map_err(|error| format!("ws url: {error}"))?;
+    if parsed.scheme() != "wss" || parsed.host_str() != Some("eventsub.wss.twitch.tv") {
+        return Err("EventSub reconnect URL was not a Twitch WSS endpoint".into());
+    }
+    let (socket, _) = connect_async(url)
+        .await
+        .map_err(|error| format!("ws connect: {error}"))?;
+    Ok(socket)
+}
+
+async fn wait_for_welcome(
+    write: &mut EventSubWrite,
+    read: &mut EventSubRead,
+) -> Result<WsSession, String> {
+    let deadline = Instant::now() + WELCOME_TIMEOUT;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("EventSub welcome timed out".into());
+        }
+        let message = tokio::time::timeout(remaining, read.next())
+            .await
+            .map_err(|_| "EventSub welcome timed out".to_string())?
+            .ok_or_else(|| "ws closed before welcome".to_string())?
+            .map_err(|error| format!("ws read: {error}"))?;
+        let text = match message {
+            Message::Text(text) => text.to_string(),
+            Message::Ping(payload) => {
+                write
+                    .send(Message::Pong(payload))
+                    .await
+                    .map_err(|error| format!("ws pong: {error}"))?;
+                continue;
+            }
+            Message::Close(_) => return Err("ws close frame before welcome".into()),
+            _ => continue,
+        };
+        let parsed: WsEnvelope =
+            serde_json::from_str(&text).map_err(|error| format!("ws json: {error}"))?;
+        if parsed.metadata.message_type != "session_welcome" {
+            continue;
+        }
+        return parsed
+            .payload
+            .session
+            .ok_or_else(|| "welcome missing session".to_string());
+    }
+}
+
+async fn connect_and_welcome(
+    url: &str,
+) -> Result<(EventSubWrite, EventSubRead, WsSession), String> {
+    let socket = connect_eventsub(url).await?;
+    let (mut write, mut read) = socket.split();
+    let session = wait_for_welcome(&mut write, &mut read).await?;
+    Ok((write, read, session))
+}
+
+fn keepalive_duration(session: &WsSession) -> Duration {
+    Duration::from_secs(session.keepalive_timeout_seconds.unwrap_or(10).max(1)) + KEEPALIVE_GRACE
+}
+
+fn emit_notification(app: &AppHandle, parsed: &WsEnvelope) {
+    if let Some(raid) = parse_raid_notification(parsed) {
+        let _ = app.emit("raid-outgoing", raid);
+    }
+}
+
+async fn reconnect_with_handoff(
+    app: &AppHandle,
+    write: &mut EventSubWrite,
+    read: &mut EventSubRead,
+    reconnect_url: &str,
+) -> Result<(EventSubWrite, EventSubRead, WsSession), String> {
+    let mut replacement = Box::pin(connect_and_welcome(reconnect_url));
+    loop {
+        tokio::select! {
+            result = replacement.as_mut() => return result,
+            old_message = read.next() => {
+                let Some(old_message) = old_message else {
+                    return replacement.as_mut().await;
+                };
+                match old_message.map_err(|error| format!("ws read during reconnect: {error}"))? {
+                    Message::Text(text) => {
+                        let parsed: WsEnvelope = serde_json::from_str(&text)
+                            .map_err(|error| format!("ws json during reconnect: {error}"))?;
+                        if parsed.metadata.message_type == "notification" {
+                            emit_notification(app, &parsed);
+                        }
+                    }
+                    Message::Ping(payload) => {
+                        let _ = write.send(Message::Pong(payload)).await;
+                    }
+                    Message::Close(_) => return replacement.as_mut().await,
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
 async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<(), String> {
     let token = auth::token_for_api()
         .await
         .map_err(|e| format!("auth: {e}"))?;
     let client_id = auth::public_client_id().map_err(|e| format!("client id: {e}"))?;
 
-    let (ws, _) = connect_async(WS_URL)
-        .await
-        .map_err(|e| format!("ws connect: {e}"))?;
-    let (mut write, mut read) = ws.split();
-
-    let mut session_id = String::new();
-    // login -> subscription id
+    let (mut write, mut read, mut session) = connect_and_welcome(WS_URL).await?;
+    let mut session_id = session.id.clone();
+    let mut keepalive_deadline = Instant::now() + keepalive_duration(&session);
     let mut subs: HashMap<String, String> = HashMap::new();
     let mut desired = initial_logins;
-    // login -> broadcaster user id cache
     let id_cache: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
+    sync_subscriptions(
+        &token,
+        &client_id,
+        &session_id,
+        &desired,
+        &mut subs,
+        &id_cache,
+    )
+    .await?;
+
     loop {
+        let keepalive_wait = tokio::time::sleep_until(keepalive_deadline);
+        tokio::pin!(keepalive_wait);
         tokio::select! {
             _ = wake().notified() => {
-                let (enabled, logins) = {
-                    let g = state().lock().map_err(|e| e.to_string())?;
-                    (g.enabled, g.logins.clone())
-                };
+                let (enabled, logins) = desired_state()?;
                 if !enabled || logins.is_empty() {
-                    // Best-effort close; drop subscriptions by closing WS.
                     let _ = write.close().await;
                     return Ok(());
                 }
                 desired = logins;
-                if !session_id.is_empty() {
-                    sync_subscriptions(
-                        &token,
-                        &client_id,
-                        &session_id,
-                        &desired,
-                        &mut subs,
-                        &id_cache,
-                    )
-                    .await?;
-                }
+                sync_subscriptions(
+                    &token,
+                    &client_id,
+                    &session_id,
+                    &desired,
+                    &mut subs,
+                    &id_cache,
+                )
+                .await?;
+            }
+            _ = &mut keepalive_wait => {
+                return Err("EventSub keepalive deadline expired".into());
             }
             msg = read.next() => {
                 let Some(msg) = msg else {
@@ -157,16 +272,42 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
                     Message::Close(_) => return Err("ws close frame".into()),
                     _ => continue,
                 };
+                keepalive_deadline = Instant::now() + keepalive_duration(&session);
                 let parsed: WsEnvelope = serde_json::from_str(&text)
                     .map_err(|e| format!("ws json: {e}"))?;
                 match parsed.metadata.message_type.as_str() {
-                    "session_welcome" => {
-                        session_id = parsed
+                    "session_welcome" => {}
+                    "session_keepalive" => {}
+                    "session_reconnect" => {
+                        let reconnect_url = parsed
                             .payload
                             .session
                             .as_ref()
-                            .map(|s| s.id.clone())
-                            .ok_or_else(|| "welcome missing session.id".to_string())?;
+                            .and_then(|value| value.reconnect_url.as_deref())
+                            .ok_or_else(|| "session_reconnect missing reconnect_url".to_string())?;
+                        let (new_write, new_read, new_session) = reconnect_with_handoff(
+                            &app,
+                            &mut write,
+                            &mut read,
+                            reconnect_url,
+                        )
+                        .await?;
+                        let _ = write.close().await;
+                        write = new_write;
+                        read = new_read;
+                        session = new_session;
+                        session_id = session.id.clone();
+                        keepalive_deadline = Instant::now() + keepalive_duration(&session);
+
+                        // A settings update can occur while the replacement socket is being
+                        // established. Re-read desired state after handoff because Notify's
+                        // notify_waiters does not retain a permit for a future waiter.
+                        let (enabled, logins) = desired_state()?;
+                        if !enabled || logins.is_empty() {
+                            let _ = write.close().await;
+                            return Ok(());
+                        }
+                        desired = logins;
                         sync_subscriptions(
                             &token,
                             &client_id,
@@ -177,20 +318,8 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
                         )
                         .await?;
                     }
-                    "session_keepalive" => {}
-                    "session_reconnect" => {
-                        // Twitch asks us to reconnect to a new URL; simplest is
-                        // drop and let supervisor reconnect to the default URL.
-                        let _ = write.close().await;
-                        return Ok(());
-                    }
-                    "notification" => {
-                        if let Some(raid) = parse_raid_notification(&parsed) {
-                            let _ = app.emit("raid-outgoing", raid);
-                        }
-                    }
+                    "notification" => emit_notification(&app, &parsed),
                     "revocation" => {
-                        // Drop matching sub if present.
                         if let Some(sub) = parsed.payload.subscription.as_ref() {
                             subs.retain(|_, id| id != &sub.id);
                         }
@@ -202,6 +331,16 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
     }
 }
 
+#[derive(Debug)]
+enum CreateSubscriptionError {
+    Auth(String),
+    Other(String),
+}
+
+fn subscription_auth_rejected(status: u16) -> bool {
+    matches!(status, 401 | 403)
+}
+
 async fn sync_subscriptions(
     token: &str,
     client_id: &str,
@@ -210,7 +349,6 @@ async fn sync_subscriptions(
     subs: &mut HashMap<String, String>,
     id_cache: &Mutex<HashMap<String, String>>,
 ) -> Result<(), String> {
-    // Remove stale
     let stale: Vec<String> = subs
         .keys()
         .filter(|l| !desired_logins.contains(*l))
@@ -221,7 +359,6 @@ async fn sync_subscriptions(
             let _ = delete_subscription(token, client_id, &sub_id).await;
         }
     }
-    // Add missing
     for login in desired_logins {
         if subs.contains_key(login) {
             continue;
@@ -231,8 +368,11 @@ async fn sync_subscriptions(
             Ok(sub_id) => {
                 subs.insert(login.clone(), sub_id);
             }
-            Err(e) => {
-                eprintln!("[eventsub] subscribe {login}: {e}");
+            Err(CreateSubscriptionError::Auth(error)) => {
+                return Err(error);
+            }
+            Err(CreateSubscriptionError::Other(error)) => {
+                eprintln!("[eventsub] subscribe {login}: {error}");
             }
         }
     }
@@ -279,7 +419,7 @@ async fn create_raid_subscription(
     client_id: &str,
     session_id: &str,
     from_broadcaster_user_id: &str,
-) -> Result<String, String> {
+) -> Result<String, CreateSubscriptionError> {
     let body = json!({
         "type": "channel.raid",
         "version": "1",
@@ -298,16 +438,22 @@ async fn create_raid_subscription(
         .json(&body)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| CreateSubscriptionError::Other(error.to_string()))?;
     let status = res.status();
-    let v: Value = res.json().await.map_err(|e| e.to_string())?;
+    let text = res.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("create sub {status}: {v}"));
+        let message = format!("create sub {status}: {text}");
+        if subscription_auth_rejected(status.as_u16()) {
+            return Err(CreateSubscriptionError::Auth(message));
+        }
+        return Err(CreateSubscriptionError::Other(message));
     }
+    let v: Value = serde_json::from_str(&text)
+        .map_err(|error| CreateSubscriptionError::Other(error.to_string()))?;
     v.pointer("/data/0/id")
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| format!("create sub missing id: {v}"))
+        .ok_or_else(|| CreateSubscriptionError::Other(format!("create sub missing id: {v}")))
 }
 
 async fn delete_subscription(token: &str, client_id: &str, id: &str) -> Result<(), String> {
@@ -354,6 +500,10 @@ struct WsPayload {
 #[derive(Debug, Deserialize)]
 struct WsSession {
     id: String,
+    #[serde(default)]
+    keepalive_timeout_seconds: Option<u64>,
+    #[serde(default)]
+    reconnect_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -437,5 +587,23 @@ mod tests {
         assert_eq!(raid.to_channel, "bob");
         assert_eq!(raid.to_user_id, "222");
         assert_eq!(raid.viewers, Some(42));
+    }
+
+    #[test]
+    fn identifies_subscription_auth_rejection() {
+        assert!(subscription_auth_rejected(401));
+        assert!(subscription_auth_rejected(403));
+        assert!(!subscription_auth_rejected(429));
+        assert!(!subscription_auth_rejected(500));
+    }
+
+    #[test]
+    fn keepalive_uses_server_timeout_plus_small_grace() {
+        let session = WsSession {
+            id: "s".into(),
+            keepalive_timeout_seconds: Some(10),
+            reconnect_url: None,
+        };
+        assert_eq!(keepalive_duration(&session), Duration::from_secs(12));
     }
 }

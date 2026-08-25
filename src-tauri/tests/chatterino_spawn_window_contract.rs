@@ -56,8 +56,8 @@ fn duplicate_cleanup_targets_only_blank_notebooks_not_real_chatterino_dialogs() 
         .expect("missing duplicate-window predicate");
     let body = &source[start..];
     let end = body
-        .find("\n}\n\n/// `--channels")
-        .expect("could not bound duplicate-window predicate");
+        .find("fn chatterino_title_matches_channels")
+        .expect("missing title-match helper boundary");
     let function = &body[..end];
     assert!(function.contains("title.trim().is_empty()"));
     assert!(function.contains("eq_ignore_ascii_case(\"Chatterino\")"));

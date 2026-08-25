@@ -144,7 +144,7 @@ jobs:
               if new in text:
                   return
               if old not in text:
-                  raise SystemExit(f"expected block missing in {path}")
+                  raise SystemExit(f"expected block missing in {path}: {old.splitlines()[0]}")
               write(path, text.replace(old, new, 1))
 
           diagnostics = "src-tauri/src/diagnostics.rs"
@@ -343,194 +343,6 @@ jobs:
               #[test]
               fn resolves_platform_config_paths() {
           ''')
-
-          eventsub_test = "src-tauri/tests/eventsub_lifecycle_contract.rs"
-          replace_once(eventsub_test, '''    assert!(source.contains("subscription_auth_rejected"));
-              assert!(source.contains("return Err"));
-          ''', '''    assert!(source.contains("subscription_auth_rejected"));
-              assert!(source.contains("Err(CreateSubscriptionError::Auth(error)) => {"));
-              assert!(source.contains("return Err(error);"));
-          ''')
-
-          streamlink_test = "src-tauri/tests/streamlink_auth_injection_contract.rs"
-          replace_once(streamlink_test, '''    assert!(streaming.contains("--config"));
-              assert!(streaming.contains("streamlink_auth_config"));
-          }
-          ''', '''    assert!(streaming.contains("--config"));
-              assert!(streaming.contains("streamlink_auth_config"));
-
-              let auth_start = auth
-                  .find("pub(crate) fn streamlink_auth_config()")
-                  .expect("streamlink auth config function");
-              let auth_end = auth[auth_start..]
-                  .find("pub(crate) fn load_session")
-                  .map(|offset| auth_start + offset)
-                  .expect("load_session after auth config");
-              let auth_block = &auth[auth_start..auth_end];
-              let cleanup = auth_block
-                  .find("remove_streamlink_auth()")
-                  .expect("legacy managed auth cleanup");
-              let token_load = auth_block.find("load_token()").expect("token load");
-              assert!(cleanup < token_load);
-
-              let runtime_start = streaming
-                  .find("let streamlink_auth_config = match")
-                  .expect("streamlink auth config error handling");
-              let runtime_end = streaming[runtime_start..]
-                  .find("let mut args")
-                  .map(|offset| runtime_start + offset)
-                  .expect("args after auth config");
-              let runtime_block = &streaming[runtime_start..runtime_end];
-              assert!(runtime_block.contains("close_fast_player(&mut fast_player, false);"));
-          }
-          ''')
-
-          hud = "src/components/ChannelPointsHudSync.tsx"
-          replace_once(hud, '''async function ensureHud(
-              channel: string,
-              rect: OverlayRect,
-              showLogin: boolean,
-              offset: HudOffset,
-              forcePlace: boolean,
-            ) {
-              const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-              const label = pointsHudLabel(channel);
-              const existing = await WebviewWindow.getByLabel(label);
-              if (existing) {
-                if (forcePlace) {
-                  await placeHud(channel, rect, true);
-                }
-                return;
-              }
-              const scale = await getCurrentWindow().scaleFactor().catch(() => 1);
-              new WebviewWindow(label, {
-                url: `${pointsHudOverlayUrl(channel, offset)}${showLogin ? "&showLogin=1" : ""}`,
-                title: "Channel Points",
-                decorations: false,
-                transparent: true,
-                shadow: false,
-                skipTaskbar: true,
-                alwaysOnTop: false,
-                resizable: false,
-                focus: false,
-                minWidth: 1,
-                minHeight: 1,
-                x: Math.round(rect.x / scale),
-                y: Math.round(rect.y / scale),
-                width: Math.round(rect.width / scale),
-                height: Math.round(rect.height / scale),
-              });
-              await placeHud(channel, rect, true);
-            }
-          ''', '''async function ensureHud(
-              channel: string,
-              rect: OverlayRect,
-              showLogin: boolean,
-              offset: HudOffset,
-              forcePlace: boolean,
-              isActive: () => boolean,
-            ) {
-              const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-              if (!isActive()) return false;
-              const label = pointsHudLabel(channel);
-              const existing = await WebviewWindow.getByLabel(label);
-              if (!isActive()) return false;
-              if (existing) {
-                if (forcePlace) {
-                  await placeHud(channel, rect, true);
-                  if (!isActive()) return false;
-                }
-                return true;
-              }
-              const scale = await getCurrentWindow().scaleFactor().catch(() => 1);
-              if (!isActive()) return false;
-              new WebviewWindow(label, {
-                url: `${pointsHudOverlayUrl(channel, offset)}${showLogin ? "&showLogin=1" : ""}`,
-                title: "Channel Points",
-                decorations: false,
-                transparent: true,
-                shadow: false,
-                skipTaskbar: true,
-                alwaysOnTop: false,
-                resizable: false,
-                focus: false,
-                minWidth: 1,
-                minHeight: 1,
-                x: Math.round(rect.x / scale),
-                y: Math.round(rect.y / scale),
-                width: Math.round(rect.width / scale),
-                height: Math.round(rect.height / scale),
-              });
-              await placeHud(channel, rect, true);
-              if (!isActive()) {
-                await closeHud(label);
-                return false;
-              }
-              return true;
-            }
-          ''')
-          replace_once(hud, '''      const website = await getTwitchWebsiteAuthStatus().catch(() => null);
-              if (!website?.configured) {
-          ''', '''      const website = await getTwitchWebsiteAuthStatus().catch(() => null);
-              if (!active) return;
-              if (!website?.configured) {
-          ''')
-          replace_once(hud, '''          await closeHud(pointsHudLabel(channel));
-                  delete lastPlacedRef.current[channel];
-          ''', '''          await closeHud(pointsHudLabel(channel));
-                  if (!active) return;
-                  delete lastPlacedRef.current[channel];
-          ''')
-          replace_once(hud, '''        ).catch(() => null);
-                if (!place?.player) {
-          ''', '''        ).catch(() => null);
-                if (!active) return;
-                if (!place?.player) {
-          ''')
-          replace_once(hud, '''            await closeHud(pointsHudLabel(channel));
-                    delete lastPlacedRef.current[channel];
-          ''', '''            await closeHud(pointsHudLabel(channel));
-                    if (!active) return;
-                    delete lastPlacedRef.current[channel];
-          ''')
-          replace_once(hud, '''        await ensureHud(channel, hudRect, showLogin, offset, moved);
-                lastPlacedRef.current[channel] = hudRect;
-          ''', '''        const hudReady = await ensureHud(
-                  channel,
-                  hudRect,
-                  showLogin,
-                  offset,
-                  moved,
-                  () => active,
-                );
-                if (!hudReady || !active) return;
-                lastPlacedRef.current[channel] = hudRect;
-          ''')
-
-          regression = "scripts/review-findings.test.ts"
-          replace_once(regression, '''  test("diagnostics bounds the always-on log", () => {
-              const source = read("src-tauri/src/diagnostics.rs");
-              expect(source).toContain("MAX_LOG_BYTES");
-              expect(source).toContain("rotate_log_if_needed");
-            });
-          ''', '''  test("stale Channel Points HUD sync cannot recreate windows after cleanup", () => {
-              const source = read("src/components/ChannelPointsHudSync.tsx");
-              expect(source).toContain("isActive: () => boolean");
-              expect(source).toContain("if (!isActive()) return false;");
-              const syncBody = source.slice(source.indexOf("const sync = async"));
-              const authRead = syncBody.indexOf("getTwitchWebsiteAuthStatus");
-              const activeCheck = syncBody.indexOf("if (!active) return;", authRead);
-              expect(activeCheck).toBeGreaterThan(authRead);
-              expect(syncBody).toContain("if (!hudReady || !active) return;");
-            });
-
-            test("diagnostics bounds the always-on log", () => {
-              const source = read("src-tauri/src/diagnostics.rs");
-              expect(source).toContain("MAX_LOG_BYTES");
-              expect(source).toContain("rotate_log_if_needed");
-              expect(source).toContain("bounded_log_line");
-            });
-          ''')
           '@
           $script | python -
       - name: Format touched Rust files
@@ -540,14 +352,12 @@ jobs:
           src-tauri/src/diagnostics.rs
           src-tauri/src/twitch_web_auth.rs
           src-tauri/src/streaming/runtime.rs
-          src-tauri/tests/eventsub_lifecycle_contract.rs
-          src-tauri/tests/streamlink_auth_injection_contract.rs
       - name: Commit validated CodeRabbit fixes
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- src-tauri/src/diagnostics.rs src-tauri/src/streaming/runtime.rs src-tauri/src/twitch_web_auth.rs src-tauri/tests/eventsub_lifecycle_contract.rs src-tauri/tests/streamlink_auth_injection_contract.rs src/components/ChannelPointsHudSync.tsx scripts/review-findings.test.ts
+          git add -- src-tauri/src/diagnostics.rs src-tauri/src/streaming/runtime.rs src-tauri/src/twitch_web_auth.rs
           git diff --cached --check
           if (git diff --cached --quiet) { exit 0 }
           git commit -m "fix: address validated CodeRabbit findings"

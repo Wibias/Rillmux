@@ -171,7 +171,7 @@ async fn viewer_presence_sync(
             diagnostics::log_event(
                 diagnostics::DebugCategory::PointsClaim,
                 "hermes.not_ready",
-                &format!("enabled={enabled} target_count={target_count} error={}", error),
+                &format!("enabled={enabled} target_count={target_count} error_present=true"),
             );
             diagnostics::log_line(&format!(
                 "[channel-points] realtime presence unavailable; watch credit continues: {error}"
@@ -399,7 +399,7 @@ async fn stream_start(
         diagnostics::DebugCategory::Windows,
         "stream.start.native",
         &format!(
-            "channel={} slot_index={} slot_count={} reserve_chat={} replace_existing={}",
+            "channel={} slot_index={:?} slot_count={:?} reserve_chat={:?} replace_existing={:?}",
             request.channel,
             request.slot_index,
             request.slot_count,

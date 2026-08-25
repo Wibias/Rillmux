@@ -100,7 +100,10 @@ fn fixed_file_product_version_reads_owned_bytes() {
 #[test]
 fn fixed_file_product_version_rejects_foreign_or_short_ranges() {
     let info = vec![0u8; VS_FIXED_FILE_INFO_SIZE];
-    assert_eq!(fixed_file_product_version(&info, info.len() + 1, info.len()), None);
+    assert_eq!(
+        fixed_file_product_version(&info, info.len() + 1, info.len()),
+        None
+    );
     assert_eq!(
         fixed_file_product_version(&info, 0, VS_FIXED_FILE_INFO_SIZE - 1),
         None

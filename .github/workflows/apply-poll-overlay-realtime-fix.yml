@@ -1,0 +1,148 @@
+name: Apply Poll Overlay Realtime Fix
+
+on:
+  push:
+    branches:
+      - fix/channel-points-poll-overlay-realtime
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fix/channel-points-poll-overlay-realtime
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Apply acknowledged interactive-topic subscriptions
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src-tauri/src/channel_points_realtime.rs")
+          source = path.read_text(encoding="utf-8")
+
+          old = '''    if !generation_matches(generation) {
+              let _ = socket.send(Message::Close(None)).await;
+              return Ok(());
+          }
+          mark_ready(generation);
+          subscribe_poll_topics(&mut socket, &desired.channel_ids).await;
+          '''.replace('      ', '')
+          new = '''    if !generation_matches(generation) {
+              let _ = socket.send(Message::Close(None)).await;
+              return Ok(());
+          }
+          if let Err(error) = subscribe_poll_topics(&mut socket, &desired.channel_ids).await {
+              crate::diagnostics::log_line(&format!(
+                  "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
+              ));
+          }
+          if !generation_matches(generation) {
+              let _ = socket.send(Message::Close(None)).await;
+              return Ok(());
+          }
+          mark_ready(generation);
+          '''.replace('      ', '')
+          if source.count(old) != 1:
+              raise SystemExit(f"run_session anchor mismatch: {source.count(old)}")
+          source = source.replace(old, new, 1)
+
+          old = '''async fn subscribe_poll_topics(socket: &mut HermesSocket, channel_ids: &[String]) {
+              for channel_id in channel_ids {
+                  let topic = format!("polls.{channel_id}");
+                  let _ = send_subscription(socket, &topic).await;
+                  let predictions = format!("predictions-channel-v1.{channel_id}");
+                  let _ = send_subscription(socket, &predictions).await;
+              }
+          }
+          '''.replace('      ', '')
+          new = '''async fn subscribe_poll_topics(
+              socket: &mut HermesSocket,
+              channel_ids: &[String],
+          ) -> Result<(), String> {
+              let mut subscriptions = HashSet::new();
+              for channel_id in channel_ids {
+                  let topic = format!("polls.{channel_id}");
+                  subscriptions.insert(send_subscription(socket, &topic).await?);
+                  let predictions = format!("predictions-channel-v1.{channel_id}");
+                  subscriptions.insert(send_subscription(socket, &predictions).await?);
+              }
+              tokio::time::timeout(
+                  Duration::from_secs(3),
+                  wait_for_subscriptions(socket, &mut subscriptions),
+              )
+              .await
+              .map_err(|_| "Hermes poll/prediction subscription confirmation timed out".to_string())?
+          }
+          '''.replace('      ', '')
+          if source.count(old) != 1:
+              raise SystemExit(f"subscribe_poll_topics anchor mismatch: {source.count(old)}")
+          source = source.replace(old, new, 1)
+
+          old = '''        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
+                      continue;
+                  }
+          '''.replace('          ', '')
+          new = '''        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
+                      if let Some((topic, message)) = pubsub_topic_and_message(&value) {
+                          if crate::channel_points::ingest_pubsub(&topic, &message) {
+                              emit_frontend("channel-points-pubsub");
+                          }
+                      }
+                      continue;
+                  }
+          '''.replace('          ', '')
+          if source.count(old) != 1:
+              raise SystemExit(f"wait_for_subscriptions anchor mismatch: {source.count(old)}")
+          source = source.replace(old, new, 1)
+
+          path.write_text(source, encoding="utf-8", newline="\n")
+          PY
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+
+      - name: Verify frontend and Rust gates
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path src-tauri/Cargo.toml --test channel_points_poll_realtime_contract
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo check --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          rm .github/workflows/apply-poll-overlay-realtime-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/channel_points_realtime.rs src/lib/streaming/pollOverlay.ts src/lib/streaming/pollOverlay.test.ts src-tauri/tests/channel_points_poll_realtime_contract.rs .github/workflows/apply-poll-overlay-realtime-fix.yml
+          git diff --cached --check
+          git commit -m "fix: acknowledge poll realtime subscriptions"
+          git push origin HEAD:fix/channel-points-poll-overlay-realtime

@@ -11,7 +11,10 @@ pub fn debug_chatterino_windows(stage: &str) {
     #[link(name = "user32")]
     unsafe extern "system" {
         fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
+        fn IsWindowVisible(hwnd: *mut core::ffi::c_void) -> i32;
+        fn IsIconic(hwnd: *mut core::ffi::c_void) -> i32;
         fn GetWindowRect(hwnd: *mut core::ffi::c_void, rect: *mut Rect) -> i32;
+        fn GetWindowTextW(hwnd: *mut core::ffi::c_void, buf: *mut u16, max: i32) -> i32;
     }
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -41,6 +44,12 @@ pub fn debug_chatterino_windows(stage: &str) {
             );
             continue;
         }
+        let selected = find_main_window_for_pid(pid);
+        let channels = last_chatterino_channels()
+            .lock()
+            .ok()
+            .map(|guard| guard.clone())
+            .unwrap_or_default();
         for hwnd in windows {
             let mut rect = Rect {
                 left: 0,
@@ -51,6 +60,16 @@ pub fn debug_chatterino_windows(stage: &str) {
             unsafe {
                 SetLastError(0);
                 let is_window = IsWindow(hwnd) != 0;
+                let visible = IsWindowVisible(hwnd) != 0;
+                let iconic = IsIconic(hwnd) != 0;
+                let mut title = [0u16; 512];
+                let title_len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32);
+                let split_match = title_len > 0
+                    && chatterino_title_matches_channels(
+                        &String::from_utf16_lossy(&title[..title_len as usize]),
+                        &channels,
+                    );
+                let is_selected = selected == Some(hwnd);
                 SetLastError(0);
                 let rect_ok = GetWindowRect(hwnd, &mut rect) != 0;
                 let last_error = if rect_ok { 0 } else { GetLastError() };
@@ -58,7 +77,7 @@ pub fn debug_chatterino_windows(stage: &str) {
                     crate::diagnostics::DebugCategory::Windows,
                     "chatterino.hwnd",
                     &format!(
-                        "stage={stage} pid={pid} alive={alive} hwnd={hwnd:p} is_window={is_window} rect_ok={rect_ok} rect={},{},{},{} last_error=0x{last_error:08x}",
+                        "stage={stage} pid={pid} alive={alive} hwnd={hwnd:p} is_window={is_window} visible={visible} iconic={iconic} split_match={split_match} selected={is_selected} rect_ok={rect_ok} rect={},{},{},{} last_error=0x{last_error:08x}",
                         rect.left, rect.top, rect.right, rect.bottom
                     ),
                 );

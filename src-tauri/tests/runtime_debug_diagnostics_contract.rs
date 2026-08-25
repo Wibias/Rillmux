@@ -31,6 +31,15 @@ fn runtime_debug_diagnostics_uses_non_blocking_bounded_transport() {
 }
 
 #[test]
+fn runtime_debug_diagnostics_writer_start_is_best_effort() {
+    let source = include_str!("../src/diagnostics.rs");
+
+    assert!(source.contains("spawned.is_ok()"));
+    assert!(source.contains("OnceLock<Option<SyncSender"));
+    assert!(!source.contains("failed to start runtime diagnostics writer"));
+}
+
+#[test]
 fn runtime_debug_diagnostics_has_central_redaction_helpers() {
     let source = include_str!("../src/diagnostics.rs");
 

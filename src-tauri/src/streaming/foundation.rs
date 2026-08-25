@@ -261,9 +261,28 @@ fn chatterino_should_close_duplicate_main(
     title.trim().is_empty() || title.trim().eq_ignore_ascii_case("Chatterino")
 }
 
-/// `--channels=t:forsen` windows are titled like "forsen - Chatterino".
-/// Isolated APPDATA also restores an empty notebook named just "Chatterino".
+/// Current Chatterino Windows main windows use Version::fullVersion(), e.g.
+/// "Chatterino 2.5.3" or "Chatterino Nightly 2.5.3". Require a numeric
+/// version after the stable prefix so modal titles such as
+/// "Chatterino - Editing Settings Forbidden" never classify as the dock main.
+fn chatterino_title_is_main_window(title: &str) -> bool {
+    let title = title.trim();
+    let Some(version) = title.strip_prefix("Chatterino ") else {
+        return false;
+    };
+    let version = version.strip_prefix("Nightly ").unwrap_or(version);
+    version
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_digit())
+}
+
+/// Current Windows builds use a version title instead of the Twitch channel.
+/// Keep the channel-in-title fallback for older Chatterino builds.
 fn chatterino_title_matches_channels(title: &str, channels_arg: &str) -> bool {
+    if chatterino_title_is_main_window(title) {
+        return true;
+    }
     let title = title.to_ascii_lowercase();
     channels_arg.split(';').any(|part| {
         let name = part

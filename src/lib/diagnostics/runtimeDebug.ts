@@ -19,7 +19,10 @@ const CATEGORY_SETTING: Record<RuntimeDebugCategory, keyof DebugCategories> = {
   raids: "raids",
 };
 
-const SENSITIVE_FIELD = /(token|cookie|authorization|payload|input|device|secret)/i;
+// Free-form errors may embed URLs, auth material, or upstream payload fragments.
+// Keep runtime diagnostics to explicitly structured correlation fields only.
+const SENSITIVE_FIELD =
+  /(token|cookie|authorization|payload|input|device|secret|reason|error|message)/i;
 
 function fieldValue(value: unknown): string | null {
   if (typeof value === "string") {

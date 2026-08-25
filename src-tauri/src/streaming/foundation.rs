@@ -272,10 +272,7 @@ fn chatterino_title_is_main_window(title: &str) -> bool {
     }
     let version = &title["Chatterino ".len()..];
     let version = version.strip_prefix("Nightly ").unwrap_or(version);
-    version
-        .chars()
-        .next()
-        .is_some_and(|ch| ch.is_ascii_digit())
+    version.chars().next().is_some_and(|ch| ch.is_ascii_digit())
 }
 
 /// Current Windows builds use a version title instead of the Twitch channel.

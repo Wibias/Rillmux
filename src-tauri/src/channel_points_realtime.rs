@@ -291,8 +291,16 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         let _ = socket.send(Message::Close(None)).await;
         return Ok(());
     }
+    if let Err(error) = subscribe_poll_topics(&mut socket, &desired.channel_ids).await {
+        crate::diagnostics::log_line(&format!(
+            "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
+        ));
+    }
+    if !generation_matches(generation) {
+        let _ = socket.send(Message::Close(None)).await;
+        return Ok(());
+    }
     mark_ready(generation);
-    subscribe_poll_topics(&mut socket, &desired.channel_ids).await;
 
     let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
     keepalive.tick().await;
@@ -341,13 +349,24 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
     }
 }
 
-async fn subscribe_poll_topics(socket: &mut HermesSocket, channel_ids: &[String]) {
+async fn subscribe_poll_topics(
+    socket: &mut HermesSocket,
+    channel_ids: &[String],
+) -> Result<(), String> {
+    let mut subscriptions = HashSet::new();
     for channel_id in channel_ids {
         let topic = format!("polls.{channel_id}");
-        let _ = send_subscription(socket, &topic).await;
+        subscriptions.insert(send_subscription(socket, &topic).await?);
         let predictions = format!("predictions-channel-v1.{channel_id}");
-        let _ = send_subscription(socket, &predictions).await;
+        subscriptions.insert(send_subscription(socket, &predictions).await?);
     }
+
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        wait_for_subscriptions(socket, &mut subscriptions),
+    )
+    .await
+    .map_err(|_| "Hermes poll/prediction subscription confirmation timed out".to_string())?
 }
 
 fn json_value(value: &Value) -> Value {
@@ -434,6 +453,11 @@ async fn wait_for_subscriptions(
     while !pending.is_empty() {
         let value = receive_json(socket).await?;
         if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
+            if let Some((topic, message)) = pubsub_topic_and_message(&value) {
+                if crate::channel_points::ingest_pubsub(&topic, &message) {
+                    emit_frontend("channel-points-pubsub");
+                }
+            }
             continue;
         }
         let response = value

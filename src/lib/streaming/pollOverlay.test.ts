@@ -36,8 +36,8 @@ describe("pollOverlayRect", () => {
 });
 
 describe("poll overlay GQL", () => {
-  it("lets the host fall back slowly; the overlay window only consumes Hermes pushes", () => {
-    expect(POLL_FALLBACK_REFRESH_MS).toBe(60_000);
+  it("falls back quickly enough to catch a short poll when Hermes push is unavailable", () => {
+    expect(POLL_FALLBACK_REFRESH_MS).toBeLessThanOrEqual(15_000);
     expect(pollOverlayShouldPollGql(false)).toBe(true);
     expect(pollOverlayShouldPollGql(true)).toBe(false);
   });

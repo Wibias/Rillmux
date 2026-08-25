@@ -8,8 +8,8 @@ export type PredictionVoteState = {
   windowSeconds?: number | null;
 };
 
-/** Host GQL fallback after Hermes pushes the live poll/prediction. */
-export const POLL_FALLBACK_REFRESH_MS = 60_000;
+/** Safety net when Hermes poll/prediction pushes are unavailable. */
+export const POLL_FALLBACK_REFRESH_MS = 10_000;
 
 export function pollOverlayShouldPollGql(overlayWindow: boolean): boolean {
   return !overlayWindow;

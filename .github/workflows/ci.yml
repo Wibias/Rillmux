@@ -73,6 +73,18 @@ jobs:
       - name: Cargo fmt
         working-directory: src-tauri
         run: cargo fmt --check
+      - name: Rustfmt streaming shards
+        working-directory: src-tauri
+        run: >-
+          rustfmt --edition 2021 --check
+          src/streaming/foundation.rs
+          src/streaming/types_player.rs
+          src/streaming/tools_process.rs
+          src/streaming/dock.rs
+          src/streaming/overlays.rs
+          src/streaming/windows_layout.rs
+          src/streaming/runtime.rs
+          src/streaming/tests.rs
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy -- -D warnings

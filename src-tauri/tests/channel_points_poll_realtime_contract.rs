@@ -18,7 +18,7 @@ fn poll_and_prediction_subscriptions_are_acknowledged_before_ready() {
         .expect("missing poll/prediction subscription helper");
     let function_tail = &source[function_start..];
     let function_end = function_tail
-        .find("\n}\n\nfn json_value")
+        .find("\nfn json_value")
         .expect("could not bound poll/prediction subscription helper");
     let function = &function_tail[..function_end];
     assert!(

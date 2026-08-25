@@ -2,7 +2,7 @@
 fn ready_transition_resyncs_channel_points_presence() {
     let store = include_str!("../../src/lib/streaming/store.ts");
     let start = store
-        .find("applyStatus: (payload: StreamStatusEvent) =>")
+        .find("applyStatus: (payload) =>")
         .expect("stream status handler");
     let end = store[start..]
         .find("watchStream: async")

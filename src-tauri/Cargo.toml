@@ -1,6 +1,6 @@
 [package]
 name = "rillmux"
-version = "0.5.2"
+version = "0.5.3"
 description = "Desktop Twitch browser for Streamlink"
 authors = ["Wibias"]
 edition = "2021"
@@ -43,4 +43,3 @@ tauri-plugin-process = "2.3.1"
 tauri-plugin-dialog = "2"
 sentry = { version = "0.49.0", default-features = false, features = ["backtrace", "contexts", "panic", "reqwest", "rustls", "tokio"] }
 tauri-plugin-window-controls = "0.1"
-

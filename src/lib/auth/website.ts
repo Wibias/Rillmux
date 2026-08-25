@@ -4,8 +4,7 @@ export interface TwitchWebsiteAuthStatus {
   configured: boolean;
   login: string | null;
   userId: string | null;
-  streamlinkConfigured: boolean;
-  configPath: string;
+  playbackReady: boolean;
 }
 
 export interface TwitchWebsiteAuthUiState {
@@ -23,7 +22,7 @@ export function completeWebsiteAuthSave(
 export function websiteAuthLabel(status: TwitchWebsiteAuthStatus): string {
   if (!status.configured) return "Authenticated playback not connected";
   const account = status.login ? ` for ${status.login}` : "";
-  const suffix = status.streamlinkConfigured ? "connected" : "needs repair";
+  const suffix = status.playbackReady ? "connected" : "needs repair";
   return `Authenticated playback${account}: ${suffix}`;
 }
 
@@ -33,8 +32,7 @@ export async function getTwitchWebsiteAuthStatus(): Promise<TwitchWebsiteAuthSta
       configured: false,
       login: null,
       userId: null,
-      streamlinkConfigured: false,
-      configPath: "",
+      playbackReady: false,
     };
   }
   return invoke<TwitchWebsiteAuthStatus>("twitch_web_auth_status");

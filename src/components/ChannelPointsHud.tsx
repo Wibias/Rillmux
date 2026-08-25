@@ -18,6 +18,7 @@ import {
   chipRectFromDrag,
   cssPx,
   hudDragSurfaceRect,
+  hudGeometryTransitionNeedsConceal,
   isPointsHudOverlay,
   movementIsDrag,
   offsetFromChipRect,
@@ -56,12 +57,17 @@ export function isPointsHudOverlayWindow() {
   return isPointsHudOverlay(window.location.search);
 }
 
+type OverlayApplyRequest = {
+  rect: OverlayRect;
+  afterApply?: () => void;
+};
+
 let overlayApplyChain: Promise<void> = Promise.resolve();
-let overlayApplyLatest: OverlayRect | null = null;
+let overlayApplyLatest: OverlayApplyRequest | null = null;
 let overlayApplied: OverlayRect | null = null;
 
-function applyOverlayRect(rect: OverlayRect) {
-  overlayApplyLatest = rect;
+function applyOverlayRect(rect: OverlayRect, afterApply?: () => void) {
+  overlayApplyLatest = { rect, afterApply };
   overlayApplyChain = overlayApplyChain
     .then(flushOverlayRect)
     .catch(() => undefined);
@@ -69,7 +75,8 @@ function applyOverlayRect(rect: OverlayRect) {
 
 async function flushOverlayRect() {
   while (overlayApplyLatest && isTauri()) {
-    const rect = overlayApplyLatest;
+    const request = overlayApplyLatest;
+    const rect = request.rect;
     overlayApplyLatest = null;
     const win = getCurrentWindow();
     const position = new PhysicalPosition(
@@ -93,19 +100,21 @@ async function flushOverlayRect() {
       force: true,
     }).catch(() => undefined);
     await win.setPosition(position).catch(() => undefined);
-    if (!sizeChanged) continue;
-    await win.setSize(size).catch(() => undefined);
-    await invoke("overlay_fit_webview", { width, height }).catch(
-      () => undefined,
-    );
-    // Transparent WebView2 often keeps the old child size on the first resize.
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
-    await invoke("overlay_fit_webview", { width, height }).catch(
-      () => undefined,
-    );
-    await win.setSize(size).catch(() => undefined);
+    if (sizeChanged) {
+      await win.setSize(size).catch(() => undefined);
+      await invoke("overlay_fit_webview", { width, height }).catch(
+        () => undefined,
+      );
+      // Transparent WebView2 often keeps the old child size on the first resize.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+      await invoke("overlay_fit_webview", { width, height }).catch(
+        () => undefined,
+      );
+      await win.setSize(size).catch(() => undefined);
+    }
+    request.afterApply?.();
   }
 }
 
@@ -127,6 +136,7 @@ export function ChannelPointsHud() {
     null,
   );
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [geometryConcealed, setGeometryConcealed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inputFor, setInputFor] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
@@ -143,6 +153,7 @@ export function ChannelPointsHud() {
   const pendingDragChipRef = useRef<OverlayRect | null>(null);
   const dragChipRafRef = useRef<number | null>(null);
   const lastOverlayRef = useRef<OverlayRect | null>(null);
+  const overlayApplyGenerationRef = useRef(0);
   const lastClaimedRef = useRef(false);
 
   const chip = useMemo(() => {
@@ -172,7 +183,13 @@ export function ChannelPointsHud() {
       width: dragChip.width,
       height: dragChip.height,
     });
-  }, [Boolean(dragChip), host, captionAvoid, dragChip?.width, dragChip?.height]);
+  }, [
+    Boolean(dragChip),
+    host,
+    captionAvoid,
+    dragChip?.width,
+    dragChip?.height,
+  ]);
 
   const overlay = useMemo(() => {
     if (dragSurface) return dragSurface;
@@ -188,18 +205,41 @@ export function ChannelPointsHud() {
   useEffect(() => {
     if (!overlay) return;
     if (
+      !geometryConcealed &&
       lastOverlayRef.current &&
-      !overlayRectMoved(
-        lastOverlayRef.current,
-        overlay,
-        POINTS_HUD_MOVE_SLOP,
-      )
+      !overlayRectMoved(lastOverlayRef.current, overlay, POINTS_HUD_MOVE_SLOP)
     ) {
       return;
     }
     lastOverlayRef.current = overlay;
-    applyOverlayRect(overlay);
-  }, [overlay]);
+    const generation = ++overlayApplyGenerationRef.current;
+    let firstFrame: number | null = null;
+    let secondFrame: number | null = null;
+    const apply = () => {
+      applyOverlayRect(
+        overlay,
+        geometryConcealed
+          ? () => {
+              if (overlayApplyGenerationRef.current === generation) {
+                setGeometryConcealed(false);
+              }
+            }
+          : undefined,
+      );
+    };
+    if (!geometryConcealed) {
+      apply();
+      return;
+    }
+    // Let WebView2 present the transparent frame before the HWND moves.
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(apply);
+    });
+    return () => {
+      if (firstFrame != null) window.cancelAnimationFrame(firstFrame);
+      if (secondFrame != null) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [overlay, geometryConcealed]);
 
   const interactive = chip != null;
   useEffect(() => {
@@ -293,6 +333,28 @@ export function ChannelPointsHud() {
     [setSettings, captionAvoid],
   );
 
+  function setCatalogOpenWithGeometry(nextOpen: boolean) {
+    if (nextOpen === catalogOpen) return;
+    const nextPanel =
+      nextOpen && host && chip
+        ? catalogRectForChip(
+            host,
+            chip,
+            POINTS_HUD_CATALOG_MAX_WIDTH,
+            POINTS_HUD_CATALOG_MAX_HEIGHT,
+          )
+        : null;
+    const nextOverlay = chip ? overlayRectForHud(chip, nextPanel) : null;
+    if (
+      overlay &&
+      nextOverlay &&
+      hudGeometryTransitionNeedsConceal(overlay, nextOverlay)
+    ) {
+      setGeometryConcealed(true);
+    }
+    setCatalogOpen(nextOpen);
+  }
+
   function cancelDragChipRaf() {
     if (dragChipRafRef.current != null) {
       window.cancelAnimationFrame(dragChipRafRef.current);
@@ -352,7 +414,7 @@ export function ChannelPointsHud() {
     if (!drag.dragged) {
       drag.dragged = true;
       draggingRef.current = true;
-      setCatalogOpen(false);
+      setCatalogOpenWithGeometry(false);
       setInputFor(null);
       setDragChip(next);
       return;
@@ -377,7 +439,7 @@ export function ChannelPointsHud() {
       return;
     }
     setDragChip(null);
-    setCatalogOpen((open) => !open);
+    setCatalogOpenWithGeometry(!catalogOpen);
     setInputFor(null);
     setError(null);
   }
@@ -437,6 +499,7 @@ export function ChannelPointsHud() {
       style={{
         width: cssPx(overlay.width, scale),
         height: cssPx(overlay.height, scale),
+        visibility: geometryConcealed ? "hidden" : "visible",
       }}
     >
       <button
@@ -463,7 +526,9 @@ export function ChannelPointsHud() {
         <span className="points-hud__balance">
           {(snapshot?.balance ?? 0).toLocaleString()}
         </span>
-        {showLogin ? <span className="points-hud__login">{channel}</span> : null}
+        {showLogin ? (
+          <span className="points-hud__login">{channel}</span>
+        ) : null}
         {flashBonus ? <span className="points-hud__flash">+50</span> : null}
       </button>
       {panel ? (

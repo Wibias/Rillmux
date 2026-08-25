@@ -53,8 +53,7 @@ pub struct TwitchWebAuthStatus {
     pub configured: bool,
     pub login: Option<String>,
     pub user_id: Option<String>,
-    pub streamlink_configured: bool,
-    pub config_path: String,
+    pub playback_ready: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,6 +123,14 @@ fn clear_auth() -> Result<(), TwitchWebAuthError> {
 #[allow(dead_code)]
 pub(crate) fn load_token() -> Result<Option<String>, TwitchWebAuthError> {
     Ok(load_auth()?.map(|auth| auth.token))
+}
+
+fn streamlink_auth_arg_for(token: &str) -> String {
+    format!("--twitch-api-header=Authorization=OAuth {token}")
+}
+
+pub(crate) fn streamlink_auth_arg() -> Result<Option<String>, TwitchWebAuthError> {
+    Ok(load_token()?.map(|token| streamlink_auth_arg_for(&token)))
 }
 
 #[allow(dead_code)]
@@ -201,11 +208,6 @@ pub(crate) fn streamlink_config_path_for(
     Ok(base.join("streamlink").join("config.twitch"))
 }
 
-fn managed_block_present(config: &str) -> bool {
-    (config.contains(MANAGED_BEGIN) && config.contains(MANAGED_END))
-        || (config.contains(MANAGED_BEGIN_LEGACY) && config.contains(MANAGED_END_LEGACY))
-}
-
 pub(crate) fn remove_managed_block(existing: &str) -> String {
     let mut result = existing.to_string();
     for (begin, end) in [
@@ -249,18 +251,6 @@ fn remove_marker_block(existing: &str, begin_marker: &str, end_marker: &str) -> 
     result
 }
 
-pub(crate) fn upsert_managed_block(existing: &str, token: &str) -> String {
-    let cleaned = remove_managed_block(existing);
-    let user_config = cleaned.trim_end_matches(['\r', '\n']);
-    let block =
-        format!("{MANAGED_BEGIN}\ntwitch-api-header=Authorization=OAuth {token}\n{MANAGED_END}\n");
-    if user_config.is_empty() {
-        block
-    } else {
-        format!("{user_config}\n\n{block}")
-    }
-}
-
 fn read_config(path: &Path) -> Result<String, TwitchWebAuthError> {
     match std::fs::read_to_string(path) {
         Ok(content) => Ok(content),
@@ -289,14 +279,6 @@ fn write_secure(path: &Path, content: &str) -> Result<(), TwitchWebAuthError> {
     Ok(())
 }
 
-fn write_streamlink_auth(token: &str) -> Result<PathBuf, TwitchWebAuthError> {
-    let path = streamlink_config_path()?;
-    let existing = read_config(&path)?;
-    let updated = upsert_managed_block(&existing, token);
-    write_secure(&path, &updated)?;
-    Ok(path)
-}
-
 fn remove_streamlink_auth() -> Result<PathBuf, TwitchWebAuthError> {
     let path = streamlink_config_path()?;
     let existing = read_config(&path)?;
@@ -316,22 +298,20 @@ fn remove_streamlink_auth() -> Result<PathBuf, TwitchWebAuthError> {
     Ok(path)
 }
 
-fn status_from(
-    auth: Option<StoredWebsiteAuth>,
-    path: PathBuf,
-) -> Result<TwitchWebAuthStatus, TwitchWebAuthError> {
-    let config = read_config(&path)?;
-    Ok(TwitchWebAuthStatus {
+fn status_from(auth: Option<StoredWebsiteAuth>) -> TwitchWebAuthStatus {
+    TwitchWebAuthStatus {
         configured: auth.is_some(),
         login: auth.as_ref().map(|value| value.login.clone()),
         user_id: auth.as_ref().map(|value| value.user_id.clone()),
-        streamlink_configured: managed_block_present(&config),
-        config_path: path.to_string_lossy().into_owned(),
-    })
+        playback_ready: auth.is_some(),
+    }
 }
 
 pub fn get_status() -> Result<TwitchWebAuthStatus, TwitchWebAuthError> {
-    status_from(load_auth()?, streamlink_config_path()?)
+    // Migration cleanup for releases that previously mirrored the secret to
+    // Streamlink's plugin-specific config file.
+    remove_streamlink_auth()?;
+    Ok(status_from(load_auth()?))
 }
 
 async fn validate_token(token: &str) -> Result<ValidateResponse, TwitchWebAuthError> {
@@ -366,31 +346,22 @@ pub async fn save(raw_token: &str) -> Result<TwitchWebAuthStatus, TwitchWebAuthE
         ));
     }
 
-    let previous = load_auth()?;
+    // Remove any secret written by older Rillmux versions before storing
+    // the newly validated credential. User-owned Streamlink settings survive.
+    remove_streamlink_auth()?;
     let stored = StoredWebsiteAuth {
-        token: token.clone(),
+        token,
         user_id: website.user_id,
         login: website.login,
     };
     save_auth(&stored)?;
-    let path = match write_streamlink_auth(&token) {
-        Ok(path) => path,
-        Err(error) => {
-            if let Some(previous) = previous {
-                let _ = save_auth(&previous);
-            } else {
-                let _ = clear_auth();
-            }
-            return Err(error);
-        }
-    };
-    status_from(Some(stored), path)
+    Ok(status_from(Some(stored)))
 }
 
 pub fn clear() -> Result<TwitchWebAuthStatus, TwitchWebAuthError> {
-    let path = remove_streamlink_auth()?;
+    remove_streamlink_auth()?;
     clear_auth()?;
-    status_from(None, path)
+    Ok(status_from(None))
 }
 
 #[cfg(test)]
@@ -400,7 +371,6 @@ mod tests {
     use std::path::PathBuf;
 
     const TOKEN: &str = "abcdefghijklmnopqrstuvwxyz0123";
-    const OTHER_TOKEN: &str = "zyxwvutsrqponmlkjihgfedcba3210";
 
     #[test]
     fn normalizes_supported_token_forms() {
@@ -421,32 +391,13 @@ mod tests {
     }
 
     #[test]
-    fn inserts_and_replaces_only_the_managed_block() {
-        let first = upsert_managed_block("player=mpv\n", TOKEN);
-        assert!(first.starts_with("player=mpv\n\n"));
-        assert!(first.contains(TOKEN));
-
-        let replaced = upsert_managed_block(&first, OTHER_TOKEN);
-        assert!(replaced.contains("player=mpv"));
-        assert!(!replaced.contains(TOKEN));
-        assert!(replaced.contains(OTHER_TOKEN));
-        assert_eq!(replaced.matches(MANAGED_BEGIN).count(), 1);
-        assert_eq!(replaced.matches(MANAGED_END).count(), 1);
-    }
-
-    #[test]
-    fn upsert_replaces_legacy_managed_block() {
-        let existing = concat!(
-            "player=mpv\n\n",
-            "# BEGIN streamlink-twitch-gui managed Twitch auth\n",
-            "twitch-api-header=Authorization=OAuth oldtoken\n",
-            "# END streamlink-twitch-gui managed Twitch auth\n",
+    fn formats_streamlink_auth_as_one_cli_argument() {
+        let arg = streamlink_auth_arg_for(TOKEN);
+        assert_eq!(
+            arg,
+            format!("--twitch-api-header=Authorization=OAuth {TOKEN}")
         );
-        let updated = upsert_managed_block(existing, TOKEN);
-        assert!(updated.contains(MANAGED_BEGIN));
-        assert!(!updated.contains(MANAGED_BEGIN_LEGACY));
-        assert!(updated.contains(TOKEN));
-        assert!(!updated.contains("oldtoken"));
+        assert!(!arg.contains(char::from(10)));
     }
 
     #[test]

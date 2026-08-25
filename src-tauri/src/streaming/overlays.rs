@@ -767,4 +767,3 @@ fn overlay_rect_from_reserved_chat() -> Option<OverlayRect> {
         height,
     })
 }
-

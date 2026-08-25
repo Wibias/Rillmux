@@ -126,12 +126,29 @@ fn chatterino_pids_to_close(owned: Option<u32>, dock_pids: &[u32]) -> Vec<u32> {
     pids
 }
 
-/// Chatterino's QCommandLineParser exits on unknown flags. Tag the dock
-/// instance with an env var instead of `--rillmux-dock`.
-const CHATTERINO_DOCK_ENV: &str = "RILLMUX_DOCK";
+/// Chatterino's QCommandLineParser exits on unknown flags. Bind every
+/// dock process to the Rillmux process that spawned it via an exact owner token.
+const CHATTERINO_DOCK_OWNER_ENV: &str = "RILLMUX_DOCK_OWNER";
+
+fn chatterino_dock_owner() -> &'static str {
+    static OWNER: OnceLock<String> = OnceLock::new();
+    OWNER
+        .get_or_init(|| format!("{}-{}", std::process::id(), Uuid::new_v4().simple()))
+        .as_str()
+}
 
 fn chatterino_dock_appdata() -> PathBuf {
-    crate::diagnostics::app_data_dir().join("chatterino-dock")
+    let folder = if cfg!(debug_assertions) {
+        "chatterino-dock-dev"
+    } else {
+        "chatterino-dock"
+    };
+    let base = crate::diagnostics::app_data_dir().join(folder);
+    if cfg!(debug_assertions) {
+        base.join(chatterino_dock_owner())
+    } else {
+        base
+    }
 }
 
 fn user_chatterino_settings_dir() -> Option<PathBuf> {

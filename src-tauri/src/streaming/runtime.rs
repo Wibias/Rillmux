@@ -463,11 +463,17 @@ pub fn start_stream(
         }
     }
 
+    let streamlink_auth_config = match crate::twitch_web_auth::streamlink_auth_config() {
+        Ok(config) => config,
+        Err(error) => {
+            close_fast_player(&mut fast_player, false);
+            return Err(StreamError::Message(error.to_string()));
+        }
+    };
     let mut args: Vec<String> = Vec::new();
-    if let Some(auth_arg) = crate::twitch_web_auth::streamlink_auth_arg()
-        .map_err(|error| StreamError::Message(error.to_string()))?
-    {
-        args.push(auth_arg);
+    if let Some(config) = streamlink_auth_config.as_ref() {
+        args.push("--config".into());
+        args.push(config.path().to_string_lossy().into_owned());
     }
     if req.low_latency.unwrap_or(false) {
         args.push("--twitch-low-latency".into());
@@ -636,6 +642,7 @@ pub fn start_stream(
                 info: info.clone(),
                 child,
                 job,
+                _streamlink_auth_config: streamlink_auth_config,
                 player: fast_player,
                 ready_at: None,
                 mpv_missing_since: None,
@@ -1094,4 +1101,3 @@ fn close_player_windows_for_channel_windows(channel: &str) {
 }
 
 pub type SharedStreaming = Arc<StreamingState>;
-

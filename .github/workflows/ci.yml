@@ -53,8 +53,6 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      # Fails on any high/critical advisory without a documented exception
-      # (see scripts/audit-gate.mjs for the allowlist + justifications).
       - name: Dependency audit gate
         run: node scripts/audit-gate.mjs
 
@@ -73,6 +71,18 @@ jobs:
       - name: Cargo fmt
         working-directory: src-tauri
         run: cargo fmt --check
+      - name: Rustfmt streaming shards
+        working-directory: src-tauri
+        run: >-
+          rustfmt --edition 2021 --check
+          src/streaming/foundation.rs
+          src/streaming/types_player.rs
+          src/streaming/tools_process.rs
+          src/streaming/dock.rs
+          src/streaming/overlays.rs
+          src/streaming/windows_layout.rs
+          src/streaming/runtime.rs
+          src/streaming/tests.rs
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
@@ -88,8 +98,6 @@ jobs:
         working-directory: src-tauri
         run: cargo audit
 
-  # Always runs so a docs-only PR is not missing a required check, and so a
-  # skipped Windows job is not confused with a failure.
   ci:
     needs: [changes, frontend, rust]
     if: always()

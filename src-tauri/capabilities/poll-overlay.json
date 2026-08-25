@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "poll-overlay",
+  "description": "Least-privilege capability for the poll and prediction overlay",
+  "windows": [
+    "poll-overlay"
+  ],
+  "permissions": [
+    "core:event:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-set-ignore-cursor-events",
+    "store:default",
+    "allow-channel-points-vote-poll",
+    "allow-channel-points-vote-prediction"
+  ]
+}

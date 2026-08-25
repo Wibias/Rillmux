@@ -1249,7 +1249,7 @@ fn chatterino_pid_has_split_window(pid: u32) -> bool {
         .map(|g| g.clone())
         .unwrap_or_default();
     if channels.is_empty() {
-        return true;
+        return false;
     }
     #[link(name = "user32")]
     unsafe extern "system" {

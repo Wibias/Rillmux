@@ -241,7 +241,8 @@ fn chatterino_should_close_duplicate_main(
     if is_keep || !visible || !have_split || area < 10_000 {
         return false;
     }
-    title.to_ascii_lowercase().contains("chatterino")
+    title.trim().is_empty()
+    || title.trim().eq_ignore_ascii_case("Chatterino")
 }
 
 /// `--channels=t:forsen` windows are titled like "forsen - Chatterino".

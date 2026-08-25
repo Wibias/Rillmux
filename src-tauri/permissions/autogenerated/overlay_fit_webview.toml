@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-overlay-fit-webview"
+description = "Enables the overlay_fit_webview command without any pre-configured scope."
+commands.allow = ["overlay_fit_webview"]
+
+[[permission]]
+identifier = "deny-overlay-fit-webview"
+description = "Denies the overlay_fit_webview command without any pre-configured scope."
+commands.deny = ["overlay_fit_webview"]

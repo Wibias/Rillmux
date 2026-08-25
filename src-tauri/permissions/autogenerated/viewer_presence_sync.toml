@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-viewer-presence-sync"
+description = "Enables the viewer_presence_sync command without any pre-configured scope."
+commands.allow = ["viewer_presence_sync"]
+
+[[permission]]
+identifier = "deny-viewer-presence-sync"
+description = "Denies the viewer_presence_sync command without any pre-configured scope."
+commands.deny = ["viewer_presence_sync"]

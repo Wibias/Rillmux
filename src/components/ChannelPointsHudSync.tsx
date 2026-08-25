@@ -28,8 +28,8 @@ async function closeHud(label: string) {
 }
 
 async function placeHud(channel: string, rect: OverlayRect, force: boolean) {
-  await invoke("overlay_place_hud", {
-    label: pointsHudLabel(channel),
+  await invoke("points_hud_place_window", {
+    channelLogin: channel,
     x: Math.round(rect.x),
     y: Math.round(rect.y),
     width: Math.max(1, Math.round(rect.width)),

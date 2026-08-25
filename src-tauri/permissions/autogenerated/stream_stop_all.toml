@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-stream-stop-all"
+description = "Enables the stream_stop_all command without any pre-configured scope."
+commands.allow = ["stream_stop_all"]
+
+[[permission]]
+identifier = "deny-stream-stop-all"
+description = "Denies the stream_stop_all command without any pre-configured scope."
+commands.deny = ["stream_stop_all"]

@@ -121,7 +121,7 @@ fn spawnable_exe_path(path: &Path) -> PathBuf {
 fn dock_chatterino_command(path: &Path, channels_arg: &str, dock_appdata: &Path) -> Command {
     let mut cmd = Command::new(spawnable_exe_path(path));
     cmd.env("APPDATA", dock_appdata);
-    cmd.env(CHATTERINO_DOCK_ENV, "1");
+    cmd.env(CHATTERINO_DOCK_OWNER_ENV, chatterino_dock_owner());
     // WebView2/Tauri can leak Qt plugin paths. Chatterino then loads the
     // wrong platform plugin and exits before a window exists.
     for key in [
@@ -1270,78 +1270,6 @@ fn chatterino_pid_has_split_window(_pid: u32) -> bool {
 }
 
 #[cfg(windows)]
-fn process_command_line(pid: u32) -> Option<String> {
-    #[link(name = "ntdll")]
-    unsafe extern "system" {
-        fn NtQueryInformationProcess(
-            process: *mut core::ffi::c_void,
-            class: u32,
-            info: *mut core::ffi::c_void,
-            len: u32,
-            ret: *mut u32,
-        ) -> i32;
-    }
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
-        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
-    }
-    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
-    const PROCESS_COMMAND_LINE_INFORMATION: u32 = 60;
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if handle.is_null() {
-        return None;
-    }
-    let mut buf = vec![0u8; 4096];
-    let mut needed = 0u32;
-    let status = unsafe {
-        NtQueryInformationProcess(
-            handle,
-            PROCESS_COMMAND_LINE_INFORMATION,
-            buf.as_mut_ptr() as *mut _,
-            buf.len() as u32,
-            &mut needed,
-        )
-    };
-    unsafe {
-        let _ = CloseHandle(handle);
-    }
-    if status < 0 || needed < 8 {
-        return None;
-    }
-    command_line_from_nt_buffer(&buf)
-}
-
-/// ProcessCommandLineInformation copies a UNICODE_STRING. Buffer is often a
-/// remote pointer, not an address inside `buf` — the WCHAR payload then sits
-/// immediately after the 16-byte header.
-fn command_line_from_nt_buffer(buf: &[u8]) -> Option<String> {
-    if buf.len() < 16 {
-        return None;
-    }
-    let length = u16::from_le_bytes(buf[0..2].try_into().ok()?) as usize;
-    if length == 0 || !length.is_multiple_of(2) {
-        return None;
-    }
-    let ptr = usize::from_le_bytes(buf[8..16].try_into().ok()?);
-    let base = buf.as_ptr() as usize;
-    let bytes = if ptr >= base && ptr.checked_add(length)? <= base.saturating_add(buf.len()) {
-        let off = ptr - base;
-        buf.get(off..off + length)?
-    } else if buf.len() >= 16 + length {
-        &buf[16..16 + length]
-    } else {
-        return None;
-    };
-    let n = length / 2;
-    let mut wide = Vec::with_capacity(n);
-    for i in 0..n {
-        wide.push(u16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]));
-    }
-    Some(String::from_utf16_lossy(&wide))
-}
-
-#[cfg(windows)]
 fn process_env_block(pid: u32) -> Option<Vec<u16>> {
     #[link(name = "ntdll")]
     unsafe extern "system" {
@@ -1466,16 +1394,19 @@ fn process_env_block(pid: u32) -> Option<Vec<u16>> {
 }
 
 #[cfg(windows)]
-fn process_has_dock_env(pid: u32) -> bool {
+fn process_has_dock_owner(pid: u32) -> bool {
     let Some(wide) = process_env_block(pid) else {
         return false;
     };
-    let needle: Vec<u16> = format!("{CHATTERINO_DOCK_ENV}=").encode_utf16().collect();
-    wide.windows(needle.len()).any(|w| w == needle.as_slice())
+    let needle: Vec<u16> = format!("{CHATTERINO_DOCK_OWNER_ENV}={}\0", chatterino_dock_owner())
+        .encode_utf16()
+        .collect();
+    wide.windows(needle.len())
+        .any(|window| window == needle.as_slice())
 }
 
 #[cfg(not(windows))]
-fn process_has_dock_env(_pid: u32) -> bool {
+fn process_has_dock_owner(_pid: u32) -> bool {
     false
 }
 
@@ -1545,26 +1476,7 @@ fn list_chatterino_pids() -> Vec<u32> {
 }
 
 fn process_is_dock_chatterino(pid: u32) -> bool {
-    process_has_dock_env(pid)
-        || process_command_line(pid).is_some_and(|cmd| cmd.contains(CHATTERINO_DOCK_ENV))
-        || process_env_contains(pid, "chatterino-dock")
-}
-
-#[cfg(windows)]
-fn process_env_contains(pid: u32, needle: &str) -> bool {
-    let Some(wide) = process_env_block(pid) else {
-        return false;
-    };
-    let needle: Vec<u16> = needle.encode_utf16().collect();
-    if needle.is_empty() {
-        return false;
-    }
-    wide.windows(needle.len()).any(|w| w == needle.as_slice())
-}
-
-#[cfg(not(windows))]
-fn process_env_contains(_pid: u32, _needle: &str) -> bool {
-    false
+    process_has_dock_owner(pid)
 }
 
 fn list_rillmux_dock_chatterino_pids() -> Vec<u32> {
@@ -1574,7 +1486,7 @@ fn list_rillmux_dock_chatterino_pids() -> Vec<u32> {
         .collect()
 }
 
-/// The dock instance is tagged with `RILLMUX_DOCK=1`. Never returns the user's own Chatterino.
+/// Only returns Chatterino carrying this Rillmux process' exact owner token.
 fn find_rillmux_dock_chatterino_pid() -> Option<u32> {
     find_rillmux_dock_chatterino_pid_by_window()
         .or_else(|| list_rillmux_dock_chatterino_pids().into_iter().next())

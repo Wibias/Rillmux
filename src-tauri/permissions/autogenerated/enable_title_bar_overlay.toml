@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-enable-title-bar-overlay"
+description = "Enables the enable_title_bar_overlay command without any pre-configured scope."
+commands.allow = ["enable_title_bar_overlay"]
+
+[[permission]]
+identifier = "deny-enable-title-bar-overlay"
+description = "Denies the enable_title_bar_overlay command without any pre-configured scope."
+commands.deny = ["enable_title_bar_overlay"]

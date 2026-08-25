@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-layout-watching"
+description = "Enables the layout_watching command without any pre-configured scope."
+commands.allow = ["layout_watching"]
+
+[[permission]]
+identifier = "deny-layout-watching"
+description = "Denies the layout_watching command without any pre-configured scope."
+commands.deny = ["layout_watching"]

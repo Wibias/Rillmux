@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-channel-points-vote-poll"
+description = "Enables the channel_points_vote_poll command without any pre-configured scope."
+commands.allow = ["channel_points_vote_poll"]
+
+[[permission]]
+identifier = "deny-channel-points-vote-poll"
+description = "Denies the channel_points_vote_poll command without any pre-configured scope."
+commands.deny = ["channel_points_vote_poll"]

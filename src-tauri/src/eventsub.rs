@@ -13,9 +13,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
 use tokio::time::Instant;
-use tokio_tungstenite::{
-    connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::auth;
 use crate::http::shared_client;

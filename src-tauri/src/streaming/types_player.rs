@@ -72,6 +72,9 @@ struct LiveSession {
     /// Windows Job containing the Streamlink child (and transitively the
     /// player). Terminating it kills the whole tree.
     job: JobSlot,
+    /// Randomized config carrying website OAuth outside the process argv.
+    /// Keep it alive for the Streamlink child lifetime; Drop removes the file.
+    _streamlink_auth_config: Option<crate::twitch_web_auth::StreamlinkAuthConfig>,
     /// Pre-launched mpv owned by this session (fast start, Windows only).
     player: Option<FastPlayer>,
     /// When the player became ready — grace before treating missing mpv as closed.
@@ -340,4 +343,3 @@ impl StreamingState {
         }
     }
 }
-

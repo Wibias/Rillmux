@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-overlay-place-hud"
+description = "Enables the overlay_place_hud command without any pre-configured scope."
+commands.allow = ["overlay_place_hud"]
+
+[[permission]]
+identifier = "deny-overlay-place-hud"
+description = "Denies the overlay_place_hud command without any pre-configured scope."
+commands.deny = ["overlay_place_hud"]

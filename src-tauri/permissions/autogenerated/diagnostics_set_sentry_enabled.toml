@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-diagnostics-set-sentry-enabled"
+description = "Enables the diagnostics_set_sentry_enabled command without any pre-configured scope."
+commands.allow = ["diagnostics_set_sentry_enabled"]
+
+[[permission]]
+identifier = "deny-diagnostics-set-sentry-enabled"
+description = "Denies the diagnostics_set_sentry_enabled command without any pre-configured scope."
+commands.deny = ["diagnostics_set_sentry_enabled"]

@@ -1,5 +1,6 @@
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -125,12 +126,46 @@ pub(crate) fn load_token() -> Result<Option<String>, TwitchWebAuthError> {
     Ok(load_auth()?.map(|auth| auth.token))
 }
 
-fn streamlink_auth_arg_for(token: &str) -> String {
-    format!("--twitch-api-header=Authorization=OAuth {token}")
+pub(crate) struct StreamlinkAuthConfig {
+    path: PathBuf,
 }
 
-pub(crate) fn streamlink_auth_arg() -> Result<Option<String>, TwitchWebAuthError> {
-    Ok(load_token()?.map(|token| streamlink_auth_arg_for(&token)))
+impl StreamlinkAuthConfig {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for StreamlinkAuthConfig {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn streamlink_auth_config_for(token: &str) -> Result<StreamlinkAuthConfig, TwitchWebAuthError> {
+    let path = std::env::temp_dir().join(format!(
+        "rillmux-streamlink-auth-{}-{}.conf",
+        std::process::id(),
+        Uuid::new_v4().simple()
+    ));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&path)?;
+    writeln!(file, "twitch-api-header=Authorization=OAuth {token}")?;
+    file.flush()?;
+    Ok(StreamlinkAuthConfig { path })
+}
+
+pub(crate) fn streamlink_auth_config() -> Result<Option<StreamlinkAuthConfig>, TwitchWebAuthError> {
+    let Some(token) = load_token()? else {
+        return Ok(None);
+    };
+    streamlink_auth_config_for(&token).map(Some)
 }
 
 #[allow(dead_code)]
@@ -391,13 +426,15 @@ mod tests {
     }
 
     #[test]
-    fn formats_streamlink_auth_as_one_cli_argument() {
-        let arg = streamlink_auth_arg_for(TOKEN);
+    fn ephemeral_streamlink_auth_config_is_removed_on_drop() {
+        let config = streamlink_auth_config_for(TOKEN).unwrap();
+        let path = config.path().to_path_buf();
         assert_eq!(
-            arg,
-            format!("--twitch-api-header=Authorization=OAuth {TOKEN}")
+            std::fs::read_to_string(&path).unwrap(),
+            format!("twitch-api-header=Authorization=OAuth {TOKEN}\n")
         );
-        assert!(!arg.contains(char::from(10)));
+        drop(config);
+        assert!(!path.exists());
     }
 
     #[test]

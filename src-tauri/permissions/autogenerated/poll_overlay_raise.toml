@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-poll-overlay-raise"
+description = "Enables the poll_overlay_raise command without any pre-configured scope."
+commands.allow = ["poll_overlay_raise"]
+
+[[permission]]
+identifier = "deny-poll-overlay-raise"
+description = "Denies the poll_overlay_raise command without any pre-configured scope."
+commands.deny = ["poll_overlay_raise"]

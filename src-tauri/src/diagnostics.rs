@@ -93,7 +93,9 @@ pub fn log_debug(msg: &str) {
 }
 
 fn rotate_log_if_needed(path: &Path, incoming_bytes: u64) {
-    let current = fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0);
+    let current = fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
     if current.saturating_add(incoming_bytes) <= MAX_LOG_BYTES {
         return;
     }

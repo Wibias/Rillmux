@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-channel-points-claim-auth-start-device-login"
+description = "Enables the channel_points_claim_auth_start_device_login command without any pre-configured scope."
+commands.allow = ["channel_points_claim_auth_start_device_login"]
+
+[[permission]]
+identifier = "deny-channel-points-claim-auth-start-device-login"
+description = "Denies the channel_points_claim_auth_start_device_login command without any pre-configured scope."
+commands.deny = ["channel_points_claim_auth_start_device_login"]

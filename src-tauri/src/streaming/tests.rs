@@ -30,8 +30,18 @@ mod tests {
     #[test]
     fn chatterino_dock_appdata_is_not_the_user_chatterino_folder() {
         let dock = chatterino_dock_appdata();
-        let name = dock.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        assert_eq!(name, "chatterino-dock");
+        if cfg!(debug_assertions) {
+            let profile = dock
+                .parent()
+                .and_then(|path| path.file_name())
+                .and_then(|name| name.to_str());
+            assert_eq!(profile, Some("chatterino-dock-dev"));
+        } else {
+            assert_eq!(
+                dock.file_name().and_then(|name| name.to_str()),
+                Some("chatterino-dock")
+            );
+        }
         assert!(!dock.ends_with("Chatterino2"));
     }
 
@@ -50,65 +60,31 @@ mod tests {
     }
 
     #[test]
-    fn command_line_from_nt_buffer_reads_payload_after_header_when_pointer_is_foreign() {
-        let text = "chatterino.exe --channels=t:forsen";
-        let wide: Vec<u16> = text.encode_utf16().collect();
-        let length = (wide.len() * 2) as u16;
-        let mut buf = vec![0u8; 16 + wide.len() * 2];
-        buf[0..2].copy_from_slice(&length.to_le_bytes());
-        buf[2..4].copy_from_slice(&length.to_le_bytes());
-        // Fake remote pointer — parser must use the packed payload at offset 16.
-        buf[8..16].copy_from_slice(&0x7FFF_0000_1234_5678u64.to_le_bytes());
-        for (i, unit) in wide.iter().enumerate() {
-            let off = 16 + i * 2;
-            buf[off..off + 2].copy_from_slice(&unit.to_le_bytes());
-        }
-        assert_eq!(command_line_from_nt_buffer(&buf).as_deref(), Some(text));
+    fn fixed_file_product_version_reads_owned_bytes() {
+        let mut info = vec![0u8; VS_FIXED_FILE_INFO_SIZE];
+        info[0..4].copy_from_slice(&VS_FIXED_FILE_INFO_SIGNATURE.to_le_bytes());
+        info[PRODUCT_VERSION_MS_OFFSET..PRODUCT_VERSION_MS_OFFSET + 4]
+            .copy_from_slice(&((7u32 << 16) | 5).to_le_bytes());
+        info[PRODUCT_VERSION_LS_OFFSET..PRODUCT_VERSION_LS_OFFSET + 4]
+            .copy_from_slice(&((5u32 << 16) | 2).to_le_bytes());
+        assert_eq!(
+            fixed_file_product_version(&info, 0, info.len()).as_deref(),
+            Some("7.5.5.2")
+        );
     }
 
     #[test]
-    fn command_line_from_nt_buffer_reads_payload_when_pointer_is_inside_buffer() {
-        let text = "chatterino.exe";
-        let wide: Vec<u16> = text.encode_utf16().collect();
-        let length = (wide.len() * 2) as u16;
-        let mut buf = vec![0u8; 16 + wide.len() * 2];
-        buf[0..2].copy_from_slice(&length.to_le_bytes());
-        buf[2..4].copy_from_slice(&length.to_le_bytes());
-        for (i, unit) in wide.iter().enumerate() {
-            let off = 16 + i * 2;
-            buf[off..off + 2].copy_from_slice(&unit.to_le_bytes());
-        }
-        let ptr = buf.as_ptr() as u64 + 16;
-        buf[8..16].copy_from_slice(&ptr.to_le_bytes());
-        assert_eq!(command_line_from_nt_buffer(&buf).as_deref(), Some(text));
+    fn fixed_file_product_version_rejects_foreign_or_short_ranges() {
+        let info = vec![0u8; VS_FIXED_FILE_INFO_SIZE];
+        assert_eq!(
+            fixed_file_product_version(&info, info.len() + 1, info.len()),
+            None
+        );
+        assert_eq!(
+            fixed_file_product_version(&info, 0, VS_FIXED_FILE_INFO_SIZE - 1),
+            None
+        );
     }
-
-    #[test]
-fn fixed_file_product_version_reads_owned_bytes() {
-    let mut info = vec![0u8; VS_FIXED_FILE_INFO_SIZE];
-    info[0..4].copy_from_slice(&VS_FIXED_FILE_INFO_SIGNATURE.to_le_bytes());
-    info[PRODUCT_VERSION_MS_OFFSET..PRODUCT_VERSION_MS_OFFSET + 4]
-        .copy_from_slice(&((7u32 << 16) | 5).to_le_bytes());
-    info[PRODUCT_VERSION_LS_OFFSET..PRODUCT_VERSION_LS_OFFSET + 4]
-        .copy_from_slice(&((5u32 << 16) | 2).to_le_bytes());
-    assert_eq!(
-        fixed_file_product_version(&info, 0, info.len()).as_deref(),
-        Some("7.5.5.2")
-    );
-}
-
-#[test]
-fn fixed_file_product_version_rejects_foreign_or_short_ranges() {
-    let info = vec![0u8; VS_FIXED_FILE_INFO_SIZE];
-    assert_eq!(
-        fixed_file_product_version(&info, info.len() + 1, info.len()),
-        None
-    );
-    assert_eq!(
-        fixed_file_product_version(&info, 0, VS_FIXED_FILE_INFO_SIZE - 1),
-        None
-    );
-}
 
     #[test]
     fn opening_stream_is_starting_not_ready() {

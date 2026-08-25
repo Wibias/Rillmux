@@ -92,7 +92,6 @@ async function flushOverlayRect() {
       Math.round(overlayApplied.height) !== height;
     overlayApplied = rect;
     await invoke("overlay_place_hud", {
-      label: win.label,
       x: Math.round(rect.x),
       y: Math.round(rect.y),
       width,

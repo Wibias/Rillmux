@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-points-hud-place-window"
+description = "Enables the points_hud_place_window command without any pre-configured scope."
+commands.allow = ["points_hud_place_window"]
+
+[[permission]]
+identifier = "deny-points-hud-place-window"
+description = "Denies the points_hud_place_window command without any pre-configured scope."
+commands.deny = ["points_hud_place_window"]

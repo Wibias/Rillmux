@@ -38,6 +38,7 @@ const COMMANDS: &[&str] = &[
     "eventsub_sync",
     "raid_overlay_place",
     "channel_points_hud_place",
+    "points_hud_place_window",
     "overlay_fit_webview",
     "overlay_place_hud",
     "poll_overlay_place",

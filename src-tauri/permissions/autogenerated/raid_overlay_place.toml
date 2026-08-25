@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-raid-overlay-place"
+description = "Enables the raid_overlay_place command without any pre-configured scope."
+commands.allow = ["raid_overlay_place"]
+
+[[permission]]
+identifier = "deny-raid-overlay-place"
+description = "Denies the raid_overlay_place command without any pre-configured scope."
+commands.deny = ["raid_overlay_place"]

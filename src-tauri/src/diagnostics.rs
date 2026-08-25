@@ -79,38 +79,44 @@ fn log_write_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-fn debug_sender() -> &'static SyncSender<QueuedDebugEvent> {
-    static SENDER: OnceLock<SyncSender<QueuedDebugEvent>> = OnceLock::new();
-    SENDER.get_or_init(|| {
-        let (sender, receiver) = mpsc::sync_channel::<QueuedDebugEvent>(DEBUG_QUEUE_CAPACITY);
-        std::thread::Builder::new()
-            .name("rillmux-debug-writer".into())
-            .spawn(move || {
-                while let Ok(event) = receiver.recv() {
-                    let dropped = DROPPED_DEBUG_EVENTS.swap(0, Ordering::AcqRel);
-                    if dropped > 0 {
+fn debug_sender() -> Option<&'static SyncSender<QueuedDebugEvent>> {
+    static SENDER: OnceLock<Option<SyncSender<QueuedDebugEvent>>> = OnceLock::new();
+    SENDER
+        .get_or_init(|| {
+            let (sender, receiver) =
+                mpsc::sync_channel::<QueuedDebugEvent>(DEBUG_QUEUE_CAPACITY);
+            let spawned = std::thread::Builder::new()
+                .name("rillmux-debug-writer".into())
+                .spawn(move || {
+                    while let Ok(event) = receiver.recv() {
+                        let dropped = DROPPED_DEBUG_EVENTS.swap(0, Ordering::AcqRel);
+                        if dropped > 0 {
+                            write_log_line_direct(&format!(
+                                "[{}][WARN][diagnostics] dropped.count={dropped}",
+                                timestamp_ms()
+                            ));
+                        }
+                        let fields = if event.fields.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" {}", sanitize_fragment(&event.fields))
+                        };
                         write_log_line_direct(&format!(
-                            "[{}][WARN][diagnostics] dropped.count={dropped}",
-                            timestamp_ms()
+                            "[{}][DBG][{}] {}{}",
+                            timestamp_ms(),
+                            event.category.as_str(),
+                            sanitize_fragment(&event.event),
+                            fields
                         ));
                     }
-                    let fields = if event.fields.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" {}", sanitize_fragment(&event.fields))
-                    };
-                    write_log_line_direct(&format!(
-                        "[{}][DBG][{}] {}{}",
-                        timestamp_ms(),
-                        event.category.as_str(),
-                        sanitize_fragment(&event.event),
-                        fields
-                    ));
-                }
-            })
-            .expect("failed to start runtime diagnostics writer");
-        sender
-    })
+                });
+            if spawned.is_ok() {
+                Some(sender)
+            } else {
+                None
+            }
+        })
+        .as_ref()
 }
 
 pub fn debug_enabled() -> bool {
@@ -142,12 +148,16 @@ pub fn log_event(category: DebugCategory, event: &str, fields: &str) {
     if !debug_enabled() || !category_enabled(category) {
         return;
     }
+    let Some(sender) = debug_sender() else {
+        DROPPED_DEBUG_EVENTS.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
     let queued = QueuedDebugEvent {
         category,
         event: event.to_string(),
         fields: fields.to_string(),
     };
-    match debug_sender().try_send(queued) {
+    match sender.try_send(queued) {
         Ok(()) => {}
         Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
             DROPPED_DEBUG_EVENTS.fetch_add(1, Ordering::Relaxed);

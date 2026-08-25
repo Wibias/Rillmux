@@ -161,7 +161,6 @@ fn start_dock_visibility_watchdog() {
         // 0 = shown/normal, 1 = minimized as a group
         let mut group_minimized = false;
         let mut seam_suppressed = false;
-        let mut grips_elevated = false;
         // Remember last-known member HWNDs. Once minimized, title/area scans
         // often miss borderless mpv (iconic rect is ~160x28), so without a
         // cache the watchdog never observes IsIconic and never syncs.
@@ -180,10 +179,6 @@ fn start_dock_visibility_watchdog() {
                     group_minimized = false;
                     DOCK_GROUP_MINIMIZED.store(false, Ordering::SeqCst);
                     crate::dock::show_grips();
-                }
-                if grips_elevated {
-                    crate::dock::demote_grips();
-                    grips_elevated = false;
                 }
                 cached.clear();
                 last_hwnd_count = 0;
@@ -237,7 +232,6 @@ fn start_dock_visibility_watchdog() {
                 crate::dock::hide_grips();
                 minimize_dock_group(&hwnds);
                 group_minimized = true;
-                grips_elevated = false;
                 sleep_ms = dock_watchdog_interval_ms(true, true);
                 continue;
             }
@@ -249,8 +243,7 @@ fn start_dock_visibility_watchdog() {
                     crate::dock::show_grips();
                     group_minimized = false;
                     seam_suppressed = false;
-                    grips_elevated = true; // Sync elevates; track that here.
-                                           // Refresh cache from live finds after restore/retile.
+                    // Refresh cache from live finds after restore/retile.
                     cached = dock_member_hwnds(&cfg.channels, cfg.reserve_chat);
                     sleep_ms = dock_watchdog_interval_ms(true, true);
                     continue;
@@ -276,24 +269,19 @@ fn start_dock_visibility_watchdog() {
                 }
             }
 
-            // Keep grey grips above mpv/chat while the dock owns focus.
-            // Re-assert TOPMOST every tick (mpv --ontop / BringWindowToTop can
-            // reorder the TOPMOST band). Only demote when FG is clearly a
-            // foreign app — never demote on a failed title scan.
+            // Keep grey grips in the normal Z-order immediately above the
+            // highest mpv/owned Chatterino member. Foreign apps therefore cover
+            // the entire dock naturally; no divider enters the TOPMOST band.
             if cfg.linked {
-                match focus.unwrap_or(DockFocusKind::Unknown) {
-                    DockFocusKind::DockOrApp | DockFocusKind::Unknown => {
-                        // Re-elevate even when already tracked as elevated.
-                        crate::dock::raise_grips();
-                        raise_poll_overlay();
-                        grips_elevated = true;
-                    }
-                    DockFocusKind::Foreign => {
-                        if grips_elevated {
-                            crate::dock::demote_grips();
-                            grips_elevated = false;
-                        }
-                    }
+                if let Some(anchor) = topmost_dock_member(&hwnds) {
+                    crate::dock::restack_grips_above(anchor as isize);
+                }
+                // Preserve the existing poll-overlay focus behavior separately.
+                if matches!(
+                    focus.unwrap_or(DockFocusKind::Unknown),
+                    DockFocusKind::DockOrApp | DockFocusKind::Unknown
+                ) {
+                    raise_poll_overlay();
                 }
             }
 
@@ -387,7 +375,7 @@ fn start_dock_visibility_watchdog() {}
 enum DockFocusKind {
     /// Our app, a grip, or a known dock member (mpv / owned Chatterino).
     DockOrApp,
-    /// Some other process is foreground — safe to drop TOPMOST.
+    /// Some other process is foreground.
     Foreign,
     /// No FG window, or we have no member HWNDs to compare yet.
     Unknown,
@@ -579,6 +567,27 @@ fn dock_member_hwnds(channels: &[String], reserve_chat: bool) -> Vec<*mut core::
 }
 
 #[cfg(windows)]
+fn topmost_dock_member(members: &[*mut core::ffi::c_void]) -> Option<*mut core::ffi::c_void> {
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetTopWindow(hwnd: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+    }
+    const GW_HWNDNEXT: u32 = 2;
+    let mut hwnd = unsafe { GetTopWindow(std::ptr::null_mut()) };
+    for _ in 0..4096 {
+        if hwnd.is_null() {
+            break;
+        }
+        if members.contains(&hwnd) && is_hwnd_alive(hwnd) {
+            return Some(hwnd);
+        }
+        hwnd = unsafe { GetWindow(hwnd, GW_HWNDNEXT) };
+    }
+    members.iter().copied().find(|&hwnd| is_hwnd_alive(hwnd))
+}
+
+#[cfg(windows)]
 fn is_hwnd_alive(hwnd: *mut core::ffi::c_void) -> bool {
     #[link(name = "user32")]
     unsafe extern "system" {
@@ -679,4 +688,3 @@ pub fn dock_set_chat_fraction(f: f64) {
 pub fn dock_cycle_monitor() {
     crate::dock::cycle_monitor();
 }
-

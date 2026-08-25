@@ -31,7 +31,9 @@ pub(crate) struct PrivateGqlOperation {
     pub query_fallbacks: &'static [QueryFallback],
 }
 
-pub(crate) const CHANNEL_POINTS_CONTEXT_HASHES: [&str; 2] = [
+pub(crate) const CHANNEL_POINTS_CONTEXT_HASHES: [&str; 4] = [
+    "1530a003a7d374b0380b79db0be0534f30ff46e61cffa2bc0e2468a909fbc024",
+    "9988086babc615a918a1e9a722ff41d98847acac822645209ac7379eecb27152",
     "7fe050e3761eb2cf258d70ee1a21cbd76fa8cf3d7e7b12fc437e7029d446b5e3",
     "374314de591e69925fce3ddc2bcf085796f56ebb8cad67a0daa3165c03adc345",
 ];

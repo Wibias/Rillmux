@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSettingsStore } from "../lib/settings/store";
@@ -64,7 +63,6 @@ type OverlayApplyRequest = {
 
 let overlayApplyChain: Promise<void> = Promise.resolve();
 let overlayApplyLatest: OverlayApplyRequest | null = null;
-let overlayApplied: OverlayRect | null = null;
 
 function applyOverlayRect(rect: OverlayRect, afterApply?: () => void) {
   overlayApplyLatest = { rect, afterApply };
@@ -78,19 +76,8 @@ async function flushOverlayRect() {
     const request = overlayApplyLatest;
     const rect = request.rect;
     overlayApplyLatest = null;
-    const win = getCurrentWindow();
-    const position = new PhysicalPosition(
-      Math.round(rect.x),
-      Math.round(rect.y),
-    );
     const width = Math.max(1, Math.round(rect.width));
     const height = Math.max(1, Math.round(rect.height));
-    const size = new PhysicalSize(width, height);
-    const sizeChanged =
-      !overlayApplied ||
-      Math.round(overlayApplied.width) !== width ||
-      Math.round(overlayApplied.height) !== height;
-    overlayApplied = rect;
     await invoke("overlay_place_hud", {
       x: Math.round(rect.x),
       y: Math.round(rect.y),
@@ -98,21 +85,6 @@ async function flushOverlayRect() {
       height,
       force: true,
     }).catch(() => undefined);
-    await win.setPosition(position).catch(() => undefined);
-    if (sizeChanged) {
-      await win.setSize(size).catch(() => undefined);
-      await invoke("overlay_fit_webview", { width, height }).catch(
-        () => undefined,
-      );
-      // Transparent WebView2 often keeps the old child size on the first resize.
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-      });
-      await invoke("overlay_fit_webview", { width, height }).catch(
-        () => undefined,
-      );
-      await win.setSize(size).catch(() => undefined);
-    }
     request.afterApply?.();
   }
 }
@@ -212,8 +184,7 @@ export function ChannelPointsHud() {
     }
     lastOverlayRef.current = overlay;
     const generation = ++overlayApplyGenerationRef.current;
-    let firstFrame: number | null = null;
-    let secondFrame: number | null = null;
+    let frame: number | null = null;
     const apply = () => {
       applyOverlayRect(
         overlay,
@@ -230,13 +201,11 @@ export function ChannelPointsHud() {
       apply();
       return;
     }
-    // Let WebView2 present the transparent frame before the HWND moves.
-    firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(apply);
-    });
+    // Give WebView2 one paint with transparent content before the native
+    // command moves and resizes the HWND and child webview together.
+    frame = window.requestAnimationFrame(apply);
     return () => {
-      if (firstFrame != null) window.cancelAnimationFrame(firstFrame);
-      if (secondFrame != null) window.cancelAnimationFrame(secondFrame);
+      if (frame != null) window.cancelAnimationFrame(frame);
     };
   }, [overlay, geometryConcealed]);
 

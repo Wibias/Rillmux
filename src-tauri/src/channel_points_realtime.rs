@@ -153,10 +153,6 @@ pub fn clear() {
     realtime.changed.notify_waiters();
 }
 
-pub fn is_ready() -> bool {
-    state().ready.load(Ordering::Acquire)
-}
-
 fn ensure_supervisor() {
     let realtime = state();
     if realtime.started.swap(true, Ordering::AcqRel) {

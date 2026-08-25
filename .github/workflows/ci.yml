@@ -5,11 +5,44 @@ on:
     branches: [master, main]
   pull_request:
 
+# New commits on the same PR cancel the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'src/**'
+              - 'index.html'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'vite.config.ts'
+              - 'tsconfig.json'
+              - 'tsconfig.node.json'
+              - 'scripts/**'
+              - '.github/workflows/ci.yml'
+            rust:
+              - 'src-tauri/**'
+              - '.github/workflows/ci.yml'
+
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -26,6 +59,8 @@ jobs:
         run: node scripts/audit-gate.mjs
 
   rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,3 +87,24 @@ jobs:
       - name: RustSec advisory audit
         working-directory: src-tauri
         run: cargo audit
+
+  # Always runs so a docs-only PR is not missing a required check, and so a
+  # skipped Windows job is not confused with a failure.
+  ci:
+    needs: [changes, frontend, rust]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if a needed job failed
+        run: |
+          set -euo pipefail
+          echo "changes=${{ needs.changes.result }} frontend=${{ needs.frontend.result }} rust=${{ needs.rust.result }}"
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            exit 1
+          fi
+          for result in "${{ needs.frontend.result }}" "${{ needs.rust.result }}"; do
+            case "$result" in
+              success|skipped) ;;
+              *) exit 1 ;;
+            esac
+          done

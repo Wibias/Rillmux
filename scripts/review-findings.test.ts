@@ -58,6 +58,33 @@ describe("full-review regression gates", () => {
     expect(syncBody).toContain("if (!hudReady || !active) return;");
   });
 
+  test("Channel Points HUD geometry uses one native placement path", () => {
+    const source = read("src/components/ChannelPointsHud.tsx");
+    const flushBody = source.slice(
+      source.indexOf("async function flushOverlayRect"),
+      source.indexOf("export function ChannelPointsHud"),
+    );
+    expect(flushBody).toContain('invoke("overlay_place_hud"');
+    expect(flushBody).not.toContain("PhysicalPosition");
+    expect(flushBody).not.toContain("PhysicalSize");
+    expect(flushBody).not.toContain("win.setPosition");
+    expect(flushBody).not.toContain("win.setSize");
+    expect(flushBody).not.toContain("overlay_fit_webview");
+    expect(source).toContain("frame = window.requestAnimationFrame(apply)");
+    expect(source).not.toContain(
+      "secondFrame = window.requestAnimationFrame(apply)",
+    );
+  });
+
+  test("dock divider geometry targets 80 percent of the previous width", () => {
+    const source = read("src-tauri/src/dock.rs");
+    expect(source).toContain("const BASE_DIVIDER_THICK: i32 = 8;");
+    expect(source).toContain("const DIVIDER_WIDTH_PERCENT: i32 = 80;");
+    expect(source).toContain("const DIVIDER_THICK: i32 =");
+    expect(source.match(/const THICK: i32 = DIVIDER_THICK;/g)?.length).toBe(4);
+    expect(source).not.toContain("THICK / 2 + 1");
+  });
+
   test("diagnostics bounds the always-on log", () => {
     const source = read("src-tauri/src/diagnostics.rs");
     expect(source).toContain("MAX_LOG_BYTES");

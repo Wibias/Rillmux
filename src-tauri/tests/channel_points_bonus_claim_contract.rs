@@ -9,7 +9,8 @@ fn bonus_claim_uses_tv_identity_without_browser_integrity() {
     assert!(source.contains("async fn claim_bonus("));
     assert!(source.contains("channel_points_claim_auth::TV_CLIENT_ID"));
     assert!(source.contains("channel_points_claim_auth::load_session"));
-    assert!(source.contains("crate::channel_points_realtime::is_ready()"));
+    assert!(source.contains("if let Some(claim_id) = context.claim_id.clone()"));
+    assert!(!source.contains("crate::channel_points_realtime::is_ready()"));
 
     assert!(!source.contains("https://gql.twitch.tv/integrity"));
     assert!(!source.contains("\"Client-Integrity\""));

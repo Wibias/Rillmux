@@ -27,6 +27,35 @@ type EventSubSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type EventSubWrite = SplitSink<EventSubSocket, Message>;
 type EventSubRead = SplitStream<EventSubSocket>;
 
+fn debug_raid(event: &str, fields: &str) {
+    crate::diagnostics::log_event(crate::diagnostics::DebugCategory::Raids, event, fields);
+}
+
+fn eventsub_error_class(error: &str) -> &'static str {
+    let error = error.to_ascii_lowercase();
+    if error.contains("auth") || error.contains("401") || error.contains("403") {
+        "authentication"
+    } else if error.contains("subscription") || error.contains("create sub") {
+        "subscription"
+    } else if error.contains("keepalive") {
+        "keepalive"
+    } else if error.contains("reconnect") {
+        "reconnect"
+    } else if error.contains("welcome") {
+        "welcome"
+    } else if error.contains("closed") || error.contains("close frame") {
+        "socket"
+    } else if error.contains("connect") || error.contains("connection") {
+        "connect"
+    } else if error.contains("timeout") || error.contains("timed out") {
+        "timeout"
+    } else if error.contains("json") || error.contains("read") {
+        "read"
+    } else {
+        "other"
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RaidOutgoing {
@@ -63,6 +92,7 @@ pub fn init(app: AppHandle) {
     if STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
+    debug_raid("eventsub.supervisor.start", "started=true");
     tauri::async_runtime::spawn(async move {
         run_supervisor(app).await;
     });
@@ -70,6 +100,7 @@ pub fn init(app: AppHandle) {
 
 /// Enable/disable + replace the watched login set (lowercase).
 pub fn sync(enabled: bool, logins: Vec<String>) {
+    let requested_count = logins.len();
     if let Ok(mut g) = state().lock() {
         g.enabled = enabled;
         g.logins = logins
@@ -77,6 +108,13 @@ pub fn sync(enabled: bool, logins: Vec<String>) {
             .map(|s| s.to_ascii_lowercase())
             .filter(|s| !s.is_empty())
             .collect();
+        debug_raid(
+            "eventsub.sync.native",
+            &format!(
+                "enabled={enabled} requested_count={requested_count} desired_count={}",
+                g.logins.len()
+            ),
+        );
     }
     wake().notify_waiters();
 }
@@ -91,14 +129,32 @@ async fn run_supervisor(app: AppHandle) {
     loop {
         let (enabled, logins) = desired_state().unwrap_or((false, HashSet::new()));
         if !enabled || logins.is_empty() {
+            debug_raid(
+                "eventsub.supervisor.idle",
+                &format!("enabled={enabled} target_count={}", logins.len()),
+            );
             wake().notified().await;
             continue;
         }
+        debug_raid(
+            "eventsub.session.start",
+            &format!(
+                "target_count={} backoff_ms={}",
+                logins.len(),
+                backoff.as_millis()
+            ),
+        );
         match run_session(app.clone(), logins).await {
             Ok(()) => {
+                debug_raid("eventsub.session.end", "reason=reconfigured");
                 backoff = Duration::from_secs(1);
             }
             Err(e) => {
+                let reason = eventsub_error_class(&e);
+                debug_raid(
+                    "eventsub.session.error",
+                    &format!("reason={reason} backoff_ms={}", backoff.as_millis()),
+                );
                 // EventSub can reach its HTTP subscription calls without a
                 // session validation round trip. Rebuild the shared client so
                 // an offline-start transport failure cannot poison every retry.
@@ -116,9 +172,14 @@ async fn connect_eventsub(url: &str) -> Result<EventSubSocket, String> {
     if parsed.scheme() != "wss" || parsed.host_str() != Some("eventsub.wss.twitch.tv") {
         return Err("EventSub reconnect URL was not a Twitch WSS endpoint".into());
     }
+    debug_raid(
+        "eventsub.connect.attempt",
+        &format!("handoff={}", url != WS_URL),
+    );
     let (socket, _) = connect_async(url)
         .await
         .map_err(|error| format!("ws connect: {error}"))?;
+    debug_raid("eventsub.connect.ok", &format!("handoff={}", url != WS_URL));
     Ok(socket)
 }
 
@@ -154,10 +215,19 @@ async fn wait_for_welcome(
         if parsed.metadata.message_type != "session_welcome" {
             continue;
         }
-        return parsed
+        let session = parsed
             .payload
             .session
-            .ok_or_else(|| "welcome missing session".to_string());
+            .ok_or_else(|| "welcome missing session".to_string())?;
+        debug_raid(
+            "eventsub.welcome",
+            &format!(
+                "session={} keepalive_seconds={}",
+                crate::diagnostics::redact_id(&session.id),
+                session.keepalive_timeout_seconds.unwrap_or(10)
+            ),
+        );
+        return Ok(session);
     }
 }
 
@@ -176,6 +246,16 @@ fn keepalive_duration(session: &WsSession) -> Duration {
 
 fn emit_notification(app: &AppHandle, parsed: &WsEnvelope) {
     if let Some(raid) = parse_raid_notification(parsed) {
+        debug_raid(
+            "raid.received.native",
+            &format!(
+                "from={} to={} to_user={} viewers={:?}",
+                raid.from_channel,
+                raid.to_channel,
+                crate::diagnostics::redact_id(&raid.to_user_id),
+                raid.viewers
+            ),
+        );
         let _ = app.emit("raid-outgoing", raid);
     }
 }
@@ -186,10 +266,19 @@ async fn reconnect_with_handoff(
     read: &mut EventSubRead,
     reconnect_url: &str,
 ) -> Result<(EventSubWrite, EventSubRead, WsSession), String> {
+    debug_raid("eventsub.reconnect.handoff.start", "requested=true");
     let mut replacement = Box::pin(connect_and_welcome(reconnect_url));
     loop {
         tokio::select! {
-            result = replacement.as_mut() => return result,
+            result = replacement.as_mut() => {
+                if let Ok((_, _, session)) = &result {
+                    debug_raid(
+                        "eventsub.reconnect.handoff.ready",
+                        &format!("session={}", crate::diagnostics::redact_id(&session.id)),
+                    );
+                }
+                return result;
+            },
             old_message = read.next() => {
                 let Some(old_message) = old_message else {
                     return replacement.as_mut().await;
@@ -235,6 +324,14 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
         &id_cache,
     )
     .await?;
+    debug_raid(
+        "eventsub.subscription.ready",
+        &format!(
+            "desired_count={} active_count={}",
+            desired.len(),
+            subs.len()
+        ),
+    );
 
     loop {
         let keepalive_wait = tokio::time::sleep_until(keepalive_deadline);
@@ -242,6 +339,10 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
         tokio::select! {
             _ = wake().notified() => {
                 let (enabled, logins) = desired_state()?;
+                debug_raid(
+                    "eventsub.resync",
+                    &format!("enabled={enabled} desired_count={}", logins.len()),
+                );
                 if !enabled || logins.is_empty() {
                     let _ = write.close().await;
                     return Ok(());
@@ -281,6 +382,10 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
                     "session_welcome" => {}
                     "session_keepalive" => {}
                     "session_reconnect" => {
+                        debug_raid(
+                            "eventsub.reconnect.requested",
+                            &format!("session={}", crate::diagnostics::redact_id(&session_id)),
+                        );
                         let reconnect_url = parsed
                             .payload
                             .session
@@ -319,11 +424,30 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
                             &id_cache,
                         )
                         .await?;
+                        debug_raid(
+                            "eventsub.reconnect.complete",
+                            &format!(
+                                "session={} desired_count={} active_count={}",
+                                crate::diagnostics::redact_id(&session_id),
+                                desired.len(),
+                                subs.len()
+                            ),
+                        );
                     }
                     "notification" => emit_notification(&app, &parsed),
                     "revocation" => {
                         if let Some(sub) = parsed.payload.subscription.as_ref() {
+                            let before = subs.len();
                             subs.retain(|_, id| id != &sub.id);
+                            debug_raid(
+                                "eventsub.subscription.revoked",
+                                &format!(
+                                    "subscription={} removed={} active_count={}",
+                                    crate::diagnostics::redact_id(&sub.id),
+                                    before != subs.len(),
+                                    subs.len()
+                                ),
+                            );
                         }
                     }
                     _ => {}
@@ -356,9 +480,27 @@ async fn sync_subscriptions(
         .filter(|l| !desired_logins.contains(*l))
         .cloned()
         .collect();
+    debug_raid(
+        "eventsub.subscription.sync",
+        &format!(
+            "session={} desired_count={} active_count={} stale_count={}",
+            crate::diagnostics::redact_id(session_id),
+            desired_logins.len(),
+            subs.len(),
+            stale.len()
+        ),
+    );
     for login in stale {
         if let Some(sub_id) = subs.remove(&login) {
-            let _ = delete_subscription(token, client_id, &sub_id).await;
+            let result = delete_subscription(token, client_id, &sub_id).await;
+            debug_raid(
+                "eventsub.subscription.delete",
+                &format!(
+                    "login={login} subscription={} ok={}",
+                    crate::diagnostics::redact_id(&sub_id),
+                    result.is_ok()
+                ),
+            );
         }
     }
     for login in desired_logins {
@@ -366,14 +508,36 @@ async fn sync_subscriptions(
             continue;
         }
         let user_id = resolve_user_id(token, client_id, login, id_cache).await?;
+        debug_raid(
+            "eventsub.subscription.create",
+            &format!(
+                "login={login} broadcaster={}",
+                crate::diagnostics::redact_id(&user_id)
+            ),
+        );
         match create_raid_subscription(token, client_id, session_id, &user_id).await {
             Ok(sub_id) => {
+                debug_raid(
+                    "eventsub.subscription.created",
+                    &format!(
+                        "login={login} subscription={}",
+                        crate::diagnostics::redact_id(&sub_id)
+                    ),
+                );
                 subs.insert(login.clone(), sub_id);
             }
             Err(CreateSubscriptionError::Auth(error)) => {
+                debug_raid(
+                    "eventsub.subscription.failed",
+                    &format!("login={login} reason={}", eventsub_error_class(&error)),
+                );
                 return Err(error);
             }
             Err(CreateSubscriptionError::Other(error)) => {
+                debug_raid(
+                    "eventsub.subscription.failed",
+                    &format!("login={login} reason={}", eventsub_error_class(&error)),
+                );
                 eprintln!("[eventsub] subscribe {login}: {error}");
             }
         }
@@ -389,9 +553,11 @@ async fn resolve_user_id(
 ) -> Result<String, String> {
     if let Ok(g) = cache.lock() {
         if let Some(id) = g.get(login) {
+            debug_raid("eventsub.user.cache", &format!("login={login} hit=true"));
             return Ok(id.clone());
         }
     }
+    debug_raid("eventsub.user.lookup", &format!("login={login}"));
     let url = format!("https://api.twitch.tv/helix/users?login={login}");
     let res = shared_client()
         .get(&url)
@@ -400,7 +566,12 @@ async fn resolve_user_id(
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    if !res.status().is_success() {
+    let status = res.status();
+    debug_raid(
+        "eventsub.user.lookup.result",
+        &format!("login={login} http_status={}", status.as_u16()),
+    );
+    if !status.is_success() {
         let body = res.text().await.unwrap_or_default();
         return Err(format!("users lookup failed: {body}"));
     }
@@ -442,6 +613,14 @@ async fn create_raid_subscription(
         .await
         .map_err(|error| CreateSubscriptionError::Other(error.to_string()))?;
     let status = res.status();
+    debug_raid(
+        "eventsub.subscription.http",
+        &format!(
+            "operation=create broadcaster={} http_status={}",
+            crate::diagnostics::redact_id(from_broadcaster_user_id),
+            status.as_u16()
+        ),
+    );
     let text = res.text().await.unwrap_or_default();
     if !status.is_success() {
         let message = format!("create sub {status}: {text}");
@@ -467,12 +646,21 @@ async fn delete_subscription(token: &str, client_id: &str, id: &str) -> Result<(
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    if res.status().is_success() || res.status().as_u16() == 404 {
+    let status = res.status();
+    debug_raid(
+        "eventsub.subscription.http",
+        &format!(
+            "operation=delete subscription={} http_status={}",
+            crate::diagnostics::redact_id(id),
+            status.as_u16()
+        ),
+    );
+    if status.is_success() || status.as_u16() == 404 {
         Ok(())
     } else {
         Err(format!(
             "delete sub {}: {}",
-            res.status(),
+            status,
             res.text().await.unwrap_or_default()
         ))
     }
@@ -607,5 +795,23 @@ mod tests {
             reconnect_url: None,
         };
         assert_eq!(keepalive_duration(&session), Duration::from_secs(12));
+    }
+
+    #[test]
+    fn classifies_eventsub_errors_without_echoing_details() {
+        assert_eq!(
+            eventsub_error_class("auth: token unavailable"),
+            "authentication"
+        );
+        assert_eq!(eventsub_error_class("create sub 500"), "subscription");
+        assert_eq!(
+            eventsub_error_class("session_reconnect missing reconnect_url"),
+            "reconnect"
+        );
+        assert_eq!(
+            eventsub_error_class("EventSub welcome timed out"),
+            "welcome"
+        );
+        assert_eq!(eventsub_error_class("ws read: connection closed"), "socket");
     }
 }

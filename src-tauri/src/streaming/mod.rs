@@ -3,6 +3,7 @@
 include!("foundation.rs");
 include!("types_player.rs");
 include!("tools_process.rs");
+include!("debug_observability.rs");
 include!("dock.rs");
 include!("overlays.rs");
 include!("windows_layout.rs");

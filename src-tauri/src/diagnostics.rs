@@ -1,24 +1,206 @@
 //! Local logs, panic reports, and an opt-in debug console.
 
+use serde::Deserialize;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
+const DEBUG_QUEUE_CAPACITY: usize = 1024;
 static DEBUG: AtomicBool = AtomicBool::new(false);
+static DEBUG_WINDOWS: AtomicBool = AtomicBool::new(true);
+static DEBUG_POINTS_CREDIT: AtomicBool = AtomicBool::new(true);
+static DEBUG_POINTS_CLAIM: AtomicBool = AtomicBool::new(true);
+static DEBUG_REWARDS: AtomicBool = AtomicBool::new(true);
+static DEBUG_POLLS: AtomicBool = AtomicBool::new(true);
+static DEBUG_RAIDS: AtomicBool = AtomicBool::new(true);
+static DROPPED_DEBUG_EVENTS: AtomicU64 = AtomicU64::new(0);
 #[cfg(windows)]
 static OWNED_CONSOLE: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DebugCategory {
+    Windows,
+    PointsCredit,
+    PointsClaim,
+    Rewards,
+    Polls,
+    Raids,
+}
+
+impl DebugCategory {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "windows" => Some(Self::Windows),
+            "points-credit" => Some(Self::PointsCredit),
+            "points-claim" => Some(Self::PointsClaim),
+            "rewards" => Some(Self::Rewards),
+            "polls" => Some(Self::Polls),
+            "raids" => Some(Self::Raids),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::PointsCredit => "points-credit",
+            Self::PointsClaim => "points-claim",
+            Self::Rewards => "rewards",
+            Self::Polls => "polls",
+            Self::Raids => "raids",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugCategoryFlags {
+    pub windows: bool,
+    pub points_credit: bool,
+    pub points_claim: bool,
+    pub rewards: bool,
+    pub polls: bool,
+    pub raids: bool,
+}
+
+struct QueuedDebugEvent {
+    category: DebugCategory,
+    event: String,
+    fields: String,
+}
 
 fn log_write_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+fn debug_sender() -> Option<&'static SyncSender<QueuedDebugEvent>> {
+    static SENDER: OnceLock<Option<SyncSender<QueuedDebugEvent>>> = OnceLock::new();
+    SENDER
+        .get_or_init(|| {
+            let (sender, receiver) = mpsc::sync_channel::<QueuedDebugEvent>(DEBUG_QUEUE_CAPACITY);
+            let spawned = std::thread::Builder::new()
+                .name("rillmux-debug-writer".into())
+                .spawn(move || {
+                    while let Ok(event) = receiver.recv() {
+                        let dropped = DROPPED_DEBUG_EVENTS.swap(0, Ordering::AcqRel);
+                        if dropped > 0 {
+                            write_log_line_direct(&format!(
+                                "[{}][WARN][diagnostics] dropped.count={dropped}",
+                                timestamp_ms()
+                            ));
+                        }
+                        let fields = if event.fields.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" {}", sanitize_fragment(&event.fields))
+                        };
+                        write_log_line_direct(&format!(
+                            "[{}][DBG][{}] {}{}",
+                            timestamp_ms(),
+                            event.category.as_str(),
+                            sanitize_fragment(&event.event),
+                            fields
+                        ));
+                    }
+                });
+            if spawned.is_ok() {
+                Some(sender)
+            } else {
+                None
+            }
+        })
+        .as_ref()
+}
+
 pub fn debug_enabled() -> bool {
     DEBUG.load(Ordering::SeqCst)
+}
+
+fn category_enabled(category: DebugCategory) -> bool {
+    match category {
+        DebugCategory::Windows => DEBUG_WINDOWS.load(Ordering::Relaxed),
+        DebugCategory::PointsCredit => DEBUG_POINTS_CREDIT.load(Ordering::Relaxed),
+        DebugCategory::PointsClaim => DEBUG_POINTS_CLAIM.load(Ordering::Relaxed),
+        DebugCategory::Rewards => DEBUG_REWARDS.load(Ordering::Relaxed),
+        DebugCategory::Polls => DEBUG_POLLS.load(Ordering::Relaxed),
+        DebugCategory::Raids => DEBUG_RAIDS.load(Ordering::Relaxed),
+    }
+}
+
+pub fn set_debug_categories(flags: DebugCategoryFlags) {
+    DEBUG_WINDOWS.store(flags.windows, Ordering::Relaxed);
+    DEBUG_POINTS_CREDIT.store(flags.points_credit, Ordering::Relaxed);
+    DEBUG_POINTS_CLAIM.store(flags.points_claim, Ordering::Relaxed);
+    DEBUG_REWARDS.store(flags.rewards, Ordering::Relaxed);
+    DEBUG_POLLS.store(flags.polls, Ordering::Relaxed);
+    DEBUG_RAIDS.store(flags.raids, Ordering::Relaxed);
+}
+
+/// Queue a category-filtered runtime event without blocking the calling path.
+pub fn log_event(category: DebugCategory, event: &str, fields: &str) {
+    if !debug_enabled() || !category_enabled(category) {
+        return;
+    }
+    let Some(sender) = debug_sender() else {
+        DROPPED_DEBUG_EVENTS.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
+    let queued = QueuedDebugEvent {
+        category,
+        event: event.to_string(),
+        fields: fields.to_string(),
+    };
+    match sender.try_send(queued) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+            DROPPED_DEBUG_EVENTS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Redact an identifier while keeping a small prefix/suffix for correlation.
+pub fn redact_id(value: &str) -> String {
+    let value = value.trim();
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() <= 10 {
+        return "***".into();
+    }
+    let prefix = chars.iter().take(6).collect::<String>();
+    let suffix = chars.iter().skip(chars.len() - 4).collect::<String>();
+    format!("{prefix}…{suffix}")
+}
+
+/// Persisted-query hashes are only identifiable by a short prefix in logs.
+pub fn redact_hash(value: &str) -> String {
+    let prefix = value.trim().chars().take(8).collect::<String>();
+    if prefix.is_empty() {
+        "***".into()
+    } else {
+        format!("{prefix}…")
+    }
+}
+
+fn sanitize_fragment(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '\r' | '\n' | '\t' => ' ',
+            other => other,
+        })
+        .collect()
+}
+
+fn timestamp_ms() -> String {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}.{:03}", elapsed.as_secs(), elapsed.subsec_millis())
 }
 
 /// Returns true when `DEBUG` actually flipped, so callers can skip side effects.
@@ -119,9 +301,7 @@ fn bounded_log_line(msg: &str) -> String {
     line
 }
 
-/// Always append to `rillmux.log` (monitor/chat placement traces), rotating
-/// one previous generation before the file grows beyond 10 MiB.
-pub fn log_line(msg: &str) {
+fn write_log_line_direct(msg: &str) {
     ensure_dirs();
     let line = bounded_log_line(msg);
     write_debug_output(line.as_bytes());
@@ -135,6 +315,12 @@ pub fn log_line(msg: &str) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = file.write_all(line.as_bytes());
     }
+}
+
+/// Always append to `rillmux.log` (monitor/chat placement traces), rotating
+/// one previous generation before the file grows beyond 10 MiB.
+pub fn log_line(msg: &str) {
+    write_log_line_direct(msg);
 }
 
 fn write_debug_output(bytes: &[u8]) {
@@ -369,6 +555,51 @@ mod tests {
         assert!(swap_debug_flag(false));
         assert!(!swap_debug_flag(false));
         DEBUG.store(false, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn category_flags_filter_independently() {
+        set_debug_categories(DebugCategoryFlags {
+            windows: false,
+            points_credit: true,
+            points_claim: false,
+            rewards: true,
+            polls: false,
+            raids: true,
+        });
+        assert!(!category_enabled(DebugCategory::Windows));
+        assert!(category_enabled(DebugCategory::PointsCredit));
+        assert!(!category_enabled(DebugCategory::PointsClaim));
+        assert!(category_enabled(DebugCategory::Rewards));
+        assert!(!category_enabled(DebugCategory::Polls));
+        assert!(category_enabled(DebugCategory::Raids));
+        set_debug_categories(DebugCategoryFlags {
+            windows: true,
+            points_credit: true,
+            points_claim: true,
+            rewards: true,
+            polls: true,
+            raids: true,
+        });
+    }
+
+    #[test]
+    fn redaction_never_returns_full_sensitive_identifiers() {
+        let id = "abcdef1234567890";
+        let hash = "1530a003a7d374b0380b79db0be0534f30ff46e61cffa2bc0e2468a909fbc024";
+        let redacted_id = redact_id(id);
+        let redacted_hash = redact_hash(hash);
+        assert_ne!(redacted_id, id);
+        assert_ne!(redacted_hash, hash);
+        assert_eq!(redacted_id, "abcdef…7890");
+        assert_eq!(redacted_hash, "1530a003…");
+    }
+
+    #[test]
+    fn bounded_enqueue_reports_full_without_blocking() {
+        let (sender, _receiver) = mpsc::sync_channel::<u8>(1);
+        assert!(sender.try_send(1).is_ok());
+        assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
     }
 
     #[test]

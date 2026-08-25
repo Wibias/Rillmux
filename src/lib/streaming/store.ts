@@ -6,6 +6,7 @@ import { getChannelStreams, getUsersByLogin } from "../twitch/helix";
 import { useSettingsStore } from "../settings/store";
 import { resolveChannelLaunch } from "../settings/types";
 import { captureAppError } from "../sentry";
+import { debugRuntimeEvent } from "../diagnostics/runtimeDebug";
 import {
   DEFAULT_MULTISTREAM_LAYOUT,
   isMultistreamLayout,
@@ -93,16 +94,40 @@ async function ensurePresenceMetadata(
 ) {
   rememberPresence(sessionId, stream);
   if (presenceMetadata[sessionId]) {
+    debugRuntimeEvent("points-credit", "presence.metadata.ready", {
+      channel: stream.user_login.toLowerCase(),
+      session: sessionId,
+      source: "launch",
+    });
     syncViewerPresence(true);
     return;
   }
+  debugRuntimeEvent("points-credit", "presence.metadata.lookup", {
+    channel: stream.user_login.toLowerCase(),
+    session: sessionId,
+  });
   try {
     const page = await getChannelStreams(stream.user_login);
     const live = page.data[0];
     if (live) {
       rememberPresence(sessionId, live);
+      debugRuntimeEvent("points-credit", "presence.metadata.ready", {
+        channel: stream.user_login.toLowerCase(),
+        session: sessionId,
+        source: "helix",
+      });
+    } else {
+      debugRuntimeEvent("points-credit", "presence.metadata.missing", {
+        channel: stream.user_login.toLowerCase(),
+        session: sessionId,
+      });
     }
-  } catch {
+  } catch (reason) {
+    debugRuntimeEvent("points-credit", "presence.metadata.failed", {
+      channel: stream.user_login.toLowerCase(),
+      session: sessionId,
+      reason: reason instanceof Error ? reason.message : String(reason),
+    });
     // Presence stays omitted until a later refresh can resolve IDs.
   }
   syncViewerPresence(true);
@@ -131,11 +156,32 @@ export function syncViewerPresence(force = false) {
   const key = JSON.stringify({ enabled, targets });
   if (!force && key === lastPresenceSyncKey) return;
   lastPresenceSyncKey = key;
-  void invoke("viewer_presence_sync", { enabled, targets }).catch(() => {
-    if (lastPresenceSyncKey === key) {
-      lastPresenceSyncKey = "";
-    }
+  debugRuntimeEvent("points-credit", "presence.sync", {
+    enabled,
+    force,
+    targetCount: targets.length,
+    channels: targets.map((target) => target.channelLogin).join(","),
+    sessions: targets.map((target) => target.sessionId).join(","),
   });
+  void invoke("viewer_presence_sync", { enabled, targets })
+    .then(() => {
+      debugRuntimeEvent("points-credit", "presence.sync.result", {
+        enabled,
+        targetCount: targets.length,
+        ok: true,
+      });
+    })
+    .catch((reason) => {
+      debugRuntimeEvent("points-credit", "presence.sync.result", {
+        enabled,
+        targetCount: targets.length,
+        ok: false,
+        reason: reason instanceof Error ? reason.message : String(reason),
+      });
+      if (lastPresenceSyncKey === key) {
+        lastPresenceSyncKey = "";
+      }
+    });
 }
 
 function currentLayout(): MultistreamLayout {
@@ -186,30 +232,75 @@ async function syncChatterino(channels: string[]) {
       .getState()
       .sessions.some((s) => s.running);
     if (!chatterinoShouldCloseOnEmpty(chatSyncInflight, hasRunningSessions)) {
+      debugRuntimeEvent("windows", "chatterino.close.skipped", {
+        generation: chatSyncGeneration,
+        running: hasRunningSessions,
+        inflight: Boolean(chatSyncInflight),
+      });
       return;
     }
     chatSyncGeneration += 1;
     lastChatSyncKey = "";
     chatSyncInflight = "";
-    void invoke("close_owned_chatterino").catch(() => undefined);
+    debugRuntimeEvent("windows", "chatterino.close.request", {
+      generation: chatSyncGeneration,
+    });
+    void invoke("close_owned_chatterino")
+      .then(() =>
+        debugRuntimeEvent("windows", "chatterino.close.result", {
+          generation: chatSyncGeneration,
+          ok: true,
+        }),
+      )
+      .catch((reason) =>
+        debugRuntimeEvent("windows", "chatterino.close.result", {
+          generation: chatSyncGeneration,
+          ok: false,
+          reason: reason instanceof Error ? reason.message : String(reason),
+        }),
+      );
     return;
   }
   // Duplicate Watching refresh + stream start used to fire two opens; the
   // second kill+spawn hits Chatterino's single-instance mutex and the new
   // process exits immediately.
   if (chatterinoShouldSkipSync(key, lastChatSyncKey, chatSyncInflight)) {
+    debugRuntimeEvent("windows", "chatterino.open.skipped", {
+      key,
+      generation: chatSyncGeneration,
+      last: lastChatSyncKey,
+      inflight: chatSyncInflight,
+    });
     return;
   }
   chatSyncInflight = key;
   const generation = chatSyncGeneration;
+  debugRuntimeEvent("windows", "chatterino.open.request", {
+    key,
+    generation,
+    channels: channels.join(","),
+  });
   void invoke<string>("open_chatterino_chat", { channels })
     .then(() => {
       if (generation === chatSyncGeneration) {
         lastChatSyncKey = key;
       }
+      debugRuntimeEvent("windows", "chatterino.open.result", {
+        key,
+        generation,
+        currentGeneration: chatSyncGeneration,
+        accepted: generation === chatSyncGeneration,
+        ok: true,
+      });
     })
     .catch((err: unknown) => {
       lastChatSyncKey = "";
+      debugRuntimeEvent("windows", "chatterino.open.result", {
+        key,
+        generation,
+        ok: false,
+        reason: err instanceof Error ? err.message : String(err),
+      });
       useWatchingStore.setState({
         error:
           err instanceof Error
@@ -231,25 +322,56 @@ function scheduleLayoutAfterReady() {
     const reserveChat = settings.chat.provider === "chatterino";
     const channels = orderedChannels();
     if (!channels.length) return;
-    void invoke("layout_watching", {
-      channels,
+    const layout = currentLayout();
+    debugRuntimeEvent("windows", "layout.request", {
+      channels: channels.join(","),
       reserveChat,
-      layout: currentLayout(),
+      layout,
       linkedDock: settings.streaming.linkedDock,
       chatFraction: settings.streaming.chatWidthFraction,
       mainSide: settings.streaming.unevenMainSide,
-    }).catch(() => undefined);
+    });
+    void invoke("layout_watching", {
+      channels,
+      reserveChat,
+      layout,
+      linkedDock: settings.streaming.linkedDock,
+      chatFraction: settings.streaming.chatWidthFraction,
+      mainSide: settings.streaming.unevenMainSide,
+    })
+      .then(() =>
+        debugRuntimeEvent("windows", "layout.result", {
+          channels: channels.join(","),
+          ok: true,
+        }),
+      )
+      .catch((reason) =>
+        debugRuntimeEvent("windows", "layout.result", {
+          channels: channels.join(","),
+          ok: false,
+          reason: reason instanceof Error ? reason.message : String(reason),
+        }),
+      );
   }, 100);
 }
 
 function afterSessionsChanged() {
   const channels = orderedChannels();
+  debugRuntimeEvent("windows", "sessions.changed", {
+    channels: channels.join(","),
+    count: channels.length,
+  });
   void syncChatterino(channels);
   syncEventSub();
   syncViewerPresence();
   if (channels.length) {
     scheduleLayoutAfterReady();
   } else if (isTauri()) {
+    debugRuntimeEvent("windows", "layout.request", {
+      channels: "",
+      reserveChat: false,
+      reason: "sessions-empty",
+    });
     // Tear down dock grips when the last stream ends (natural close or stop).
     void invoke("layout_watching", {
       channels: [],
@@ -263,10 +385,19 @@ export function syncEventSub() {
   if (!isTauri()) return;
   const settings = useSettingsStore.getState().settings;
   const channels = orderedChannels();
+  debugRuntimeEvent("raids", "eventsub.sync.frontend", {
+    enabled: settings.streaming.followRaids,
+    channels: channels.join(","),
+  });
   void invoke("eventsub_sync", {
     enabled: settings.streaming.followRaids,
     channels,
-  }).catch(() => undefined);
+  }).catch((reason) =>
+    debugRuntimeEvent("raids", "eventsub.sync.frontend.result", {
+      ok: false,
+      reason: reason instanceof Error ? reason.message : String(reason),
+    }),
+  );
 }
 
 function stubHelixStream(opts: {
@@ -384,6 +515,14 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       status: payload.status,
     });
     if (!changed) return;
+    debugRuntimeEvent("windows", "stream.status", {
+      channel: payload.channel.toLowerCase(),
+      session: payload.id,
+      phase: payload.phase,
+      ready: payload.ready,
+      becameReady,
+      status: payload.status,
+    });
     set((state) => ({
       sessions: state.sessions.map((item) =>
         item.id === payload.id ? { ...item, ...next } : item,
@@ -421,6 +560,16 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     const launch = resolveChannelLaunch(settings, stream.user_login, {
       title: stream.title,
       game: stream.game_name,
+    });
+    debugRuntimeEvent("windows", "watch.start", {
+      channel,
+      multi,
+      already,
+      replaceExisting,
+      reserveChat,
+      player: launch.playerId,
+      quality: launch.quality,
+      layout: currentLayout(),
     });
 
     try {
@@ -481,6 +630,13 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           layout: currentLayout(),
         },
       });
+      debugRuntimeEvent("windows", "watch.started", {
+        channel,
+        session: session.id,
+        running: session.running,
+        ready: session.ready ?? false,
+        phase: session.phase ?? "",
+      });
       void ensurePresenceMetadata(session.id, stream);
       if (settings.gui.minimizeOnWatch && isTauri()) {
         void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
@@ -505,6 +661,10 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       void get().refresh();
       syncEventSub();
     } catch (err) {
+      debugRuntimeEvent("windows", "watch.failed", {
+        channel,
+        reason: err instanceof Error ? err.message : String(err),
+      });
       captureAppError(err, "stream_start");
       set({
         error: err instanceof Error ? err.message : String(err),
@@ -519,6 +679,12 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     const toLogin = raid.toChannel.toLowerCase();
     const settings = useSettingsStore.getState().settings;
     const reserveChat = settings.chat.provider === "chatterino";
+    debugRuntimeEvent("raids", "raid.follow", {
+      from,
+      to: toLogin,
+      viewers: raid.viewers ?? 0,
+      reserveChat,
+    });
 
     const session = get().sessions.find(
       (s) => s.channel.toLowerCase() === from,
@@ -565,6 +731,10 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     });
 
     if (session?.running) {
+      debugRuntimeEvent("raids", "raid.stop_old", {
+        channel: from,
+        session: session.id,
+      });
       await invoke("stream_stop", { id: session.id });
       await get().refresh();
     }
@@ -580,6 +750,11 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     }
 
     try {
+      debugRuntimeEvent("raids", "raid.start_new", {
+        channel: toLogin,
+        from,
+        slotCount: plannedChannels.length,
+      });
       const started = await invoke<StreamSession>("stream_start", {
         request: {
           channel: toLogin,
@@ -607,6 +782,11 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           layout: currentLayout(),
         },
       });
+      debugRuntimeEvent("raids", "raid.started", {
+        channel: toLogin,
+        session: started.id,
+        ready: started.ready ?? false,
+      });
       void ensurePresenceMetadata(started.id, target);
       set((state) => ({
         sessions: [
@@ -618,6 +798,11 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       void get().refresh();
       syncEventSub();
     } catch (err) {
+      debugRuntimeEvent("raids", "raid.follow.failed", {
+        from,
+        to: toLogin,
+        reason: err instanceof Error ? err.message : String(err),
+      });
       captureAppError(err, "follow_raid");
       set({
         error: err instanceof Error ? err.message : String(err),
@@ -630,7 +815,26 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     const session = get().sessions.find((s) => s.id === id);
     delete presenceMetadata[id];
     const channel = session?.channel.toLowerCase();
-    await invoke("stream_stop", { id });
+    debugRuntimeEvent("windows", "stream.stop.request", {
+      channel: channel ?? "",
+      session: id,
+    });
+    try {
+      await invoke("stream_stop", { id });
+      debugRuntimeEvent("windows", "stream.stop.result", {
+        channel: channel ?? "",
+        session: id,
+        ok: true,
+      });
+    } catch (reason) {
+      debugRuntimeEvent("windows", "stream.stop.result", {
+        channel: channel ?? "",
+        session: id,
+        ok: false,
+        reason: reason instanceof Error ? reason.message : String(reason),
+      });
+      throw reason;
+    }
     if (channel) {
       set((state) => ({
         slotChannels: state.slotChannels.filter((c) => c !== channel),
@@ -648,7 +852,9 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
   },
 
   stopAll: async () => {
+    debugRuntimeEvent("windows", "stream.stop_all.request");
     await invoke("stream_stop_all");
+    debugRuntimeEvent("windows", "stream.stop_all.result", { ok: true });
     lastChatSyncKey = "";
     chatSyncInflight = "";
     chatSyncGeneration += 1;

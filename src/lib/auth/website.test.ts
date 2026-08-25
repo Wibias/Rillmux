@@ -9,8 +9,7 @@ const status: TwitchWebsiteAuthStatus = {
   configured: true,
   login: "janik",
   userId: "1234",
-  streamlinkConfigured: true,
-  configPath: "C:/Users/Janik/AppData/Roaming/streamlink/config.twitch",
+  playbackReady: true,
 };
 
 describe("website playback auth UI state", () => {

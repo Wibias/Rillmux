@@ -21,7 +21,7 @@ About includes **View changelog** and a setup check once Streamlink, mpv, and Ch
 ## What it does
 
 - Twitch login (OAuth Device Code); normal app OAuth tokens live in the OS keyring
-- **Website auth** for Streamlink playback; the website token is kept in the OS credential manager and mirrored to Streamlink's per-user `config.twitch` while connected because Streamlink must read it
+- **Website auth** for Streamlink playback; the website token stays in the OS credential manager and is injected into Streamlink only when a stream starts. Rillmux does not persist it in `config.twitch`
 - Experimental **Channel Points** (presence, bonus claims, polls, predictions) when you turn that on in Settings; bonus claims use a separate read-only Twitch TV device session
 - Followed (list or grid, search, pins, hide mature), top streams, categories with viewer counts, search, channel pages, teams
 - Language filter on top/category streams

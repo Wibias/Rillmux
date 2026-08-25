@@ -1,6 +1,10 @@
 #[test]
 fn settings_exposes_and_syncs_debug_categories() {
-    let settings = include_str!("../../src/pages/SettingsPage.tsx");
+    let app = include_str!("../../src/App.tsx");
+    assert!(app.contains("DebugOutputSettings"));
+    assert!(app.contains("DebugDiagnosticsBootstrap"));
+
+    let settings = include_str!("../../src/components/DebugOutputSettings.tsx");
     for marker in [
         "debugOutput",
         "debugWindows",
@@ -9,10 +13,12 @@ fn settings_exposes_and_syncs_debug_categories() {
         "debugRewards",
         "debugPolls",
         "debugRaids",
-        "diagnostics_set_debug_categories",
     ] {
         assert!(settings.contains(marker), "missing settings marker {marker}");
     }
+
+    let bridge = include_str!("../../src/components/DebugDiagnosticsBootstrap.tsx");
+    assert!(bridge.contains("diagnostics_set_debug_categories"));
 }
 
 #[test]
@@ -27,29 +33,32 @@ fn stream_and_window_lifecycle_is_instrumented() {
         assert!(frontend.contains(event), "missing frontend window event {event}");
     }
 
-    let native = include_str!("../src/streaming/tools_process.rs");
-    assert!(native.contains("chatterino.hwnd"));
-    assert!(native.contains("chatterino.post_close.failed"));
+    let native = include_str!("../src/lib.rs");
+    for event in [
+        "chatterino.open.native",
+        "chatterino.close.native.result",
+        "hud.place.request",
+        "hud.place.applied",
+    ] {
+        assert!(native.contains(event), "missing native window event {event}");
+    }
 
-    let hud = include_str!("../../src/components/ChannelPointsHud.tsx");
-    assert!(hud.contains("hud.place.request"));
-    assert!(hud.contains("hud.place.applied"));
+    let hwnd = include_str!("../src/streaming/debug_observability.rs");
+    for marker in ["chatterino.hwnd", "IsWindow", "GetWindowRect", "GetLastError"] {
+        assert!(hwnd.contains(marker), "missing HWND evidence {marker}");
+    }
 }
 
 #[test]
 fn channel_points_credit_claim_and_rewards_are_instrumented() {
-    let presence = include_str!("../src/viewer_presence.rs");
-    for event in ["presence.sync", "worker.start", "minute_watched.result"] {
-        assert!(presence.contains(event), "missing presence event {event}");
-    }
-
-    let realtime = include_str!("../src/channel_points_realtime.rs");
-    for event in ["hermes.connect", "hermes.ready", "hermes.not_ready"] {
-        assert!(realtime.contains(event), "missing Hermes event {event}");
-    }
-
-    let points = include_str!("../src/channel_points.rs");
+    let native = include_str!("../src/lib.rs");
     for event in [
+        "presence.sync",
+        "worker.start",
+        "minute_watched.result",
+        "hermes.connect",
+        "hermes.ready",
+        "hermes.not_ready",
         "context.query",
         "balance.snapshot",
         "claim.available",
@@ -58,22 +67,19 @@ fn channel_points_credit_claim_and_rewards_are_instrumented() {
         "reward.catalog",
         "reward.redeem",
     ] {
-        assert!(points.contains(event), "missing Channel Points event {event}");
+        assert!(native.contains(event), "missing Channel Points event {event}");
     }
 }
 
 #[test]
 fn polls_predictions_and_raids_are_instrumented() {
-    let realtime = include_str!("../src/channel_points_realtime.rs");
-    assert!(realtime.contains("poll.subscription"));
+    let native = include_str!("../src/lib.rs");
+    for event in ["poll.subscription", "poll.vote", "prediction.vote", "eventsub.sync"] {
+        assert!(native.contains(event), "missing poll/raid event {event}");
+    }
 
-    let points = include_str!("../src/channel_points.rs");
-    assert!(points.contains("poll.vote"));
-    assert!(points.contains("prediction.vote"));
-
-    let eventsub = include_str!("../src/eventsub.rs");
-    assert!(eventsub.contains("eventsub.sync"));
-    assert!(eventsub.contains("raid.received"));
+    let raid = include_str!("../../src/components/RaidBanner.tsx");
+    assert!(raid.contains("raid.received"));
 
     let frontend = include_str!("../../src/lib/streaming/store.ts");
     assert!(frontend.contains("raid.follow"));

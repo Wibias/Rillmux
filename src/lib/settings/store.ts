@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   type AppSettings,
+  defaultDebugCategories,
   defaultHotkeys,
   defaultSettings,
   SETTINGS_SCHEMA_VERSION,
@@ -131,6 +132,26 @@ export function migrateSettings(raw: unknown): AppSettings {
         input.gui?.hideMatureFollowed ?? base.gui.hideMatureFollowed,
       ),
       debugMode: Boolean(input.gui?.debugMode ?? base.gui.debugMode),
+      debugCategories: (() => {
+        const defaults = defaultDebugCategories();
+        const raw = input.gui?.debugCategories;
+        return {
+          windows:
+            typeof raw?.windows === "boolean" ? raw.windows : defaults.windows,
+          pointsCredit:
+            typeof raw?.pointsCredit === "boolean"
+              ? raw.pointsCredit
+              : defaults.pointsCredit,
+          pointsClaim:
+            typeof raw?.pointsClaim === "boolean"
+              ? raw.pointsClaim
+              : defaults.pointsClaim,
+          rewards:
+            typeof raw?.rewards === "boolean" ? raw.rewards : defaults.rewards,
+          polls: typeof raw?.polls === "boolean" ? raw.polls : defaults.polls,
+          raids: typeof raw?.raids === "boolean" ? raw.raids : defaults.raids,
+        };
+      })(),
       pinnedFollowed: (() => {
         const raw = input.gui?.pinnedFollowed;
         if (!Array.isArray(raw)) return base.gui.pinnedFollowed;

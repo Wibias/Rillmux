@@ -20,6 +20,13 @@ pub fn reset_shared_client() {
     *client_slot().lock().unwrap_or_else(|e| e.into_inner()) = build_client();
 }
 
+pub fn reset_on_transport(err: reqwest::Error) -> reqwest::Error {
+    if is_transient(&err) && err.status().is_none() {
+        reset_shared_client();
+    }
+    err
+}
+
 pub fn is_transient(err: &reqwest::Error) -> bool {
     if err.is_status() {
         return matches!(

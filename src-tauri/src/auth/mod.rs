@@ -175,7 +175,8 @@ pub async fn start_device_flow() -> Result<DeviceCodeResponse, AuthError> {
             ("scopes", scope.as_str()),
         ])
         .send()
-        .await?;
+        .await
+        .map_err(map_http)?;
     let status = res.status();
     let body = res.text().await.unwrap_or_default();
     if !status.is_success() {
@@ -217,7 +218,8 @@ pub async fn poll_device_token(device_code: &str) -> Result<DevicePoll, AuthErro
             ("device_code", device_code),
         ])
         .send()
-        .await?;
+        .await
+        .map_err(map_http)?;
 
     if res.status().is_success() {
         let token: TokenResponse = res.json().await?;

@@ -7,7 +7,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::branding::{KEYRING_SERVICE, KEYRING_SERVICE_LEGACY};
-use crate::http::shared_client;
+use crate::http::{reset_on_transport, shared_client};
 
 const USER: &str = "twitch-website-oauth";
 const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
@@ -362,7 +362,8 @@ async fn validate_token(token: &str) -> Result<ValidateResponse, TwitchWebAuthEr
         .get(VALIDATE_URL)
         .header("Authorization", format!("OAuth {token}"))
         .send()
-        .await?;
+        .await
+        .map_err(reset_on_transport)?;
     if !response.status().is_success() {
         return Err(TwitchWebAuthError::Message(format!(
             "Twitch rejected the website token ({})",

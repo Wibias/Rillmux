@@ -44,17 +44,22 @@ async function ensureHud(
   showLogin: boolean,
   offset: HudOffset,
   forcePlace: boolean,
+  isActive: () => boolean,
 ) {
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  if (!isActive()) return false;
   const label = pointsHudLabel(channel);
   const existing = await WebviewWindow.getByLabel(label);
+  if (!isActive()) return false;
   if (existing) {
     if (forcePlace) {
       await placeHud(channel, rect, true);
+      if (!isActive()) return false;
     }
-    return;
+    return true;
   }
   const scale = await getCurrentWindow().scaleFactor().catch(() => 1);
+  if (!isActive()) return false;
   new WebviewWindow(label, {
     url: `${pointsHudOverlayUrl(channel, offset)}${showLogin ? "&showLogin=1" : ""}`,
     title: "Channel Points",
@@ -73,6 +78,11 @@ async function ensureHud(
     height: Math.round(rect.height / scale),
   });
   await placeHud(channel, rect, true);
+  if (!isActive()) {
+    await closeHud(label);
+    return false;
+  }
+  return true;
 }
 
 export function ChannelPointsHudSync() {
@@ -106,6 +116,7 @@ export function ChannelPointsHudSync() {
         return;
       }
       const website = await getTwitchWebsiteAuthStatus().catch(() => null);
+      if (!active) return;
       if (!website?.configured) {
         await closeWantedHuds();
         return;
@@ -117,6 +128,7 @@ export function ChannelPointsHudSync() {
       for (const channel of wantedRef.current) {
         if (!wanted.includes(channel)) {
           await closeHud(pointsHudLabel(channel));
+          if (!active) return;
           delete lastPlacedRef.current[channel];
         }
       }
@@ -126,11 +138,13 @@ export function ChannelPointsHudSync() {
           "channel_points_hud_place",
           { channelLogin: channel },
         ).catch(() => null);
+        if (!active) return;
         if (!place?.player) {
           const misses = (missesRef.current[channel] ?? 0) + 1;
           missesRef.current[channel] = misses;
           if (misses >= PLAYER_MISS_GRACE) {
             await closeHud(pointsHudLabel(channel));
+            if (!active) return;
             delete lastPlacedRef.current[channel];
           } else if (wantedRef.current.includes(channel)) {
             kept.push(channel);
@@ -150,7 +164,15 @@ export function ChannelPointsHudSync() {
         const prev = lastPlacedRef.current[channel];
         const moved =
           !prev || overlayRectMoved(prev, hudRect, POINTS_HUD_MOVE_SLOP);
-        await ensureHud(channel, hudRect, showLogin, offset, moved);
+        const hudReady = await ensureHud(
+          channel,
+          hudRect,
+          showLogin,
+          offset,
+          moved,
+          () => active,
+        );
+        if (!hudReady || !active) return;
         lastPlacedRef.current[channel] = hudRect;
         kept.push(channel);
       }

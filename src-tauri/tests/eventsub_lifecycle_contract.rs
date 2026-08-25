@@ -12,5 +12,6 @@ fn eventsub_uses_server_reconnect_url_and_keepalive_timeout() {
 fn eventsub_auth_rejection_restarts_session_for_fresh_token() {
     let source = include_str!("../src/eventsub.rs");
     assert!(source.contains("subscription_auth_rejected"));
-    assert!(source.contains("return Err"));
+    assert!(source.contains("Err(CreateSubscriptionError::Auth(error)) => {"));
+    assert!(source.contains("return Err(error);"));
 }

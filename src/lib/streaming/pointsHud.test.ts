@@ -34,16 +34,16 @@ describe("points HUD URL", () => {
   it("parses overlay=points-hud and a channel login", () => {
     expect(isPointsHudOverlay("?overlay=points-hud&channel=Forsen")).toBe(true);
     expect(isPointsHudOverlay("?overlay=raid")).toBe(false);
-    expect(pointsHudChannelFromSearch("?overlay=points-hud&channel=Forsen")).toBe(
-      "forsen",
-    );
+    expect(
+      pointsHudChannelFromSearch("?overlay=points-hud&channel=Forsen"),
+    ).toBe("forsen");
     expect(pointsHudChannelFromSearch("?overlay=points-hud")).toBeNull();
     expect(pointsHudOverlayUrl("Forsen")).toBe(
       "/?overlay=points-hud&channel=forsen&hudOffset=default",
     );
-    expect(
-      pointsHudOverlayUrl("Forsen", { x: 0.25, y: 0.4 }),
-    ).toBe("/?overlay=points-hud&channel=forsen&ox=0.25&oy=0.4");
+    expect(pointsHudOverlayUrl("Forsen", { x: 0.25, y: 0.4 })).toBe(
+      "/?overlay=points-hud&channel=forsen&ox=0.25&oy=0.4",
+    );
     expect(pointsHudLabel("Forsen")).toBe("points-hud-forsen");
   });
 
@@ -58,9 +58,7 @@ describe("points HUD URL", () => {
       ),
     ).toEqual({ found: true, offset: null });
     expect(
-      hudOffsetFromSearch(
-        "?overlay=points-hud&channel=forsen&ox=0.25&oy=0.4",
-      ),
+      hudOffsetFromSearch("?overlay=points-hud&channel=forsen&ox=0.25&oy=0.4"),
     ).toEqual({ found: true, offset: { x: 0.25, y: 0.4 } });
   });
 });
@@ -142,9 +140,7 @@ describe("chipRectForPlayer", () => {
     const caption = { x: 1280 - 138, y: 0, width: 138, height: 38 };
     expect(overlayRectsOverlap(tile, caption)).toBe(false);
     const chip = chipRectForPlayer(tile, null, 120, caption);
-    expect(chip.x).toBe(
-      tile.x + tile.width - 120 - POINTS_HUD_DEFAULT_INSET,
-    );
+    expect(chip.x).toBe(tile.x + tile.width - 120 - POINTS_HUD_DEFAULT_INSET);
     expect(chip.y).toBe(tile.y + POINTS_HUD_DEFAULT_INSET);
   });
 
@@ -170,9 +166,7 @@ describe("chipRectForPlayer", () => {
     const caption = { x: 1280 - 138, y: 0, width: 138, height: 38 };
     expect(overlayRectsOverlap(tile, caption)).toBe(false);
     const chip = chipRectForPlayer(tile, null, 120, caption);
-    expect(chip.x).toBe(
-      tile.x + tile.width - 120 - POINTS_HUD_DEFAULT_INSET,
-    );
+    expect(chip.x).toBe(tile.x + tile.width - 120 - POINTS_HUD_DEFAULT_INSET);
     expect(chip.y).toBe(tile.y + POINTS_HUD_DEFAULT_INSET);
     expect(chip.y).toBeGreaterThan(caption.y + caption.height);
   });

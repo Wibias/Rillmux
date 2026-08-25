@@ -183,7 +183,13 @@ export function ChannelPointsHud() {
       width: dragChip.width,
       height: dragChip.height,
     });
-  }, [Boolean(dragChip), host, captionAvoid, dragChip?.width, dragChip?.height]);
+  }, [
+    Boolean(dragChip),
+    host,
+    captionAvoid,
+    dragChip?.width,
+    dragChip?.height,
+  ]);
 
   const overlay = useMemo(() => {
     if (dragSurface) return dragSurface;
@@ -197,49 +203,45 @@ export function ChannelPointsHud() {
     overlay && panel ? chipOriginInOverlay(overlay, panel) : { x: 0, y: 0 };
 
   useEffect(() => {
-  if (!overlay) return;
-  if (
-    !geometryConcealed &&
-    lastOverlayRef.current &&
-    !overlayRectMoved(
-      lastOverlayRef.current,
-      overlay,
-      POINTS_HUD_MOVE_SLOP,
-    )
-  ) {
-    return;
-  }
-  lastOverlayRef.current = overlay;
-  const generation = ++overlayApplyGenerationRef.current;
-  let firstFrame: number | null = null;
-  let secondFrame: number | null = null;
-  const apply = () => {
-    applyOverlayRect(
-      overlay,
-      geometryConcealed
-        ? () => {
-  if (overlayApplyGenerationRef.current === generation) {
-    setGeometryConcealed(false);
-  }
-}
-        : undefined,
-    );
-  };
-  if (!geometryConcealed) {
-    apply();
-    return;
-  }
-  // Let WebView2 present the transparent frame before the HWND moves.
-  firstFrame = window.requestAnimationFrame(() => {
-    secondFrame = window.requestAnimationFrame(apply);
-  });
-  return () => {
-    if (firstFrame != null) window.cancelAnimationFrame(firstFrame);
-    if (secondFrame != null) window.cancelAnimationFrame(secondFrame);
-  };
-}, [overlay, geometryConcealed]);
+    if (!overlay) return;
+    if (
+      !geometryConcealed &&
+      lastOverlayRef.current &&
+      !overlayRectMoved(lastOverlayRef.current, overlay, POINTS_HUD_MOVE_SLOP)
+    ) {
+      return;
+    }
+    lastOverlayRef.current = overlay;
+    const generation = ++overlayApplyGenerationRef.current;
+    let firstFrame: number | null = null;
+    let secondFrame: number | null = null;
+    const apply = () => {
+      applyOverlayRect(
+        overlay,
+        geometryConcealed
+          ? () => {
+              if (overlayApplyGenerationRef.current === generation) {
+                setGeometryConcealed(false);
+              }
+            }
+          : undefined,
+      );
+    };
+    if (!geometryConcealed) {
+      apply();
+      return;
+    }
+    // Let WebView2 present the transparent frame before the HWND moves.
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(apply);
+    });
+    return () => {
+      if (firstFrame != null) window.cancelAnimationFrame(firstFrame);
+      if (secondFrame != null) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [overlay, geometryConcealed]);
 
-const interactive = chip != null;
+  const interactive = chip != null;
   useEffect(() => {
     if (!isTauri()) return;
     void getCurrentWindow()
@@ -332,26 +334,26 @@ const interactive = chip != null;
   );
 
   function setCatalogOpenWithGeometry(nextOpen: boolean) {
-  if (nextOpen === catalogOpen) return;
-  const nextPanel =
-    nextOpen && host && chip
-      ? catalogRectForChip(
-host,
-chip,
-POINTS_HUD_CATALOG_MAX_WIDTH,
-POINTS_HUD_CATALOG_MAX_HEIGHT,
-        )
-      : null;
-  const nextOverlay = chip ? overlayRectForHud(chip, nextPanel) : null;
-  if (
-    overlay &&
-    nextOverlay &&
-    hudGeometryTransitionNeedsConceal(overlay, nextOverlay)
-  ) {
-    setGeometryConcealed(true);
+    if (nextOpen === catalogOpen) return;
+    const nextPanel =
+      nextOpen && host && chip
+        ? catalogRectForChip(
+            host,
+            chip,
+            POINTS_HUD_CATALOG_MAX_WIDTH,
+            POINTS_HUD_CATALOG_MAX_HEIGHT,
+          )
+        : null;
+    const nextOverlay = chip ? overlayRectForHud(chip, nextPanel) : null;
+    if (
+      overlay &&
+      nextOverlay &&
+      hudGeometryTransitionNeedsConceal(overlay, nextOverlay)
+    ) {
+      setGeometryConcealed(true);
+    }
+    setCatalogOpen(nextOpen);
   }
-  setCatalogOpen(nextOpen);
-}
 
   function cancelDragChipRaf() {
     if (dragChipRafRef.current != null) {
@@ -524,7 +526,9 @@ POINTS_HUD_CATALOG_MAX_HEIGHT,
         <span className="points-hud__balance">
           {(snapshot?.balance ?? 0).toLocaleString()}
         </span>
-        {showLogin ? <span className="points-hud__login">{channel}</span> : null}
+        {showLogin ? (
+          <span className="points-hud__login">{channel}</span>
+        ) : null}
         {flashBonus ? <span className="points-hud__flash">+50</span> : null}
       </button>
       {panel ? (

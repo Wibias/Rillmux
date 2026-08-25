@@ -37,7 +37,10 @@ export function isPointsHudOverlay(search = window.location.search): boolean {
 export function pointsHudChannelFromSearch(
   search = window.location.search,
 ): string | null {
-  const channel = new URLSearchParams(search).get("channel")?.trim().toLowerCase();
+  const channel = new URLSearchParams(search)
+    .get("channel")
+    ?.trim()
+    .toLowerCase();
   if (!channel || channel.length > 25) return null;
   if (!/^[a-z0-9_]+$/.test(channel)) return null;
   return channel;
@@ -237,9 +240,7 @@ export function chipRectForPlayer(
   // Only the player's own min/max/close. A Rillmux caption on another monitor
   // must not yank the chip to the left edge of the stream.
   const parked =
-    !offset &&
-    captionAvoid &&
-    overlayRectsOverlap(captionAvoid, player)
+    !offset && captionAvoid && overlayRectsOverlap(captionAvoid, player)
       ? parkChipOnStreamLeftOfCaption(
           player,
           { x: 0, y: 0, width: size.width, height: size.height },
@@ -323,10 +324,7 @@ export function catalogPanelSize(
   panelHeight = POINTS_HUD_CATALOG_MAX_HEIGHT,
 ): { width: number; height: number } {
   return {
-    width: Math.max(
-      1,
-      Math.min(panelWidth, player.width - POINTS_HUD_PAD * 2),
-    ),
+    width: Math.max(1, Math.min(panelWidth, player.width - POINTS_HUD_PAD * 2)),
     height: Math.max(
       1,
       Math.min(panelHeight, player.height - POINTS_HUD_PAD * 2),
@@ -427,9 +425,9 @@ export function chipOriginInOverlay(
   return { x: chip.x - overlay.x, y: chip.y - overlay.y };
 }
 
-export function sortCustomRewards<T extends { cost: number; redeemable: boolean }>(
-  rewards: T[],
-): T[] {
+export function sortCustomRewards<
+  T extends { cost: number; redeemable: boolean },
+>(rewards: T[]): T[] {
   return [...rewards].sort((a, b) => {
     if (a.redeemable !== b.redeemable) return a.redeemable ? -1 : 1;
     if (a.cost !== b.cost) return a.cost - b.cost;

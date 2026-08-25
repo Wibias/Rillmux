@@ -119,7 +119,10 @@ fn polls_predictions_and_raids_are_instrumented() {
         "poll.subscription.fallback",
         "poll.pubsub",
     ] {
-        assert!(realtime.contains(event), "missing poll runtime event {event}");
+        assert!(
+            realtime.contains(event),
+            "missing poll runtime event {event}"
+        );
     }
 
     let eventsub = include_str!("../src/eventsub.rs");

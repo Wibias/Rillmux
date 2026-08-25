@@ -267,9 +267,10 @@ fn chatterino_should_close_duplicate_main(
 /// "Chatterino - Editing Settings Forbidden" never classify as the dock main.
 fn chatterino_title_is_main_window(title: &str) -> bool {
     let title = title.trim();
-    let Some(version) = title.strip_prefix("Chatterino ") else {
+    if !title.starts_with("Chatterino ") {
         return false;
-    };
+    }
+    let version = &title["Chatterino ".len()..];
     let version = version.strip_prefix("Nightly ").unwrap_or(version);
     version
         .chars()

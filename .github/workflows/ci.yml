@@ -116,3 +116,439 @@ jobs:
               *) exit 1 ;;
             esac
           done
+
+  apply-rabbit-fixes:
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/full-repo-review-findings'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Apply validated CodeRabbit fixes
+        shell: pwsh
+        run: |
+          $script = @'
+          from pathlib import Path
+
+          def read(path):
+              return Path(path).read_text(encoding="utf-8")
+
+          def write(path, text):
+              with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                  handle.write(text)
+
+          def replace_once(path, old, new):
+              text = read(path)
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f"expected block missing in {path}")
+              write(path, text.replace(old, new, 1))
+
+          diagnostics = "src-tauri/src/diagnostics.rs"
+          replace_once(diagnostics, '''fn rotate_log_if_needed(path: &Path, incoming_bytes: u64) {
+              let current = fs::metadata(path)
+                  .map(|metadata| metadata.len())
+                  .unwrap_or(0);
+              if current.saturating_add(incoming_bytes) <= MAX_LOG_BYTES {
+                  return;
+              }
+              let rotated = path.with_file_name("rillmux.log.1");
+              let _ = fs::remove_file(&rotated);
+              if fs::rename(path, &rotated).is_err() {
+                  let _ = fs::remove_file(path);
+              }
+          }
+          ''', '''fn rotate_log_if_needed(path: &Path, incoming_bytes: u64) -> bool {
+              let current = fs::metadata(path)
+                  .map(|metadata| metadata.len())
+                  .unwrap_or(0);
+              if current.saturating_add(incoming_bytes) <= MAX_LOG_BYTES {
+                  return true;
+              }
+              let rotated = path.with_file_name("rillmux.log.1");
+              let _ = fs::remove_file(&rotated);
+              fs::rename(path, &rotated).is_ok()
+          }
+
+          fn bounded_log_line(msg: &str) -> String {
+              let mut line = format!("{msg}\\n");
+              let max = MAX_LOG_BYTES as usize;
+              if line.len() <= max {
+                  return line;
+              }
+              let mut end = max.saturating_sub(1);
+              while !line.is_char_boundary(end) {
+                  end = end.saturating_sub(1);
+              }
+              line.truncate(end);
+              line.push('\\n');
+              line
+          }
+          ''')
+          replace_once(diagnostics, '''    let line = format!("{msg}\\n");
+          ''', '''    let line = bounded_log_line(msg);
+          ''')
+          replace_once(diagnostics, '''    rotate_log_if_needed(&path, line.len() as u64);
+              if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+          ''', '''    if !rotate_log_if_needed(&path, line.len() as u64) {
+                  return;
+              }
+              if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+          ''')
+          replace_once(diagnostics, '''    #[test]
+              fn log_rotation_threshold_is_bounded() {
+                  assert_eq!(MAX_LOG_BYTES, 10 * 1024 * 1024);
+                  assert!(MAX_LOG_BYTES.saturating_add(1) > MAX_LOG_BYTES);
+              }
+          ''', '''    #[test]
+              fn log_rotation_threshold_is_bounded() {
+                  assert_eq!(MAX_LOG_BYTES, 10 * 1024 * 1024);
+                  assert!(MAX_LOG_BYTES.saturating_add(1) > MAX_LOG_BYTES);
+              }
+
+              #[test]
+              fn oversized_log_line_is_bounded_and_utf8_safe() {
+                  let msg = "é".repeat((MAX_LOG_BYTES as usize / 2) + 1);
+                  let line = bounded_log_line(&msg);
+                  assert!(line.len() as u64 <= MAX_LOG_BYTES);
+                  assert!(line.ends_with('\\n'));
+                  assert!(std::str::from_utf8(line.as_bytes()).is_ok());
+              }
+
+              #[test]
+              fn failed_rotation_preserves_current_log() {
+                  let unique = SystemTime::now()
+                      .duration_since(UNIX_EPOCH)
+                      .unwrap_or_default()
+                      .as_nanos();
+                  let dir = std::env::temp_dir().join(format!(
+                      "rillmux-log-rotation-{}-{unique}",
+                      std::process::id()
+                  ));
+                  fs::create_dir_all(&dir).unwrap();
+                  let path = dir.join("rillmux.log");
+                  let rotated = dir.join("rillmux.log.1");
+                  fs::write(&path, b"history").unwrap();
+                  fs::create_dir(&rotated).unwrap();
+
+                  assert!(!rotate_log_if_needed(&path, MAX_LOG_BYTES));
+                  assert_eq!(fs::read(&path).unwrap(), b"history");
+
+                  fs::remove_dir_all(&dir).unwrap();
+              }
+          ''')
+
+          runtime = "src-tauri/src/streaming/runtime.rs"
+          replace_once(runtime, '''    let streamlink_auth_config = crate::twitch_web_auth::streamlink_auth_config()
+                  .map_err(|error| StreamError::Message(error.to_string()))?;
+          ''', '''    let streamlink_auth_config = match crate::twitch_web_auth::streamlink_auth_config() {
+                  Ok(config) => config,
+                  Err(error) => {
+                      close_fast_player(&mut fast_player, false);
+                      return Err(StreamError::Message(error.to_string()));
+                  }
+              };
+          ''')
+
+          auth = "src-tauri/src/twitch_web_auth.rs"
+          replace_once(auth, '''pub(crate) fn streamlink_auth_config() -> Result<Option<StreamlinkAuthConfig>, TwitchWebAuthError> {
+              let Some(token) = load_token()? else {
+                  return Ok(None);
+              };
+              streamlink_auth_config_for(&token).map(Some)
+          }
+          ''', '''pub(crate) fn streamlink_auth_config() -> Result<Option<StreamlinkAuthConfig>, TwitchWebAuthError> {
+              // Streamlink loads plugin-specific config.twitch after a custom --config,
+              // so remove only auth blocks managed by Rillmux before every launch.
+              remove_streamlink_auth()?;
+              let Some(token) = load_token()? else {
+                  return Ok(None);
+              };
+              streamlink_auth_config_for(&token).map(Some)
+          }
+          ''')
+          replace_once(auth, '''fn remove_streamlink_auth() -> Result<PathBuf, TwitchWebAuthError> {
+              let path = streamlink_config_path()?;
+              let existing = read_config(&path)?;
+              if existing.is_empty() {
+                  return Ok(path);
+              }
+              let updated = remove_managed_block(&existing);
+              if updated.trim().is_empty() {
+                  match std::fs::remove_file(&path) {
+                      Ok(()) => {}
+                      Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                      Err(error) => return Err(error.into()),
+                  }
+              } else if updated != existing {
+                  write_secure(&path, &updated)?;
+              }
+              Ok(path)
+          }
+          ''', '''fn remove_streamlink_auth_at(path: &Path) -> Result<(), TwitchWebAuthError> {
+              let existing = read_config(path)?;
+              if existing.is_empty() {
+                  return Ok(());
+              }
+              let updated = remove_managed_block(&existing);
+              if updated.trim().is_empty() {
+                  match std::fs::remove_file(path) {
+                      Ok(()) => {}
+                      Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                      Err(error) => return Err(error.into()),
+                  }
+              } else if updated != existing {
+                  write_secure(path, &updated)?;
+              }
+              Ok(())
+          }
+
+          fn remove_streamlink_auth() -> Result<PathBuf, TwitchWebAuthError> {
+              let path = streamlink_config_path()?;
+              remove_streamlink_auth_at(&path)?;
+              Ok(path)
+          }
+          ''')
+          replace_once(auth, '''    #[test]
+              fn resolves_platform_config_paths() {
+          ''', '''    #[test]
+              fn removes_legacy_managed_auth_from_existing_plugin_config() {
+                  let dir = std::env::temp_dir().join(format!(
+                      "rillmux-streamlink-config-{}-{}",
+                      std::process::id(),
+                      Uuid::new_v4().simple()
+                  ));
+                  std::fs::create_dir_all(&dir).unwrap();
+                  let path = dir.join("config.twitch");
+                  let existing = concat!(
+                      "player=mpv\\n\\n",
+                      "# BEGIN streamlink-twitch-gui managed Twitch auth\\n",
+                      "twitch-api-header=Authorization=OAuth stale-token\\n",
+                      "# END streamlink-twitch-gui managed Twitch auth\\n\\n",
+                      "retry-streams=1\\n",
+                  );
+                  std::fs::write(&path, existing).unwrap();
+
+                  remove_streamlink_auth_at(&path).unwrap();
+                  let cleaned = std::fs::read_to_string(&path).unwrap();
+                  assert_eq!(cleaned, "player=mpv\\n\\nretry-streams=1\\n");
+                  assert!(!cleaned.contains("twitch-api-header"));
+
+                  std::fs::remove_dir_all(&dir).unwrap();
+              }
+
+              #[test]
+              fn resolves_platform_config_paths() {
+          ''')
+
+          eventsub_test = "src-tauri/tests/eventsub_lifecycle_contract.rs"
+          replace_once(eventsub_test, '''    assert!(source.contains("subscription_auth_rejected"));
+              assert!(source.contains("return Err"));
+          ''', '''    assert!(source.contains("subscription_auth_rejected"));
+              assert!(source.contains("Err(CreateSubscriptionError::Auth(error)) => {"));
+              assert!(source.contains("return Err(error);"));
+          ''')
+
+          streamlink_test = "src-tauri/tests/streamlink_auth_injection_contract.rs"
+          replace_once(streamlink_test, '''    assert!(streaming.contains("--config"));
+              assert!(streaming.contains("streamlink_auth_config"));
+          }
+          ''', '''    assert!(streaming.contains("--config"));
+              assert!(streaming.contains("streamlink_auth_config"));
+
+              let auth_start = auth
+                  .find("pub(crate) fn streamlink_auth_config()")
+                  .expect("streamlink auth config function");
+              let auth_end = auth[auth_start..]
+                  .find("pub(crate) fn load_session")
+                  .map(|offset| auth_start + offset)
+                  .expect("load_session after auth config");
+              let auth_block = &auth[auth_start..auth_end];
+              let cleanup = auth_block
+                  .find("remove_streamlink_auth()")
+                  .expect("legacy managed auth cleanup");
+              let token_load = auth_block.find("load_token()").expect("token load");
+              assert!(cleanup < token_load);
+
+              let runtime_start = streaming
+                  .find("let streamlink_auth_config = match")
+                  .expect("streamlink auth config error handling");
+              let runtime_end = streaming[runtime_start..]
+                  .find("let mut args")
+                  .map(|offset| runtime_start + offset)
+                  .expect("args after auth config");
+              let runtime_block = &streaming[runtime_start..runtime_end];
+              assert!(runtime_block.contains("close_fast_player(&mut fast_player, false);"));
+          }
+          ''')
+
+          hud = "src/components/ChannelPointsHudSync.tsx"
+          replace_once(hud, '''async function ensureHud(
+              channel: string,
+              rect: OverlayRect,
+              showLogin: boolean,
+              offset: HudOffset,
+              forcePlace: boolean,
+            ) {
+              const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+              const label = pointsHudLabel(channel);
+              const existing = await WebviewWindow.getByLabel(label);
+              if (existing) {
+                if (forcePlace) {
+                  await placeHud(channel, rect, true);
+                }
+                return;
+              }
+              const scale = await getCurrentWindow().scaleFactor().catch(() => 1);
+              new WebviewWindow(label, {
+                url: `${pointsHudOverlayUrl(channel, offset)}${showLogin ? "&showLogin=1" : ""}`,
+                title: "Channel Points",
+                decorations: false,
+                transparent: true,
+                shadow: false,
+                skipTaskbar: true,
+                alwaysOnTop: false,
+                resizable: false,
+                focus: false,
+                minWidth: 1,
+                minHeight: 1,
+                x: Math.round(rect.x / scale),
+                y: Math.round(rect.y / scale),
+                width: Math.round(rect.width / scale),
+                height: Math.round(rect.height / scale),
+              });
+              await placeHud(channel, rect, true);
+            }
+          ''', '''async function ensureHud(
+              channel: string,
+              rect: OverlayRect,
+              showLogin: boolean,
+              offset: HudOffset,
+              forcePlace: boolean,
+              isActive: () => boolean,
+            ) {
+              const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+              if (!isActive()) return false;
+              const label = pointsHudLabel(channel);
+              const existing = await WebviewWindow.getByLabel(label);
+              if (!isActive()) return false;
+              if (existing) {
+                if (forcePlace) {
+                  await placeHud(channel, rect, true);
+                  if (!isActive()) return false;
+                }
+                return true;
+              }
+              const scale = await getCurrentWindow().scaleFactor().catch(() => 1);
+              if (!isActive()) return false;
+              new WebviewWindow(label, {
+                url: `${pointsHudOverlayUrl(channel, offset)}${showLogin ? "&showLogin=1" : ""}`,
+                title: "Channel Points",
+                decorations: false,
+                transparent: true,
+                shadow: false,
+                skipTaskbar: true,
+                alwaysOnTop: false,
+                resizable: false,
+                focus: false,
+                minWidth: 1,
+                minHeight: 1,
+                x: Math.round(rect.x / scale),
+                y: Math.round(rect.y / scale),
+                width: Math.round(rect.width / scale),
+                height: Math.round(rect.height / scale),
+              });
+              await placeHud(channel, rect, true);
+              if (!isActive()) {
+                await closeHud(label);
+                return false;
+              }
+              return true;
+            }
+          ''')
+          replace_once(hud, '''      const website = await getTwitchWebsiteAuthStatus().catch(() => null);
+              if (!website?.configured) {
+          ''', '''      const website = await getTwitchWebsiteAuthStatus().catch(() => null);
+              if (!active) return;
+              if (!website?.configured) {
+          ''')
+          replace_once(hud, '''          await closeHud(pointsHudLabel(channel));
+                  delete lastPlacedRef.current[channel];
+          ''', '''          await closeHud(pointsHudLabel(channel));
+                  if (!active) return;
+                  delete lastPlacedRef.current[channel];
+          ''')
+          replace_once(hud, '''        ).catch(() => null);
+                if (!place?.player) {
+          ''', '''        ).catch(() => null);
+                if (!active) return;
+                if (!place?.player) {
+          ''')
+          replace_once(hud, '''            await closeHud(pointsHudLabel(channel));
+                    delete lastPlacedRef.current[channel];
+          ''', '''            await closeHud(pointsHudLabel(channel));
+                    if (!active) return;
+                    delete lastPlacedRef.current[channel];
+          ''')
+          replace_once(hud, '''        await ensureHud(channel, hudRect, showLogin, offset, moved);
+                lastPlacedRef.current[channel] = hudRect;
+          ''', '''        const hudReady = await ensureHud(
+                  channel,
+                  hudRect,
+                  showLogin,
+                  offset,
+                  moved,
+                  () => active,
+                );
+                if (!hudReady || !active) return;
+                lastPlacedRef.current[channel] = hudRect;
+          ''')
+
+          regression = "scripts/review-findings.test.ts"
+          replace_once(regression, '''  test("diagnostics bounds the always-on log", () => {
+              const source = read("src-tauri/src/diagnostics.rs");
+              expect(source).toContain("MAX_LOG_BYTES");
+              expect(source).toContain("rotate_log_if_needed");
+            });
+          ''', '''  test("stale Channel Points HUD sync cannot recreate windows after cleanup", () => {
+              const source = read("src/components/ChannelPointsHudSync.tsx");
+              expect(source).toContain("isActive: () => boolean");
+              expect(source).toContain("if (!isActive()) return false;");
+              const syncBody = source.slice(source.indexOf("const sync = async"));
+              const authRead = syncBody.indexOf("getTwitchWebsiteAuthStatus");
+              const activeCheck = syncBody.indexOf("if (!active) return;", authRead);
+              expect(activeCheck).toBeGreaterThan(authRead);
+              expect(syncBody).toContain("if (!hudReady || !active) return;");
+            });
+
+            test("diagnostics bounds the always-on log", () => {
+              const source = read("src-tauri/src/diagnostics.rs");
+              expect(source).toContain("MAX_LOG_BYTES");
+              expect(source).toContain("rotate_log_if_needed");
+              expect(source).toContain("bounded_log_line");
+            });
+          ''')
+          '@
+          $script | python -
+      - name: Format touched Rust files
+        shell: pwsh
+        run: >-
+          rustfmt --edition 2021
+          src-tauri/src/diagnostics.rs
+          src-tauri/src/twitch_web_auth.rs
+          src-tauri/src/streaming/runtime.rs
+          src-tauri/tests/eventsub_lifecycle_contract.rs
+          src-tauri/tests/streamlink_auth_injection_contract.rs
+      - name: Commit validated CodeRabbit fixes
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- src-tauri/src/diagnostics.rs src-tauri/src/streaming/runtime.rs src-tauri/src/twitch_web_auth.rs src-tauri/tests/eventsub_lifecycle_contract.rs src-tauri/tests/streamlink_auth_injection_contract.rs src/components/ChannelPointsHudSync.tsx scripts/review-findings.test.ts
+          git diff --cached --check
+          if (git diff --cached --quiet) { exit 0 }
+          git commit -m "fix: address validated CodeRabbit findings"
+          git push origin HEAD:fix/full-repo-review-findings

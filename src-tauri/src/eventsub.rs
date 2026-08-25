@@ -43,10 +43,10 @@ fn eventsub_error_class(error: &str) -> &'static str {
         "reconnect"
     } else if error.contains("welcome") {
         "welcome"
-    } else if error.contains("connect") || error.contains("connection") {
-        "connect"
     } else if error.contains("closed") || error.contains("close frame") {
         "socket"
+    } else if error.contains("connect") || error.contains("connection") {
+        "connect"
     } else if error.contains("timeout") || error.contains("timed out") {
         "timeout"
     } else if error.contains("json") || error.contains("read") {
@@ -812,5 +812,6 @@ mod tests {
             eventsub_error_class("EventSub welcome timed out"),
             "welcome"
         );
+        assert_eq!(eventsub_error_class("ws read: connection closed"), "socket");
     }
 }

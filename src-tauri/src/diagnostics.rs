@@ -2,13 +2,20 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 static DEBUG: AtomicBool = AtomicBool::new(false);
 #[cfg(windows)]
 static OWNED_CONSOLE: AtomicBool = AtomicBool::new(false);
+
+fn log_write_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 pub fn debug_enabled() -> bool {
     DEBUG.load(Ordering::SeqCst)
@@ -85,16 +92,30 @@ pub fn log_debug(msg: &str) {
     log_line(msg);
 }
 
-/// Always append to `rillmux.log` (monitor/chat placement traces).
+fn rotate_log_if_needed(path: &Path, incoming_bytes: u64) {
+    let current = fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0);
+    if current.saturating_add(incoming_bytes) <= MAX_LOG_BYTES {
+        return;
+    }
+    let rotated = path.with_file_name("rillmux.log.1");
+    let _ = fs::remove_file(&rotated);
+    if fs::rename(path, &rotated).is_err() {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// Always append to `rillmux.log` (monitor/chat placement traces), rotating
+/// one previous generation before the file grows beyond 10 MiB.
 pub fn log_line(msg: &str) {
     ensure_dirs();
     let line = format!("{msg}\n");
     write_debug_output(line.as_bytes());
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(logs_dir().join("rillmux.log"))
-    {
+    let _guard = log_write_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let path = logs_dir().join("rillmux.log");
+    rotate_log_if_needed(&path, line.len() as u64);
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = file.write_all(line.as_bytes());
     }
 }
@@ -102,8 +123,6 @@ pub fn log_line(msg: &str) {
 fn write_debug_output(bytes: &[u8]) {
     #[cfg(windows)]
     {
-        // AllocConsole creates a new window but leaves stderr on the parent
-        // pipe (npm/cargo). Write CONOUT$ so lines land in that window.
         if OpenOptions::new()
             .write(true)
             .open("CONOUT$")
@@ -155,9 +174,9 @@ fn toggle_console(on: bool) {
     const FILE_SHARE_READ: u32 = 1;
     const FILE_SHARE_WRITE: u32 = 2;
     const OPEN_EXISTING: u32 = 3;
-    const STD_INPUT_HANDLE: u32 = 0xFFFF_FFF6; // -10
-    const STD_OUTPUT_HANDLE: u32 = 0xFFFF_FFF5; // -11
-    const STD_ERROR_HANDLE: u32 = 0xFFFF_FFF4; // -12
+    const STD_INPUT_HANDLE: u32 = 0xFFFF_FFF6;
+    const STD_OUTPUT_HANDLE: u32 = 0xFFFF_FFF5;
+    const STD_ERROR_HANDLE: u32 = 0xFFFF_FFF4;
     unsafe {
         if on {
             if GetConsoleWindow().is_null() && AllocConsole() != 0 {
@@ -221,7 +240,7 @@ struct ExceptionPointers {
 #[cfg(windows)]
 unsafe extern "system" fn unhandled_exception(info: *mut ExceptionPointers) -> i32 {
     write_minidump(info);
-    0 // EXCEPTION_CONTINUE_SEARCH — also let Windows Error Reporting run
+    0
 }
 
 #[cfg(windows)]
@@ -333,5 +352,11 @@ mod tests {
         assert!(swap_debug_flag(false));
         assert!(!swap_debug_flag(false));
         DEBUG.store(false, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn log_rotation_threshold_is_bounded() {
+        assert_eq!(MAX_LOG_BYTES, 10 * 1024 * 1024);
+        assert!(MAX_LOG_BYTES.saturating_add(1) > MAX_LOG_BYTES);
     }
 }

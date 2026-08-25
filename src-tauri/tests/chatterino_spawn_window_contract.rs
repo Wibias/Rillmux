@@ -66,3 +66,31 @@ fn duplicate_cleanup_targets_only_blank_notebooks_not_real_chatterino_dialogs() 
         "broad title matching can close real Settings/popout windows"
     );
 }
+
+#[test]
+fn current_chatterino_version_title_is_accepted_as_the_expected_main_window() {
+    let source = include_str!("../src/streaming/foundation.rs");
+    let classifier = source
+        .find("fn chatterino_title_is_main_window")
+        .expect("current Chatterino Windows main windows need a version-title classifier");
+    let classifier_body = &source[classifier..];
+    assert!(
+        classifier_body.contains("starts_with(\"Chatterino \")"),
+        "Chatterino fullVersion titles are `Chatterino <version>` / `Chatterino Nightly <version>`"
+    );
+
+    let matcher = source
+        .find("fn chatterino_title_matches_channels")
+        .expect("missing Chatterino title matcher");
+    let matcher_body = &source[matcher..];
+    assert!(
+        matcher_body.contains("chatterino_title_is_main_window(title)"),
+        "the existing HWND selector/readiness path must recognize current version-titled main windows"
+    );
+
+    let windows = include_str!("../src/streaming/windows_layout.rs");
+    assert!(
+        windows.matches("chatterino_title_matches_channels").count() >= 2,
+        "both HWND selection and split readiness must use the corrected matcher"
+    );
+}

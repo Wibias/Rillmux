@@ -530,6 +530,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     }));
     if (becameReady) {
       scheduleLayoutAfterReady();
+      syncViewerPresence(true);
     }
   },
 

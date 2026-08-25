@@ -20,6 +20,7 @@ mod viewer_presence;
 
 use auth::{AuthSession, DeviceCodeResponse};
 use doctor::DoctorReport;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use streaming::{
@@ -686,31 +687,41 @@ fn raid_overlay_place(from_channel: String) -> Option<OverlayRect> {
     result
 }
 
+fn hud_host_debug_state() -> &'static Mutex<HashMap<String, bool>> {
+    static STATE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn hud_host_debug_changed(channel: &str, host_found: bool) -> bool {
+    let mut state = hud_host_debug_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = state.insert(channel.to_string(), host_found);
+    previous != Some(host_found)
+}
+
 #[tauri::command]
 fn channel_points_hud_place(
     app: AppHandle,
     channel_login: String,
 ) -> Option<ChannelPointsHudPlace> {
     let channel = channel_login.trim().to_ascii_lowercase();
-    diagnostics::log_event(
-        diagnostics::DebugCategory::Windows,
-        "hud.place.request",
-        &format!("channel={channel} phase=host"),
-    );
     streaming::restack_hud_above_player(&app, &format!("points-hud-{channel}"));
-    let Some(player) = streaming::channel_points_hud_host(&channel_login) else {
+    let player = streaming::channel_points_hud_host(&channel_login);
+    let host_found = player.is_some();
+    if hud_host_debug_changed(&channel, host_found) {
+        diagnostics::log_event(
+            diagnostics::DebugCategory::Windows,
+            "hud.place.request",
+            &format!("channel={channel} phase=host"),
+        );
         diagnostics::log_event(
             diagnostics::DebugCategory::Windows,
             "hud.place.applied",
-            &format!("channel={channel} host_found=false"),
+            &format!("channel={channel} host_found={host_found}"),
         );
-        return None;
-    };
-    diagnostics::log_event(
-        diagnostics::DebugCategory::Windows,
-        "hud.place.applied",
-        &format!("channel={channel} host_found=true"),
-    );
+    }
+    let player = player?;
     Some(ChannelPointsHudPlace {
         player,
         caption_avoid: streaming::player_caption_avoid(&channel_login, player),

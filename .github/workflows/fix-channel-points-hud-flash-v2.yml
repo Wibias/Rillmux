@@ -1,0 +1,302 @@
+name: Fix Channel Points HUD Flash V2
+
+on:
+  push:
+    branches: [fix/channel-points-hud-catalog-flash]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fix/channel-points-hud-catalog-flash
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply anchored HUD transition fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, name: str) -> str:
+              if text.count(old) != 1:
+                  raise SystemExit(f'{name} mismatch: {text.count(old)}')
+              return text.replace(old, new, 1)
+
+          geometry = Path('src/lib/streaming/pointsHud.ts')
+          source = geometry.read_text(encoding='utf-8')
+          marker = '/** Convert a physical overlay length (HWND pixels) into CSS pixels. */'
+          helper = '''/**
+          * Moving a transparent HUD window's origin while resizing can expose a stale
+          * WebView2 frame for one compositor tick. Conceal only transitions where the
+          * native origin and size both change; ordinary drag/follow movement stays live.
+          */
+          export function hudGeometryTransitionNeedsConceal(
+            current: OverlayRect,
+            next: OverlayRect,
+          ): boolean {
+            const originMoved =
+              Math.round(current.x) !== Math.round(next.x) ||
+              Math.round(current.y) !== Math.round(next.y);
+            const sizeChanged =
+              Math.round(current.width) !== Math.round(next.width) ||
+              Math.round(current.height) !== Math.round(next.height);
+            return originMoved && sizeChanged;
+          }
+
+          '''.replace('\n          ', '\n')
+          source = replace_once(source, marker, helper + marker, 'geometry helper')
+          geometry.write_text(source, encoding='utf-8', newline='\n')
+
+          tests = Path('src/lib/streaming/pointsHud.test.ts')
+          source = tests.read_text(encoding='utf-8')
+          source = replace_once(
+              source,
+              '  hudDragSurfaceRect,\n',
+              '  hudDragSurfaceRect,\n  hudGeometryTransitionNeedsConceal,\n',
+              'test import',
+          )
+          source += '''
+
+          describe("HUD geometry transition concealment", () => {
+            it("conceals a catalog opening that shifts the native HUD window left", () => {
+              const chip = chipRectForPlayer(player, null, 120);
+              const closed = overlayRectForHud(chip, null);
+              const panel = catalogRectForChip(player, chip, 280, 360);
+              const open = overlayRectForHud(chip, panel);
+              expect(open.x).toBeLessThan(closed.x);
+              expect(hudGeometryTransitionNeedsConceal(closed, open)).toBe(true);
+              expect(hudGeometryTransitionNeedsConceal(open, closed)).toBe(true);
+            });
+
+            it("does not conceal a resize whose native origin stays fixed", () => {
+              const chip = { x: 108, y: 66, width: 120, height: 36 };
+              const panel = catalogRectForChip(player, chip, 280, 300);
+              const closed = overlayRectForHud(chip, null);
+              const open = overlayRectForHud(chip, panel);
+              expect(open.x).toBe(closed.x);
+              expect(open.y).toBe(closed.y);
+              expect(hudGeometryTransitionNeedsConceal(closed, open)).toBe(false);
+            });
+
+            it("keeps same-size position changes visible for dragging", () => {
+              const current = { x: 700, y: 60, width: 120, height: 36 };
+              const next = { ...current, x: 640 };
+              expect(hudGeometryTransitionNeedsConceal(current, next)).toBe(false);
+            });
+          });
+          '''.replace('\n          ', '\n')
+          tests.write_text(source, encoding='utf-8', newline='\n')
+
+          component = Path('src/components/ChannelPointsHud.tsx')
+          source = component.read_text(encoding='utf-8')
+          source = replace_once(
+              source,
+              '  hudDragSurfaceRect,\n  isPointsHudOverlay,',
+              '  hudDragSurfaceRect,\n  hudGeometryTransitionNeedsConceal,\n  isPointsHudOverlay,',
+              'component import',
+          )
+          old = '''let overlayApplyChain: Promise<void> = Promise.resolve();
+          let overlayApplyLatest: OverlayRect | null = null;
+          let overlayApplied: OverlayRect | null = null;
+
+          function applyOverlayRect(rect: OverlayRect) {
+            overlayApplyLatest = rect;
+            overlayApplyChain = overlayApplyChain
+              .then(flushOverlayRect)
+              .catch(() => undefined);
+          }
+
+          async function flushOverlayRect() {
+            while (overlayApplyLatest && isTauri()) {
+              const rect = overlayApplyLatest;
+              overlayApplyLatest = null;
+          '''.replace('\n          ', '\n')
+          new = '''type OverlayApplyRequest = {
+            rect: OverlayRect;
+            afterApply?: () => void;
+          };
+
+          let overlayApplyChain: Promise<void> = Promise.resolve();
+          let overlayApplyLatest: OverlayApplyRequest | null = null;
+          let overlayApplied: OverlayRect | null = null;
+
+          function applyOverlayRect(rect: OverlayRect, afterApply?: () => void) {
+            overlayApplyLatest = { rect, afterApply };
+            overlayApplyChain = overlayApplyChain
+              .then(flushOverlayRect)
+              .catch(() => undefined);
+          }
+
+          async function flushOverlayRect() {
+            while (overlayApplyLatest && isTauri()) {
+              const request = overlayApplyLatest;
+              const rect = request.rect;
+              overlayApplyLatest = null;
+          '''.replace('\n          ', '\n')
+          source = replace_once(source, old, new, 'apply header')
+
+          tail_start = source.index('    await win.setPosition(position).catch(() => undefined);')
+          tail_end_marker = '\n  }\n}\n\nexport function ChannelPointsHud()'
+          tail_end = source.index(tail_end_marker, tail_start)
+          old_tail = source[tail_start:tail_end]
+          new_tail = '''    await win.setPosition(position).catch(() => undefined);
+          if (sizeChanged) {
+            await win.setSize(size).catch(() => undefined);
+            await invoke("overlay_fit_webview", { width, height }).catch(
+              () => undefined,
+            );
+            // Transparent WebView2 often keeps the old child size on the first resize.
+            await new Promise<void>((resolve) => {
+              requestAnimationFrame(() => resolve());
+            });
+            await invoke("overlay_fit_webview", { width, height }).catch(
+              () => undefined,
+            );
+            await win.setSize(size).catch(() => undefined);
+          }
+          request.afterApply?.();'''.replace('\n          ', '\n')
+          source = source[:tail_start] + new_tail + source[tail_end:]
+
+          source = replace_once(
+              source,
+              '  const [catalogOpen, setCatalogOpen] = useState(false);\n',
+              '  const [catalogOpen, setCatalogOpen] = useState(false);\n  const [geometryConcealed, setGeometryConcealed] = useState(false);\n',
+              'catalog state',
+          )
+          source = replace_once(
+              source,
+              '  const lastOverlayRef = useRef<OverlayRect | null>(null);\n',
+              '  const lastOverlayRef = useRef<OverlayRect | null>(null);\n  const overlayApplyGenerationRef = useRef(0);\n',
+              'generation ref',
+          )
+
+          effect_start = source.index('  useEffect(() => {\n    if (!overlay) return;\n', source.index('const panelLocal'))
+          effect_end_marker = '  }, [overlay]);\n\n  const interactive = chip != null;'
+          effect_end = source.index(effect_end_marker, effect_start)
+          effect = '''  useEffect(() => {
+            if (!overlay) return;
+            if (
+              !geometryConcealed &&
+              lastOverlayRef.current &&
+              !overlayRectMoved(
+                lastOverlayRef.current,
+                overlay,
+                POINTS_HUD_MOVE_SLOP,
+              )
+            ) {
+              return;
+            }
+            lastOverlayRef.current = overlay;
+            const generation = ++overlayApplyGenerationRef.current;
+            let firstFrame: number | null = null;
+            let secondFrame: number | null = null;
+            const apply = () => {
+              applyOverlayRect(
+                overlay,
+                geometryConcealed
+                  ? () => {
+                      if (overlayApplyGenerationRef.current === generation) {
+                        setGeometryConcealed(false);
+                      }
+                    }
+                  : undefined,
+              );
+            };
+            if (!geometryConcealed) {
+              apply();
+              return;
+            }
+            // Let WebView2 present the transparent frame before the HWND moves.
+            firstFrame = window.requestAnimationFrame(() => {
+              secondFrame = window.requestAnimationFrame(apply);
+            });
+            return () => {
+              if (firstFrame != null) window.cancelAnimationFrame(firstFrame);
+              if (secondFrame != null) window.cancelAnimationFrame(secondFrame);
+            };
+          }, [overlay, geometryConcealed]);
+
+          const interactive = chip != null;'''.replace('\n          ', '\n')
+          source = source[:effect_start] + effect + source[effect_end + len(effect_end_marker):]
+
+          insert_at = source.index('  function cancelDragChipRaf() {')
+          transition = '''  function setCatalogOpenWithGeometry(nextOpen: boolean) {
+            if (nextOpen === catalogOpen) return;
+            const nextPanel =
+              nextOpen && host && chip
+                ? catalogRectForChip(
+                    host,
+                    chip,
+                    POINTS_HUD_CATALOG_MAX_WIDTH,
+                    POINTS_HUD_CATALOG_MAX_HEIGHT,
+                  )
+                : null;
+            const nextOverlay = chip ? overlayRectForHud(chip, nextPanel) : null;
+            if (
+              overlay &&
+              nextOverlay &&
+              hudGeometryTransitionNeedsConceal(overlay, nextOverlay)
+            ) {
+              setGeometryConcealed(true);
+            }
+            setCatalogOpen(nextOpen);
+          }
+
+          '''.replace('\n          ', '\n')
+          source = source[:insert_at] + transition + source[insert_at:]
+
+          drag_start = source.index('  function onChipPointerMove(')
+          drag_end = source.index('  function onChipPointerUp(', drag_start)
+          drag_section = source[drag_start:drag_end]
+          drag_section = replace_once(
+              drag_section,
+              'setCatalogOpen(false);',
+              'setCatalogOpenWithGeometry(false);',
+              'drag catalog close',
+          )
+          source = source[:drag_start] + drag_section + source[drag_end:]
+
+          click_start = source.index('  function onChipPointerUp(')
+          click_end = source.index('  function onChipPointerCancel(', click_start)
+          click_section = source[click_start:click_end]
+          click_section = replace_once(
+              click_section,
+              'setCatalogOpen((open) => !open);',
+              'setCatalogOpenWithGeometry(!catalogOpen);',
+              'click catalog toggle',
+          )
+          source = source[:click_start] + click_section + source[click_end:]
+
+          root_start = source.index('    <div\n      className={catalogOpen')
+          root_end = source.index('    >', root_start)
+          root_section = source[root_start:root_end]
+          root_section = replace_once(
+              root_section,
+              '        height: cssPx(overlay.height, scale),\n',
+              '        height: cssPx(overlay.height, scale),\n        visibility: geometryConcealed ? "hidden" : "visible",\n',
+              'root visibility',
+          )
+          source = source[:root_start] + root_section + source[root_end:]
+          component.write_text(source, encoding='utf-8', newline='\n')
+      - name: Verify frontend
+        run: |
+          npm test
+          npm run build
+      - name: Commit verified fix
+        run: |
+          git rm .github/workflows/fix-channel-points-hud-flash.yml .github/workflows/fix-channel-points-hud-flash-v2.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/ChannelPointsHud.tsx src/lib/streaming/pointsHud.ts src/lib/streaming/pointsHud.test.ts
+          git commit -m "fix: prevent channel points HUD catalog flash"
+          git push origin HEAD:fix/channel-points-hud-catalog-flash

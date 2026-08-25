@@ -1,0 +1,87 @@
+name: Clean Poll Realtime Format
+
+on:
+  push:
+    branches:
+      - fix/channel-points-poll-overlay-realtime
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fix/channel-points-poll-overlay-realtime
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Normalize realtime fallback formatting
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("src-tauri/src/channel_points_realtime.rs")
+          source = path.read_text(encoding="utf-8")
+          old = '''        crate::diagnostics::log_line(&format!(
+                  "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
+              ));
+          '''.replace('          ', '')
+          # Match by semantic block if the earlier script left macro arguments oddly indented.
+          marker = 'crate::diagnostics::log_line(&format!('
+          start = source.index(marker, source.index('if let Err(error) = subscribe_poll_topics'))
+          end = source.index('));', start) + 3
+          replacement = '''crate::diagnostics::log_line(&format!(
+              "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
+          ));'''.replace('          ', '')
+          line_start = source.rfind('\n', 0, start) + 1
+          indent = source[line_start:start]
+          rendered = '\n'.join(indent + line if line else line for line in replacement.split('\n'))
+          source = source[:start] + rendered[len(indent):] + source[end:]
+          path.write_text(source, encoding="utf-8", newline="\n")
+          PY
+          rustfmt --edition 2021 src-tauri/src/channel_points_realtime.rs
+          rustfmt --edition 2021 --check src-tauri/src/channel_points_realtime.rs
+
+      - name: Verify frontend and Rust gates
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path src-tauri/Cargo.toml --test channel_points_poll_realtime_contract
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo check --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Commit formatting cleanup
+        shell: bash
+        run: |
+          rm .github/workflows/clean-poll-realtime-format.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/channel_points_realtime.rs .github/workflows/clean-poll-realtime-format.yml
+          git diff --cached --check
+          git commit -m "chore: clean poll realtime formatting"
+          git push origin HEAD:fix/channel-points-poll-overlay-realtime

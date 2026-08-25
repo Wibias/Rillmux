@@ -100,21 +100,21 @@ async function flushOverlayRect() {
       force: true,
     }).catch(() => undefined);
     await win.setPosition(position).catch(() => undefined);
-if (sizeChanged) {
-  await win.setSize(size).catch(() => undefined);
-  await invoke("overlay_fit_webview", { width, height }).catch(
-    () => undefined,
-  );
-  // Transparent WebView2 often keeps the old child size on the first resize.
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-  await invoke("overlay_fit_webview", { width, height }).catch(
-    () => undefined,
-  );
-  await win.setSize(size).catch(() => undefined);
-}
-request.afterApply?.();
+    if (sizeChanged) {
+      await win.setSize(size).catch(() => undefined);
+      await invoke("overlay_fit_webview", { width, height }).catch(
+        () => undefined,
+      );
+      // Transparent WebView2 often keeps the old child size on the first resize.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+      await invoke("overlay_fit_webview", { width, height }).catch(
+        () => undefined,
+      );
+      await win.setSize(size).catch(() => undefined);
+    }
+    request.afterApply?.();
   }
 }
 

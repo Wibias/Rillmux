@@ -359,7 +359,6 @@ describe("rewards", () => {
   });
 });
 
-
 describe("HUD geometry transition concealment", () => {
   it("conceals a catalog opening that shifts the native HUD window left", () => {
     const chip = chipRectForPlayer(player, null, 120);

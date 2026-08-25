@@ -367,10 +367,10 @@ export function catalogRectForChip(
 }
 
 /**
-* Moving a transparent HUD window's origin while resizing can expose a stale
-* WebView2 frame for one compositor tick. Conceal only transitions where the
-* native origin and size both change; ordinary drag/follow movement stays live.
-*/
+ * Moving a transparent HUD window's origin while resizing can expose a stale
+ * WebView2 frame for one compositor tick. Conceal only transitions where the
+ * native origin and size both change; ordinary drag/follow movement stays live.
+ */
 export function hudGeometryTransitionNeedsConceal(
   current: OverlayRect,
   next: OverlayRect,

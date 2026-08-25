@@ -327,6 +327,26 @@ fn diagnostics_set_debug(enabled: bool) {
 }
 
 #[tauri::command]
+fn diagnostics_set_debug_categories(categories: diagnostics::DebugCategoryFlags) {
+    diagnostics::set_debug_categories(categories);
+}
+
+#[tauri::command]
+fn diagnostics_log_event(category: String, event: String, fields: Option<String>) {
+    let event = event.trim();
+    if event.is_empty() || event.len() > 80 {
+        return;
+    }
+    let fields = fields.unwrap_or_default();
+    if fields.len() > 2048 {
+        return;
+    }
+    if let Some(category) = diagnostics::DebugCategory::parse(&category) {
+        diagnostics::log_event(category, event, &fields);
+    }
+}
+
+#[tauri::command]
 fn diagnostics_set_sentry_enabled(enabled: bool) {
     set_native_sentry_enabled(enabled);
 }
@@ -640,6 +660,8 @@ pub fn run() {
             dock_set_chat_fraction,
             dock_cycle_monitor,
             diagnostics_set_debug,
+            diagnostics_set_debug_categories,
+            diagnostics_log_event,
             diagnostics_set_sentry_enabled,
             diagnostics_open_logs,
             diagnostics_open_crashes,

@@ -15,6 +15,10 @@ fn expected_channels_are_published_before_spawn_placement_starts() {
         publish < launch,
         "the placement thread must see the new --channels list before it can select a HWND"
     );
+    assert!(
+        body.contains("*guard = previous_channels"),
+        "a failed spawn must restore the previous expected channel list"
+    );
 }
 
 #[test]

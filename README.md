@@ -21,19 +21,20 @@ About includes **View changelog** and a setup check once Streamlink, mpv, and Ch
 ## What it does
 
 - Twitch login (OAuth Device Code); normal app OAuth tokens live in the OS keyring
-- **Website auth** for Streamlink playback; the website token stays in the OS credential manager and is injected into Streamlink only when a stream starts. Rillmux does not persist it in `config.twitch`
-- Experimental **Channel Points** (presence, bonus claims, polls, predictions) when you turn that on in Settings; bonus claims use a separate read-only Twitch TV device session
+- **Website auth** for Streamlink playback; the website token stays in the OS credential manager and is supplied to Streamlink through a randomized ephemeral config only for the launched process. Rillmux does not persist it in the user's `config.twitch`
+- Experimental **Channel Points HUD and farming**: live balance, passive watch credit, automatic +50 bonus claims, reward catalog/redemption, polls, and predictions when enabled in Settings; bonus claims use a separate read-only Twitch TV device session
 - Followed (list or grid, search, pins, hide mature), top streams, categories with viewer counts, search, channel pages, teams
 - Language filter on top/category streams
 - Follow outgoing raids from a prompt over mpv or Chatterino
 - Streamlink launch (bundled in release builds, or the system install)
 - Watching list with Streamlink status; optional seamless channel switch
-- Embedded chat by default, or Chatterino7 / a browser
+- Embedded chat by default, or Chatterino7 / a browser; the docked Chatterino uses an isolated Rillmux-owned profile so unrelated user windows are left alone
 - Quality, low latency, ad filter, player, hotkeys, per-channel overrides, tray
 - Desktop notifications when followed channels go live (global off switch + per-channel mute)
 - First-run setup wizard (Streamlink → player → optional login)
 - Auto-updater and `stg://` deep links
 - Optional Sentry crash reports (opt-out in Settings)
+- Optional category-filtered local Debug Mode diagnostics with bounded `rillmux.log` rotation and local crash files
 
 Release notes: [CHANGELOG.md](CHANGELOG.md).
 
@@ -74,7 +75,7 @@ Twitch Client ID for local builds: set `TWITCH_CLIENT_ID` / `VITE_TWITCH_CLIENT_
 
 ## Release (maintainers)
 
-Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.2**).
+Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.3**).
 
 Pushes to `main` or `master` expect a PR with green Windows CI (`frontend` + `rust`). A local `pre-push` hook runs `npm run ci`. Skip it only with `SKIP_CI_HOOK=1`. The Release workflow runs those checks again before building installers.
 

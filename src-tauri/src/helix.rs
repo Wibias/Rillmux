@@ -2,7 +2,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::auth::{self, AuthError};
-use crate::http::shared_client;
+use crate::http::{reset_on_transport, shared_client};
 
 #[derive(Debug, Error)]
 pub enum HelixError {
@@ -33,7 +33,8 @@ pub async fn fetch(path: &str, query: &[(String, String)]) -> Result<Value, Heli
         .header("Client-Id", client_id)
         .bearer_auth(token)
         .send()
-        .await?;
+        .await
+        .map_err(reset_on_transport)?;
     let status = res.status();
     if !status.is_success() {
         let body = res.text().await.unwrap_or_default();

@@ -5,7 +5,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::branding::{KEYRING_SERVICE, KEYRING_SERVICE_LEGACY};
-use crate::http::shared_client;
+use crate::http::{reset_on_transport, shared_client};
 
 const USER: &str = "twitch-channel-points-tv-oauth";
 const DEVICE_URL: &str = "https://id.twitch.tv/oauth2/device";
@@ -231,7 +231,8 @@ pub async fn start_device_flow() -> Result<TvDeviceCodeResponse, ChannelPointsCl
     let response = tv_request(shared_client().post(DEVICE_URL))
         .form(&[("client_id", TV_CLIENT_ID), ("scopes", SCOPES)])
         .send()
-        .await?;
+        .await
+        .map_err(reset_on_transport)?;
     let status = response.status();
     if !status.is_success() {
         return Err(ChannelPointsClaimAuthError::Message(format!(
@@ -250,7 +251,8 @@ async fn validate_token(token: &str) -> Result<ValidateBody, ChannelPointsClaimA
         .get(VALIDATE_URL)
         .header("Authorization", format!("OAuth {token}"))
         .send()
-        .await?;
+        .await
+        .map_err(reset_on_transport)?;
     let status = response.status();
     if !status.is_success() {
         return Err(ChannelPointsClaimAuthError::Message(format!(
@@ -286,7 +288,8 @@ pub async fn poll_device_token(
             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
         ])
         .send()
-        .await?;
+        .await
+        .map_err(reset_on_transport)?;
 
     if !response.status().is_success() {
         let status = response.status();

@@ -1307,48 +1307,42 @@ pub async fn refresh(
     let mut claim_http_status = None;
     let mut claim_error = None;
 
-    if crate::channel_points_realtime::is_ready() {
-        if let Some(claim_id) = context.claim_id.clone() {
-            match crate::channel_points_claim_auth::load_session()
-                .map_err(|error| ChannelPointsError::Message(error.to_string()))?
-            {
-                Some(claim_auth)
-                    if session.user_id.as_deref() == Some(claim_auth.user_id.as_str()) =>
+    if let Some(claim_id) = context.claim_id.clone() {
+        match crate::channel_points_claim_auth::load_session()
+            .map_err(|error| ChannelPointsError::Message(error.to_string()))?
+        {
+            Some(claim_auth) if session.user_id.as_deref() == Some(claim_auth.user_id.as_str()) => {
+                match claim_bonus(
+                    &channel_login,
+                    &context.channel_id,
+                    &claim_id,
+                    &claim_auth.token,
+                    &client_version,
+                )
+                .await
                 {
-                    match claim_bonus(
-                        &channel_login,
-                        &context.channel_id,
-                        &claim_id,
-                        &claim_auth.token,
-                        &client_version,
-                    )
-                    .await
-                    {
-                        Ok(status) => {
-                            bonus_claimed = true;
-                            claim_http_status = Some(status);
-                            context.claim_id = None;
-                            if let Ok(updated) =
-                                fetch_context(&channel_login, &points_auth.token, &client_version)
-                                    .await
-                            {
-                                context = updated;
-                            }
+                    Ok(status) => {
+                        bonus_claimed = true;
+                        claim_http_status = Some(status);
+                        context.claim_id = None;
+                        if let Ok(updated) =
+                            fetch_context(&channel_login, &points_auth.token, &client_version).await
+                        {
+                            context = updated;
                         }
-                        Err(error) => claim_error = Some(error.to_string()),
                     }
+                    Err(error) => claim_error = Some(error.to_string()),
                 }
-                Some(_) => {
-                    claim_error = Some(
-                        "Bonus-claim authentication belongs to a different Twitch account".into(),
-                    );
-                }
-                None => {
-                    claim_error = Some(
-                        "Bonus-claim authentication is not configured; connect bonus claims once"
-                            .into(),
-                    );
-                }
+            }
+            Some(_) => {
+                claim_error =
+                    Some("Bonus-claim authentication belongs to a different Twitch account".into());
+            }
+            None => {
+                claim_error = Some(
+                    "Bonus-claim authentication is not configured; connect bonus claims once"
+                        .into(),
+                );
             }
         }
     }

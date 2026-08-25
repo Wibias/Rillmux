@@ -128,17 +128,16 @@ async fn viewer_presence_sync(
     enabled: bool,
     targets: Vec<viewer_presence::ViewerPresenceTarget>,
 ) -> Result<viewer_presence::ViewerPresenceStatus, String> {
-    if let Err(error) = channel_points_realtime::sync(enabled, &targets).await {
-        viewer_presence::cancel_all(state.inner());
-        return Err(error);
+    let realtime_targets = targets.clone();
+    let realtime = channel_points_realtime::sync(enabled, &realtime_targets);
+    let presence = viewer_presence::sync(state.inner().clone(), enabled, targets);
+    let (realtime_result, presence_result) = tokio::join!(realtime, presence);
+    if let Err(error) = realtime_result {
+        diagnostics::log_line(&format!(
+            "[channel-points] realtime presence unavailable; watch credit continues: {error}"
+        ));
     }
-    if enabled && !targets.is_empty() && !channel_points_realtime::is_ready() {
-        viewer_presence::cancel_all(state.inner());
-        return Err("waiting for Twitch realtime presence".into());
-    }
-    viewer_presence::sync(state.inner().clone(), enabled, targets)
-        .await
-        .map_err(|e| e.to_string())
+    presence_result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

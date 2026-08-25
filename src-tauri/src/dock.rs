@@ -944,6 +944,9 @@ fn grip_thread_main() {
     const ALPHA_REST: u8 = 38;
     const ALPHA_HOVER: u8 = 140;
     const ALPHA_IDENTIFY: u8 = 210;
+    const BASE_DIVIDER_THICK: i32 = 8;
+    const DIVIDER_WIDTH_PERCENT: i32 = 80;
+    const DIVIDER_THICK: i32 = (BASE_DIVIDER_THICK * DIVIDER_WIDTH_PERCENT + 50) / 100;
 
     #[derive(Clone, Copy)]
     enum GripKind {
@@ -1563,7 +1566,7 @@ fn grip_thread_main() {
     }
 
     fn tile_grip_plan(video: Rect, cfg: &DockConfig, layout: &str) -> Vec<(isize, Rect)> {
-        const THICK: i32 = 8;
+        const THICK: i32 = DIVIDER_THICK;
         let mut out = Vec::new();
         if layout == "3plus1" || layout == "2plus1" {
             let stack_n = if layout == "2plus1" { 2 } else { 3 };
@@ -1583,7 +1586,7 @@ fn grip_thread_main() {
                         left: video.left,
                         top: seam_y - THICK / 2,
                         right: video.right,
-                        bottom: seam_y + THICK / 2 + 1,
+                        bottom: seam_y + THICK / 2,
                     },
                 ));
                 let stack_top = if side == "top" {
@@ -1604,7 +1607,7 @@ fn grip_thread_main() {
                         Rect {
                             left: x as i32 - THICK / 2,
                             top: stack_top,
-                            right: x as i32 + THICK / 2 + 1,
+                            right: x as i32 + THICK / 2,
                             bottom: stack_bottom,
                         },
                     ));
@@ -1621,7 +1624,7 @@ fn grip_thread_main() {
                     Rect {
                         left: seam_x - THICK / 2,
                         top: video.top,
-                        right: seam_x + THICK / 2 + 1,
+                        right: seam_x + THICK / 2,
                         bottom: video.bottom,
                     },
                 ));
@@ -1644,7 +1647,7 @@ fn grip_thread_main() {
                             left: stack_left,
                             top: y as i32 - THICK / 2,
                             right: stack_right,
-                            bottom: y as i32 + THICK / 2 + 1,
+                            bottom: y as i32 + THICK / 2,
                         },
                     ));
                 }
@@ -1662,7 +1665,7 @@ fn grip_thread_main() {
                 Rect {
                     left: x as i32 - THICK / 2,
                     top: video.top,
-                    right: x as i32 + THICK / 2 + 1,
+                    right: x as i32 + THICK / 2,
                     bottom: video.bottom,
                 },
             ));
@@ -1676,7 +1679,7 @@ fn grip_thread_main() {
                     left: video.left,
                     top: y as i32 - THICK / 2,
                     right: video.right,
-                    bottom: y as i32 + THICK / 2 + 1,
+                    bottom: y as i32 + THICK / 2,
                 },
             ));
         }
@@ -1772,7 +1775,7 @@ fn grip_thread_main() {
         let Some((video, chat_opt)) = chat_video_split(cfg.reserve_chat) else {
             return Ok(());
         };
-        const THICK: i32 = 8;
+        const THICK: i32 = DIVIDER_THICK;
         if cfg.reserve_chat {
             if let Some(chat) = chat_opt {
                 let seam = Rect {
@@ -1935,7 +1938,7 @@ fn grip_thread_main() {
         let Ok(g) = grips().lock() else {
             return;
         };
-        const THICK: i32 = 8;
+        const THICK: i32 = DIVIDER_THICK;
         unsafe {
             if let Some(chat) = chat_opt {
                 if !g.chat.is_null() {
@@ -1944,7 +1947,7 @@ fn grip_thread_main() {
                         Rect {
                             left: chat.left - THICK / 2,
                             top: video.top,
-                            right: chat.left + THICK / 2 + 1,
+                            right: chat.left + THICK / 2,
                             bottom: video.bottom,
                         },
                     );
@@ -1989,7 +1992,7 @@ fn grip_thread_main() {
             let Some((video, chat_opt)) = chat_video_split(cfg.reserve_chat) else {
                 return;
             };
-            const THICK: i32 = 8;
+            const THICK: i32 = DIVIDER_THICK;
             if cfg.reserve_chat {
                 if let Some(chat) = chat_opt {
                     place_grip(
@@ -1997,7 +2000,7 @@ fn grip_thread_main() {
                         Rect {
                             left: chat.left - THICK / 2,
                             top: video.top,
-                            right: chat.left + THICK / 2 + 1,
+                            right: chat.left + THICK / 2,
                             bottom: video.bottom,
                         },
                     );

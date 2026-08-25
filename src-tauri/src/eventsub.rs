@@ -99,6 +99,10 @@ async fn run_supervisor(app: AppHandle) {
                 backoff = Duration::from_secs(1);
             }
             Err(e) => {
+                // EventSub can reach its HTTP subscription calls without a
+                // session validation round trip. Rebuild the shared client so
+                // an offline-start transport failure cannot poison every retry.
+                crate::http::reset_shared_client();
                 eprintln!("[eventsub] session ended: {e}");
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(60));

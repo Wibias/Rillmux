@@ -36,3 +36,5 @@ legacy/build/tmp
 *.sw?
 /src-tauri/target-ci
 /.cursor
+/.ci-target
+/.worktrees

@@ -63,12 +63,12 @@ fn hermes_error_class(error: &str) -> &'static str {
         "authentication"
     } else if error.contains("subscription") {
         "subscription"
+    } else if error.contains("reconnect") {
+        "reconnect"
     } else if error.contains("connect") || error.contains("connection") {
         "connect"
     } else if error.contains("keepalive") || error.contains("pong") {
         "keepalive"
-    } else if error.contains("reconnect") {
-        "reconnect"
     } else if error.contains("socket") || error.contains("close frame") {
         "socket"
     } else if error.contains("timed out") {
@@ -186,10 +186,7 @@ pub async fn sync(
             if let Ok(mut error) = realtime.last_error.lock() {
                 *error = None;
             }
-            (
-                realtime.generation.fetch_add(1, Ordering::AcqRel) + 1,
-                true,
-            )
+            (realtime.generation.fetch_add(1, Ordering::AcqRel) + 1, true)
         }
     };
     debug_claim(
@@ -352,10 +349,7 @@ fn mark_not_ready(generation: u64, error: Option<String>) {
     let realtime = state();
     if generation_matches(generation) {
         realtime.ready.store(false, Ordering::Release);
-        let reason = error
-            .as_deref()
-            .map(hermes_error_class)
-            .unwrap_or("none");
+        let reason = error.as_deref().map(hermes_error_class).unwrap_or("none");
         debug_claim(
             "hermes.not_ready",
             &format!("generation={generation} reason={reason}"),
@@ -390,10 +384,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
         .await
         .map_err(|_| "Hermes connection timed out".to_string())?
         .map_err(|error| format!("Hermes connect: {error}"))?;
-    debug_claim(
-        "hermes.connect.ok",
-        &format!("generation={generation}"),
-    );
+    debug_claim("hermes.connect.ok", &format!("generation={generation}"));
 
     debug_claim(
         "hermes.auth.request",
@@ -850,8 +841,17 @@ mod tests {
 
     #[test]
     fn classifies_hermes_errors_without_echoing_details() {
-        assert_eq!(hermes_error_class("Hermes authentication failed"), "authentication");
-        assert_eq!(hermes_error_class("Hermes subscription failed"), "subscription");
-        assert_eq!(hermes_error_class("Hermes requested reconnect"), "reconnect");
+        assert_eq!(
+            hermes_error_class("Hermes authentication failed"),
+            "authentication"
+        );
+        assert_eq!(
+            hermes_error_class("Hermes subscription failed"),
+            "subscription"
+        );
+        assert_eq!(
+            hermes_error_class("Hermes requested reconnect"),
+            "reconnect"
+        );
     }
 }

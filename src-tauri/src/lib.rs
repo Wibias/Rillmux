@@ -128,15 +128,61 @@ async fn viewer_presence_sync(
     enabled: bool,
     targets: Vec<viewer_presence::ViewerPresenceTarget>,
 ) -> Result<viewer_presence::ViewerPresenceStatus, String> {
+    let target_count = targets.len();
+    let channels = targets
+        .iter()
+        .map(|target| target.channel_login.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    diagnostics::log_event(
+        diagnostics::DebugCategory::PointsCredit,
+        "presence.sync",
+        &format!("enabled={enabled} target_count={target_count} channels={channels}"),
+    );
+    if enabled && target_count > 0 {
+        diagnostics::log_event(
+            diagnostics::DebugCategory::PointsCredit,
+            "worker.start",
+            &format!("target_count={target_count} channels={channels}"),
+        );
+        diagnostics::log_event(
+            diagnostics::DebugCategory::PointsClaim,
+            "hermes.connect",
+            &format!("target_count={target_count} channels={channels}"),
+        );
+        diagnostics::log_event(
+            diagnostics::DebugCategory::Polls,
+            "poll.subscription",
+            &format!("target_count={target_count} channels={channels}"),
+        );
+    }
+
     let realtime_targets = targets.clone();
     let realtime = channel_points_realtime::sync(enabled, &realtime_targets);
     let presence = viewer_presence::sync(state.inner().clone(), enabled, targets);
     let (realtime_result, presence_result) = tokio::join!(realtime, presence);
-    if let Err(error) = realtime_result {
-        diagnostics::log_line(&format!(
-            "[channel-points] realtime presence unavailable; watch credit continues: {error}"
-        ));
+    match &realtime_result {
+        Ok(()) => diagnostics::log_event(
+            diagnostics::DebugCategory::PointsClaim,
+            "hermes.ready",
+            &format!("enabled={enabled} target_count={target_count}"),
+        ),
+        Err(error) => {
+            diagnostics::log_event(
+                diagnostics::DebugCategory::PointsClaim,
+                "hermes.not_ready",
+                &format!("enabled={enabled} target_count={target_count} error={}", error),
+            );
+            diagnostics::log_line(&format!(
+                "[channel-points] realtime presence unavailable; watch credit continues: {error}"
+            ));
+        }
     }
+    diagnostics::log_event(
+        diagnostics::DebugCategory::PointsCredit,
+        "presence.sync.result",
+        &format!("ok={} target_count={target_count}", presence_result.is_ok()),
+    );
     presence_result.map_err(|e| e.to_string())
 }
 
@@ -144,7 +190,23 @@ async fn viewer_presence_sync(
 fn viewer_presence_status(
     state: tauri::State<'_, viewer_presence::SharedViewerPresence>,
 ) -> Result<viewer_presence::ViewerPresenceStatus, String> {
-    viewer_presence::get_status(state.inner()).map_err(|e| e.to_string())
+    let status = viewer_presence::get_status(state.inner()).map_err(|e| e.to_string())?;
+    for worker in &status.workers {
+        diagnostics::log_event(
+            diagnostics::DebugCategory::PointsCredit,
+            "minute_watched.result",
+            &format!(
+                "channel={} session={} stage={} http_status={:?} success_ms={:?} error_present={}",
+                worker.channel_login,
+                diagnostics::redact_id(&worker.session_id),
+                worker.last_stage,
+                worker.last_http_status,
+                worker.last_success_unix_ms,
+                worker.last_error.is_some()
+            ),
+        );
+    }
+    Ok(status)
 }
 
 #[tauri::command]
@@ -152,9 +214,85 @@ async fn channel_points_refresh(
     channel_login: String,
     include_poll: Option<bool>,
 ) -> Result<channel_points::ChannelPointsSnapshot, String> {
-    channel_points::refresh(&channel_login, include_poll.unwrap_or(false))
-        .await
-        .map_err(|e| e.to_string())
+    let include_poll = include_poll.unwrap_or(false);
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Rewards,
+        "context.query",
+        &format!("channel={} include_poll={include_poll}", channel_login),
+    );
+    let result = channel_points::refresh(&channel_login, include_poll).await;
+    match &result {
+        Ok(snapshot) => {
+            diagnostics::log_event(
+                diagnostics::DebugCategory::PointsCredit,
+                "balance.snapshot",
+                &format!(
+                    "channel={} balance={} bonus_available={} bonus_claimed={}",
+                    snapshot.channel_login,
+                    snapshot.balance,
+                    snapshot.bonus_available,
+                    snapshot.bonus_claimed
+                ),
+            );
+            diagnostics::log_event(
+                diagnostics::DebugCategory::PointsClaim,
+                "claim.available",
+                &format!(
+                    "channel={} available={}",
+                    snapshot.channel_login, snapshot.bonus_available
+                ),
+            );
+            if snapshot.bonus_available
+                || snapshot.bonus_claimed
+                || snapshot.claim_http_status.is_some()
+                || snapshot.claim_error.is_some()
+            {
+                diagnostics::log_event(
+                    diagnostics::DebugCategory::PointsClaim,
+                    "claim.attempt",
+                    &format!("channel={}", snapshot.channel_login),
+                );
+                diagnostics::log_event(
+                    diagnostics::DebugCategory::PointsClaim,
+                    "claim.result",
+                    &format!(
+                        "channel={} claimed={} http_status={:?} error_present={}",
+                        snapshot.channel_login,
+                        snapshot.bonus_claimed,
+                        snapshot.claim_http_status,
+                        snapshot.claim_error.is_some()
+                    ),
+                );
+            }
+            diagnostics::log_event(
+                diagnostics::DebugCategory::Rewards,
+                "reward.catalog",
+                &format!(
+                    "channel={} count={}",
+                    snapshot.channel_login,
+                    snapshot.rewards.len()
+                ),
+            );
+            if include_poll {
+                diagnostics::log_event(
+                    diagnostics::DebugCategory::Polls,
+                    "poll.snapshot",
+                    &format!(
+                        "channel={} poll={} prediction={}",
+                        snapshot.channel_login,
+                        snapshot.poll.is_some(),
+                        snapshot.prediction.is_some()
+                    ),
+                );
+            }
+        }
+        Err(_) => diagnostics::log_event(
+            diagnostics::DebugCategory::Rewards,
+            "context.query.result",
+            &format!("channel={} ok=false", channel_login),
+        ),
+    }
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -169,9 +307,23 @@ async fn channel_points_vote_poll(
     choice_id: String,
     cost: u64,
 ) -> Result<channel_points::ChannelPointsSnapshot, String> {
-    channel_points::vote_poll(&channel_login, &poll_id, &choice_id, cost)
-        .await
-        .map_err(|e| e.to_string())
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Polls,
+        "poll.vote",
+        &format!(
+            "channel={} poll_id={} choice_id={} cost={cost}",
+            channel_login,
+            diagnostics::redact_id(&poll_id),
+            diagnostics::redact_id(&choice_id)
+        ),
+    );
+    let result = channel_points::vote_poll(&channel_login, &poll_id, &choice_id, cost).await;
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Polls,
+        "poll.vote.result",
+        &format!("channel={} ok={}", channel_login, result.is_ok()),
+    );
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -181,9 +333,24 @@ async fn channel_points_vote_prediction(
     outcome_id: String,
     points: u64,
 ) -> Result<channel_points::ChannelPointsSnapshot, String> {
-    channel_points::vote_prediction(&channel_login, &event_id, &outcome_id, points)
-        .await
-        .map_err(|e| e.to_string())
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Polls,
+        "prediction.vote",
+        &format!(
+            "channel={} event_id={} outcome_id={} points={points}",
+            channel_login,
+            diagnostics::redact_id(&event_id),
+            diagnostics::redact_id(&outcome_id)
+        ),
+    );
+    let result =
+        channel_points::vote_prediction(&channel_login, &event_id, &outcome_id, points).await;
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Polls,
+        "prediction.vote.result",
+        &format!("channel={} ok={}", channel_login, result.is_ok()),
+    );
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -192,9 +359,23 @@ async fn channel_points_redeem_reward(
     reward_id: String,
     text: Option<String>,
 ) -> Result<channel_points::ChannelPointsSnapshot, String> {
-    channel_points::redeem_reward(&channel_login, &reward_id, text)
-        .await
-        .map_err(|e| e.to_string())
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Rewards,
+        "reward.redeem",
+        &format!(
+            "channel={} reward_id={} input_present={}",
+            channel_login,
+            diagnostics::redact_id(&reward_id),
+            text.as_ref().is_some_and(|value| !value.is_empty())
+        ),
+    );
+    let result = channel_points::redeem_reward(&channel_login, &reward_id, text).await;
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Rewards,
+        "reward.redeem.result",
+        &format!("channel={} ok={}", channel_login, result.is_ok()),
+    );
+    result.map_err(|e| e.to_string())
 }
 
 /// Helix GET proxy: keeps the OAuth token inside Rust (never in the webview).
@@ -214,6 +395,18 @@ async fn stream_start(
     state: tauri::State<'_, SharedStreaming>,
     request: LaunchRequest,
 ) -> Result<StreamSession, String> {
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "stream.start.native",
+        &format!(
+            "channel={} slot_index={} slot_count={} reserve_chat={} replace_existing={}",
+            request.channel,
+            request.slot_index,
+            request.slot_count,
+            request.reserve_chat,
+            request.replace_existing
+        ),
+    );
     // Path resolution + process spawn off the main thread.
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -237,6 +430,11 @@ async fn stream_list(
 
 #[tauri::command]
 async fn stream_stop(state: tauri::State<'_, SharedStreaming>, id: String) -> Result<(), String> {
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "stream.stop.native",
+        &format!("session={}", diagnostics::redact_id(&id)),
+    );
     // child.wait() blocks until Streamlink exits — offload it.
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -248,6 +446,11 @@ async fn stream_stop(state: tauri::State<'_, SharedStreaming>, id: String) -> Re
 
 #[tauri::command]
 async fn stream_stop_all(state: tauri::State<'_, SharedStreaming>) -> Result<(), String> {
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "stream.stop_all.native",
+        "requested=true",
+    );
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         streaming::stop_all(&state).map_err(|e| e.to_string())
@@ -266,8 +469,22 @@ fn stream_toggle_mute(
 
 #[tauri::command]
 async fn open_chatterino_chat(channels: Vec<String>) -> Result<String, String> {
+    let channel_list = channels.join(",");
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "chatterino.open.native",
+        &format!("channels={channel_list}"),
+    );
     tauri::async_runtime::spawn_blocking(move || {
-        streaming::launch_chatterino_for_channels(&channels).map_err(|e| e.to_string())
+        streaming::debug_chatterino_windows("open.before");
+        let result = streaming::launch_chatterino_for_channels(&channels).map_err(|e| e.to_string());
+        streaming::debug_chatterino_windows("open.after");
+        diagnostics::log_event(
+            diagnostics::DebugCategory::Windows,
+            "chatterino.open.native.result",
+            &format!("ok={}", result.is_ok()),
+        );
+        result
     })
     .await
     .map_err(|e| e.to_string())?
@@ -275,9 +492,18 @@ async fn open_chatterino_chat(channels: Vec<String>) -> Result<String, String> {
 
 #[tauri::command]
 async fn close_owned_chatterino() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(streaming::close_owned_chatterino)
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(|| {
+        streaming::debug_chatterino_windows("close.before");
+        streaming::close_owned_chatterino();
+        streaming::debug_chatterino_windows("close.after");
+        diagnostics::log_event(
+            diagnostics::DebugCategory::Windows,
+            "chatterino.close.native.result",
+            "ok=true",
+        );
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -289,8 +515,17 @@ async fn layout_watching(
     chat_fraction: Option<f64>,
     main_side: Option<String>,
 ) -> Result<(), String> {
+    let debug_channels = channels.join(",");
+    let debug_layout = layout.clone().unwrap_or_else(|| "default".into());
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "layout.native.request",
+        &format!(
+            "channels={debug_channels} reserve_chat={reserve_chat} layout={debug_layout} linked={linked_dock:?} fraction={chat_fraction:?} side={main_side:?}"
+        ),
+    );
     tauri::async_runtime::spawn_blocking(move || {
-        streaming::layout_watching(
+        let result = streaming::layout_watching(
             &channels,
             reserve_chat,
             layout.as_deref(),
@@ -298,7 +533,13 @@ async fn layout_watching(
             chat_fraction,
             main_side.as_deref(),
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+        diagnostics::log_event(
+            diagnostics::DebugCategory::Windows,
+            "layout.native.result",
+            &format!("ok={}", result.is_ok()),
+        );
+        result
     })
     .await
     .map_err(|e| e.to_string())?
@@ -381,13 +622,24 @@ fn open_folder(path: &std::path::Path) -> Result<(), String> {
 
 #[tauri::command]
 fn eventsub_sync(enabled: bool, channels: Vec<String>) -> Result<(), String> {
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Raids,
+        "eventsub.sync",
+        &format!("enabled={enabled} channels={}", channels.join(",")),
+    );
     eventsub::sync(enabled, channels);
     Ok(())
 }
 
 #[tauri::command]
 fn raid_overlay_place(from_channel: String) -> Option<OverlayRect> {
-    streaming::raid_overlay_host(&from_channel)
+    let result = streaming::raid_overlay_host(&from_channel);
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Raids,
+        "raid.overlay.place",
+        &format!("from={} host_found={}", from_channel, result.is_some()),
+    );
+    result
 }
 
 #[tauri::command]
@@ -395,11 +647,26 @@ fn channel_points_hud_place(
     app: AppHandle,
     channel_login: String,
 ) -> Option<ChannelPointsHudPlace> {
-    streaming::restack_hud_above_player(
-        &app,
-        &format!("points-hud-{}", channel_login.trim().to_ascii_lowercase()),
+    let channel = channel_login.trim().to_ascii_lowercase();
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "hud.place.request",
+        &format!("channel={channel} phase=host"),
     );
-    let player = streaming::channel_points_hud_host(&channel_login)?;
+    streaming::restack_hud_above_player(&app, &format!("points-hud-{channel}"));
+    let Some(player) = streaming::channel_points_hud_host(&channel_login) else {
+        diagnostics::log_event(
+            diagnostics::DebugCategory::Windows,
+            "hud.place.applied",
+            &format!("channel={channel} host_found=false"),
+        );
+        return None;
+    };
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "hud.place.applied",
+        &format!("channel={channel} host_found=true"),
+    );
     Some(ChannelPointsHudPlace {
         player,
         caption_avoid: streaming::player_caption_avoid(&channel_login, player),
@@ -423,10 +690,29 @@ fn points_hud_place_window(
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || character == '_')
     {
+        diagnostics::log_event(
+            diagnostics::DebugCategory::Windows,
+            "hud.place.rejected",
+            "reason=invalid_channel",
+        );
         return;
     }
-    let label = format!("points-hud-{}", channel);
+    let label = format!("points-hud-{channel}");
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "hud.place.request",
+        &format!(
+            "channel={channel} phase=main x={x} y={y} width={width} height={height} force={force}"
+        ),
+    );
     streaming::place_hud_overlay(&app, &label, x, y, width, height, force);
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "hud.place.applied",
+        &format!(
+            "channel={channel} phase=main x={x} y={y} width={width} height={height} force={force}"
+        ),
+    );
 }
 
 /// Force the overlay HWND and its WebView2 child to the physical size.
@@ -445,17 +731,37 @@ fn overlay_place_hud(
     height: i32,
     force: bool,
 ) {
-    if streaming::points_hud_channel_from_label(window.label()).is_none() {
+    let label = window.label().to_string();
+    if streaming::points_hud_channel_from_label(&label).is_none() {
+        diagnostics::log_event(
+            diagnostics::DebugCategory::Windows,
+            "hud.place.rejected",
+            &format!("label={label} reason=invalid_overlay"),
+        );
         return;
     }
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "hud.place.request",
+        &format!(
+            "label={label} phase=overlay x={x} y={y} width={width} height={height} force={force}"
+        ),
+    );
     streaming::place_hud_overlay(
         window.app_handle(),
-        window.label(),
+        &label,
         x,
         y,
         width,
         height,
         force,
+    );
+    diagnostics::log_event(
+        diagnostics::DebugCategory::Windows,
+        "hud.place.applied",
+        &format!(
+            "label={label} phase=overlay x={x} y={y} width={width} height={height} force={force}"
+        ),
     );
 }
 

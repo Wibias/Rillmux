@@ -83,8 +83,7 @@ fn debug_sender() -> Option<&'static SyncSender<QueuedDebugEvent>> {
     static SENDER: OnceLock<Option<SyncSender<QueuedDebugEvent>>> = OnceLock::new();
     SENDER
         .get_or_init(|| {
-            let (sender, receiver) =
-                mpsc::sync_channel::<QueuedDebugEvent>(DEBUG_QUEUE_CAPACITY);
+            let (sender, receiver) = mpsc::sync_channel::<QueuedDebugEvent>(DEBUG_QUEUE_CAPACITY);
             let spawned = std::thread::Builder::new()
                 .name("rillmux-debug-writer".into())
                 .spawn(move || {

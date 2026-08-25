@@ -12,35 +12,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
-### Changed
-
-- First-load splash uses the app icon, a larger wordmark, and a short fade into the shell
-- Title bar is 38px (10% shorter), including website-auth text, status dots, and caption glyphs
+## [0.5.3] — 2026-08-26
 
 ### Added
 
-- Optional Channel Points chip on each mpv window: balance, drag to reposition, and a redeem catalog (Settings → Streaming)
-- Settings button to reset the Channel Points chip to its default position
-- Debug mode (Settings → Other, or `--debug` / `RILLMUX_DEBUG=1`) writes `%APPDATA%\Rillmux\logs` and can open a console
+- Optional Channel Points HUD on each mpv window with live balance, drag/reset positioning, and the custom reward catalog/redemption flow
+- Category-filtered Debug Mode diagnostics for stream/windows, watch credit, +50 claims, rewards, polls/predictions, and raids/EventSub in a bounded rotating `rillmux.log`
 - Local crash files (panic text + Windows minidumps) under `%APPDATA%\Rillmux\crashes`, plus optional Sentry when enabled
+- Current Channel Points private-GQL operation registry and compatibility fallbacks for balance, rewards, claims, polls, and predictions
+- Path-aware CI and advanced CodeQL jobs so frontend/Rust scans only run when their relevant paths change
+
+### Changed
+
+- First-load splash uses the app icon, a larger wordmark, and a short fade into the shell
+- Title bar is 38px tall, including website-auth / bonus-claims state and caption controls
+- Website playback auth stays in Windows Credential Manager and is supplied to Streamlink through a randomized ephemeral launch config instead of persisting a managed token in `config.twitch`
+- Docked Chatterino runs in an isolated Rillmux-owned profile and uses exact ownership/main-window detection so unrelated user Chatterino windows stay untouched
+- Twitch private GraphQL operation names, hashes, fallbacks, and auth ownership are centralized instead of being scattered through the Channel Points runtime
+- Update checks run shortly after startup and hourly while the app remains open
+- The native streaming runtime was decomposed into focused shards while keeping its public module API unchanged
+- Refreshed frontend, Rust, and GitHub Actions dependencies and kept RustSec/CodeQL gates in the release path
 
 ### Fixed
 
-- Followed grid hides a stream row unless the window is tall enough for the channel name plus title and viewer/uptime lines
-- Debug `tauri:dev` no longer stacks leftover tray icons in the Windows hidden-icons overflow; the tray is skipped in Vite dev, removed on quit, and X quits instead of hiding to tray
-- Debug `tauri:dev` can run next to an installed Rillmux (single-instance is release-only; WebView2 uses a separate user-data folder)
+- Followed grid hides a final stream row unless the window is tall enough for the full card text instead of clipping it against pagination
+- Debug `tauri:dev` no longer stacks leftover tray icons, can run next to an installed Rillmux, and X actually quits instead of leaving a hidden process
 - Linked dock no longer freezes the Rillmux window while multistream grips retile mpv/Chatterino
-- Chatterino user cards and menus stay above stream tiles and grey dividers
-- Channel Points chip no longer jumps: the main window no longer destroys and recreates the overlay when its position drifts a few pixels
-- Channel Points overlay stays above its mpv window instead of sitting on top of every other application
-- Resetting the Channel Points chip parks it in the title-bar row, left of min/max/close, not under the caption buttons
-- Resetting the Channel Points chip no longer snaps back under the window controls when returning to a stream
-- A Channel Points chip dragged to the top edge, left of min/max/close, keeps that relative spot when the stream is retiled
-- Chatterino no longer kills and relaunches itself on every Watching refresh; duplicate opens hit its single-instance mutex and the new process exited
-- Dragging the Channel Points chip follows the pointer in screen space and no longer snaps to the caption park
-- Dragging the Channel Points chip no longer moves the overlay HWND on every pointer update; the chip follows with CSS inside a stable drag surface
-- Debug mode writes to the console window it opens instead of spamming `debug mode on` into `tauri:dev`
-- Clicking X actually quits in `tauri:dev`; native caption overlay no longer swallows the close button
+- Regular dock dividers stay immediately above the dock group without becoming globally TOPMOST over unrelated applications
+- Chatterino first-start no longer selects or leaves the blank white/black notebook over the real chat split; startup, restart, and current `Chatterino <version>` main-window selection are hardened
+- Chatterino user cards, menus, settings, and unrelated windows are protected from dock duplicate cleanup
+- Channel Points context uses current reward-capable query fallbacks again, restoring balance/reward data after Twitch query changes
+- Passive Channel Points watch credit starts when a stream transitions to ready instead of remaining at zero presence targets
+- +50 bonus claiming works again with the restored watch/presence lifecycle; successful claims are independently observable in Debug Mode
+- Channel Points poll and prediction overlays recover when optional Hermes topic subscriptions are unavailable or rejected, with acknowledged subscriptions and a faster GQL safety-net refresh
+- Channel Points HUD no longer flashes/jumps while opening the reward catalog and keeps dragged/reset positions clear of caption controls
+- Channel Points HUD host logging reports meaningful found/lost transitions instead of repeating the same watchdog state several times per second
+- Channel Points HUD ignores hidden or temporarily parked player HWNDs that do not intersect a real monitor, preventing the chip from following transient off-screen player coordinates while preserving legitimate negative multi-monitor coordinates
+- Raid EventSub resyncs after settings hydration/toggles and has hardened reconnect URL, socket handoff, keepalive, and auth-session recovery
+- Stored Twitch login and related Twitch HTTP entry points recover from transient offline/transport failures without requiring an app restart
+- Deep links accept only the documented `stg://watch/<login>` / `stg://channel/<login>` forms and clean up late listener registration safely
+- Release builds compile the configured Twitch client identity correctly, native Sentry follows persisted consent, and hard app exit tears down owned playback/chat processes
+- Debug logs rotate at 10 MiB instead of growing without bound
+
+### Security
+
+- Split Tauri capabilities by main/raid/poll/points overlays and registered custom commands with the app manifest so privileged commands are not globally callable
+- Reduced the dedicated bonus-claim Twitch TV session to the read-only `user_read` scope instead of unrelated account-write scopes
+- Removed persistent Streamlink playback-token storage from the user config and tightened release identity, telemetry-consent, deep-link, and external-process boundaries
+- Added automated Cargo/RustSec advisory coverage and hardened unsafe Windows version-info pointer validation
 
 ## [0.5.2] — 2026-08-22
 
@@ -252,7 +271,9 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/Wibias/Rillmux/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.2
 [0.5.1]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.1
 [0.5.0]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Wibias/streamlink-twitch-gui/releases/tag/v0.4.1

@@ -38,7 +38,10 @@ fn other_shared_http_entry_points_recover_transport_failures() {
     assert!(validate.contains(".await\n        .map_err(reset_on_transport)?;"));
 
     let claim_auth = include_str!("../src/channel_points_claim_auth.rs");
-    assert_eq!(claim_auth.matches(".map_err(reset_on_transport)?;").count(), 3);
+    assert_eq!(
+        claim_auth.matches(".map_err(reset_on_transport)?;").count(),
+        3
+    );
 
     let eventsub = include_str!("../src/eventsub.rs");
     let supervisor = function_body(

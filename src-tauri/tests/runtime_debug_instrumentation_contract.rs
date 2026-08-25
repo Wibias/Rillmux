@@ -58,6 +58,11 @@ fn stream_and_window_lifecycle_is_instrumented() {
         "IsWindow",
         "GetWindowRect",
         "GetLastError",
+        "GetWindowTextW",
+        "IsWindowVisible",
+        "IsIconic",
+        "split_match=",
+        "selected=",
     ] {
         assert!(hwnd.contains(marker), "missing HWND evidence {marker}");
     }

@@ -1,0 +1,77 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  schedule:
+    # Keep a full weekly scan even when a weekday PR skipped a language.
+    - cron: "18 4 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      actions: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.actions }}
+      javascript: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.javascript }}
+      python: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.python }}
+      rust: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name != 'schedule'
+        with:
+          filters: |
+            actions:
+              - '.github/workflows/**'
+              - '.github/actions/**'
+            javascript:
+              - 'src/**'
+              - 'index.html'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'vite.config.ts'
+              - 'tsconfig.json'
+              - 'tsconfig.node.json'
+              - 'scripts/**/*.mjs'
+              - 'scripts/**/*.js'
+              - 'scripts/**/*.ts'
+              - 'scripts/**/*.tsx'
+            python:
+              - 'scripts/**/*.py'
+            rust:
+              - 'src-tauri/**'
+
+  analyze:
+    needs: changes
+    if: |
+      (matrix.language == 'actions' && needs.changes.outputs.actions == 'true') ||
+      (matrix.language == 'javascript-typescript' && needs.changes.outputs.javascript == 'true') ||
+      (matrix.language == 'python' && needs.changes.outputs.python == 'true') ||
+      (matrix.language == 'rust' && needs.changes.outputs.rust == 'true')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, python, rust]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: github/codeql-action/init@37f2634a92ba38a0926ef79a0748ac8ae7d95ab2 # v4.37.8
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+      - if: matrix.language == 'rust'
+        uses: github/codeql-action/autobuild@37f2634a92ba38a0926ef79a0748ac8ae7d95ab2 # v4.37.8
+      - uses: github/codeql-action/analyze@37f2634a92ba38a0926ef79a0748ac8ae7d95ab2 # v4.37.8
+        with:
+          category: "/language:${{ matrix.language }}"

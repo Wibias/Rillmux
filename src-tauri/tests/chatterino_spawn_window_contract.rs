@@ -25,16 +25,26 @@ fn expected_channels_are_published_before_spawn_placement_starts() {
 fn an_empty_expected_channel_list_is_never_treated_as_a_verified_split() {
     let source = include_str!("../src/streaming/windows_layout.rs");
     let start = source
-        .find("fn chatterino_pid_has_split_window")
-        .expect("missing split-window detector");
+        .find("fn chatterino_pid_has_split_window(pid: u32) -> bool")
+        .expect("missing Windows split-window detector");
     let body = &source[start..];
     let end = body
-        .find("\n}\n\n#[cfg(not(windows))]")
-        .expect("could not bound split-window detector");
+        .find("fn chatterino_pid_has_split_window(_pid: u32) -> bool")
+        .expect("missing non-Windows split-window detector boundary");
     let function = &body[..end];
+    let empty_guard = function
+        .find("if channels.is_empty()")
+        .expect("missing empty expected-channel guard");
+    let guard_tail = &function[empty_guard..];
+    let return_false = guard_tail
+        .find("return false;")
+        .expect("empty expected-channel guard must reject the split");
+    let win32_lookup = guard_tail
+        .find("#[link(name = \"user32\")]")
+        .expect("missing Win32 title lookup after empty-channel guard");
     assert!(
-        function.contains("if channels.is_empty() {\n        return false;"),
-        "empty/stale channel state must keep waiting for the real --channels split"
+        return_false < win32_lookup,
+        "empty/stale channel state must keep waiting before any HWND is treated as the real split"
     );
 }
 

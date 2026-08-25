@@ -34,92 +34,71 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(source: str, old: str, new: str, label: str) -> str:
-              count = source.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected one match, found {count}")
-              return source.replace(old, new, 1)
-
           path = Path("src-tauri/src/channel_points_realtime.rs")
           source = path.read_text(encoding="utf-8")
 
-          source = replace_once(
-              source,
-              '''    if !generation_matches(generation) {
-                  let _ = socket.send(Message::Close(None)).await;
-                  return Ok(());
-              }
-              mark_ready(generation);
+          ready_old = """    mark_ready(generation);
               subscribe_poll_topics(&mut socket, &desired.channel_ids).await;
-          '''.replace('              ', ''),
-              '''    if !generation_matches(generation) {
-                  let _ = socket.send(Message::Close(None)).await;
-                  return Ok(());
-              }
-              if let Err(error) = subscribe_poll_topics(&mut socket, &desired.channel_ids).await {
-                  crate::diagnostics::log_line(&format!(
-                      "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
-                  ));
-              }
-              if !generation_matches(generation) {
-                  let _ = socket.send(Message::Close(None)).await;
-                  return Ok(());
-              }
-              mark_ready(generation);
-          '''.replace('              ', ''),
-              "run_session",
-          )
+          """.replace("              ", "")
+          ready_new = """    if let Err(error) = subscribe_poll_topics(&mut socket, &desired.channel_ids).await {
+              crate::diagnostics::log_line(&format!(
+                  "[channel-points] Hermes poll/prediction topics unavailable: {error}; using GQL fallback"
+              ));
+          }
+          if !generation_matches(generation) {
+              let _ = socket.send(Message::Close(None)).await;
+              return Ok(());
+          }
+          mark_ready(generation);
+          """.replace("          ", "")
+          if source.count(ready_old) != 1:
+              raise SystemExit(f"ready transition anchor mismatch: {source.count(ready_old)}")
+          source = source.replace(ready_old, ready_new, 1)
 
-          source = replace_once(
-              source,
-              '''async fn subscribe_poll_topics(socket: &mut HermesSocket, channel_ids: &[String]) {
-                  for channel_id in channel_ids {
-                      let topic = format!("polls.{channel_id}");
-                      let _ = send_subscription(socket, &topic).await;
-                      let predictions = format!("predictions-channel-v1.{channel_id}");
-                      let _ = send_subscription(socket, &predictions).await;
-                  }
+          start = source.index("async fn subscribe_poll_topics(")
+          end = source.index("\nfn json_value", start)
+          subscribe_fn = """async fn subscribe_poll_topics(
+              socket: &mut HermesSocket,
+              channel_ids: &[String],
+          ) -> Result<(), String> {
+              let mut subscriptions = HashSet::new();
+              for channel_id in channel_ids {
+                  let topic = format!("polls.{channel_id}");
+                  subscriptions.insert(send_subscription(socket, &topic).await?);
+                  let predictions = format!("predictions-channel-v1.{channel_id}");
+                  subscriptions.insert(send_subscription(socket, &predictions).await?);
               }
-          '''.replace('              ', ''),
-              '''async fn subscribe_poll_topics(
-                  socket: &mut HermesSocket,
-                  channel_ids: &[String],
-              ) -> Result<(), String> {
-                  let mut subscriptions = HashSet::new();
-                  for channel_id in channel_ids {
-                      let topic = format!("polls.{channel_id}");
-                      subscriptions.insert(send_subscription(socket, &topic).await?);
-                      let predictions = format!("predictions-channel-v1.{channel_id}");
-                      subscriptions.insert(send_subscription(socket, &predictions).await?);
-                  }
-                  tokio::time::timeout(
-                      Duration::from_secs(3),
-                      wait_for_subscriptions(socket, &mut subscriptions),
-                  )
-                  .await
-                  .map_err(|_| "Hermes poll/prediction subscription confirmation timed out".to_string())?
-              }
-          '''.replace('              ', ''),
-              "subscribe_poll_topics",
-          )
 
-          source = replace_once(
-              source,
-              '''        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
-                  continue;
-              }
-          '''.replace('              ', ''),
-              '''        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
-                  if let Some((topic, message)) = pubsub_topic_and_message(&value) {
-                      if crate::channel_points::ingest_pubsub(&topic, &message) {
-                          emit_frontend("channel-points-pubsub");
-                      }
+              tokio::time::timeout(
+                  Duration::from_secs(3),
+                  wait_for_subscriptions(socket, &mut subscriptions),
+              )
+              .await
+              .map_err(|_| "Hermes poll/prediction subscription confirmation timed out".to_string())?
+          }
+          """.replace("          ", "")
+          source = source[:start] + subscribe_fn + source[end:]
+
+          start = source.index("async fn wait_for_subscriptions(")
+          end = source.index("\nasync fn receive_json", start)
+          function = source[start:end]
+          wait_old = """        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
+              continue;
+          }
+          """.replace("          ", "")
+          wait_new = """        if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
+              if let Some((topic, message)) = pubsub_topic_and_message(&value) {
+                  if crate::channel_points::ingest_pubsub(&topic, &message) {
+                      emit_frontend("channel-points-pubsub");
                   }
-                  continue;
               }
-          '''.replace('              ', ''),
-              "wait_for_subscriptions",
-          )
+              continue;
+          }
+          """.replace("          ", "")
+          if function.count(wait_old) != 1:
+              raise SystemExit(f"subscription wait anchor mismatch: {function.count(wait_old)}")
+          function = function.replace(wait_old, wait_new, 1)
+          source = source[:start] + function + source[end:]
 
           path.write_text(source, encoding="utf-8", newline="\n")
           PY

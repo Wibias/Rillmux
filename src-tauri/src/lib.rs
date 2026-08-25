@@ -14,6 +14,7 @@ mod helix;
 mod http;
 mod overlay;
 mod streaming;
+mod twitch_gql_operations;
 mod twitch_web_auth;
 mod viewer_presence;
 

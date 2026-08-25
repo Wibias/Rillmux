@@ -190,14 +190,24 @@ pub fn launch_chatterino_for_channels(channels: &[String]) -> Result<String, Str
         }
         ChatterinoLaunchPlan::SpawnFresh => {}
     }
+    // Publish the expected split before launch: the spawned placement thread
+    // can start immediately and must never select the blank notebook using stale state.
+    let previous_channels = last.clone();
+    if let Ok(mut guard) = last_chatterino_channels().lock() {
+        *guard = list.clone();
+    }
     let spawn_epoch = current_chatterino_close_epoch();
-    launch_chatterino_with_path(&path, &list, true, true)?;
+    if let Err(error) = launch_chatterino_with_path(&path, &list, true, true) {
+        if let Ok(mut guard) = last_chatterino_channels().lock() {
+            if *guard == list {
+                *guard = previous_channels;
+            }
+        }
+        return Err(error);
+    }
     if chatterino_spawn_is_stale(spawn_epoch, current_chatterino_close_epoch()) {
         close_owned_chatterino();
         return Ok(path.to_string_lossy().into_owned());
-    }
-    if let Ok(mut guard) = last_chatterino_channels().lock() {
-        *guard = list.clone();
     }
     Ok(path.to_string_lossy().into_owned())
 }
@@ -421,4 +431,3 @@ fn terminate_job(slot: &mut JobSlot) {
     #[cfg(not(windows))]
     let _ = slot;
 }
-

@@ -500,10 +500,9 @@ enum DockCmd {
     SuppressSeam,
     /// Re-show seam grips after a Chatterino popup closes (no full rebuild).
     RestoreSeam,
-    /// Temporarily TOPMOST so grips sit above mpv/chat (dock group focused).
-    ElevateGrips,
-    /// Drop TOPMOST so other apps can cover the dock (including grey bars).
-    DemoteGrips,
+    /// Restack regular grips immediately above the topmost dock member without
+    /// entering Windows' global TOPMOST band.
+    RestackGrips(isize),
     /// Show Windows-style monitor numbers; click to pick.
     PickMonitor,
 }
@@ -518,15 +517,9 @@ fn cmd_queue() -> &'static Mutex<Vec<DockCmd>> {
 fn post_cmd(cmd: DockCmd) {
     ensure_grip_thread();
     if let Ok(mut q) = cmd_queue().lock() {
-        // Coalesce z-order spam from the 100ms watchdog.
-        match cmd {
-            DockCmd::ElevateGrips => {
-                q.retain(|c| !matches!(c, DockCmd::ElevateGrips | DockCmd::DemoteGrips));
-            }
-            DockCmd::DemoteGrips => {
-                q.retain(|c| !matches!(c, DockCmd::ElevateGrips | DockCmd::DemoteGrips));
-            }
-            _ => {}
+        // Coalesce z-order spam from the watchdog: only the latest dock anchor matters.
+        if matches!(&cmd, DockCmd::RestackGrips(_)) {
+            q.retain(|c| !matches!(c, DockCmd::RestackGrips(_)));
         }
         q.push(cmd);
     }
@@ -534,16 +527,12 @@ fn post_cmd(cmd: DockCmd) {
 
 #[cfg(windows)]
 static GRIPS_GROUP_MINIMIZED: AtomicBool = AtomicBool::new(false);
-/// When true, grip place/raise uses HWND_TOPMOST so bars stay above mpv/chat.
-#[cfg(windows)]
-static GRIPS_ELEVATED: AtomicBool = AtomicBool::new(false);
 
 /// Hide dock grips while the player/chat group is minimized.
 pub fn hide_grips() {
     #[cfg(windows)]
     {
         GRIPS_GROUP_MINIMIZED.store(true, Ordering::SeqCst);
-        GRIPS_ELEVATED.store(false, Ordering::SeqCst);
         post_cmd(DockCmd::HideGrips);
     }
 }
@@ -557,26 +546,18 @@ pub fn show_grips() {
     }
 }
 
-/// Put grips above mpv/Chatterino (TOPMOST) while the dock group is focused.
-pub fn raise_grips() {
+/// Keep regular dock grips directly above the topmost mpv/owned Chatterino
+/// window in the normal Z-order. They must never enter the global TOPMOST band.
+pub fn restack_grips_above(anchor: isize) {
     #[cfg(windows)]
     {
-        if GRIPS_GROUP_MINIMIZED.load(Ordering::SeqCst) {
+        if anchor == 0 || GRIPS_GROUP_MINIMIZED.load(Ordering::SeqCst) {
             return;
         }
-        post_cmd(DockCmd::ElevateGrips);
+        post_cmd(DockCmd::RestackGrips(anchor));
     }
-}
-
-/// Clear TOPMOST so unrelated apps can cover stream, chat, and grey bars.
-pub fn demote_grips() {
-    #[cfg(windows)]
-    {
-        if GRIPS_GROUP_MINIMIZED.load(Ordering::SeqCst) {
-            return;
-        }
-        post_cmd(DockCmd::DemoteGrips);
-    }
+    #[cfg(not(windows))]
+    let _ = anchor;
 }
 
 /// True when `hwnd` is one of our dock grip windows (class `StguiDockGrip`).
@@ -810,6 +791,8 @@ fn grip_thread_main() {
         fn DeleteObject(obj: *mut core::ffi::c_void) -> i32;
         fn SetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32, value: isize) -> isize;
         fn GetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32) -> isize;
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+        fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
         fn PeekMessageW(
             msg: *mut Msg,
             hwnd: *mut core::ffi::c_void,
@@ -923,15 +906,13 @@ fn grip_thread_main() {
     const WM_HOTKEY: u32 = 0x0312;
     const WS_POPUP: u32 = 0x8000_0000;
     const WS_VISIBLE: u32 = 0x1000_0000;
-    // Regular grips are not permanently TOPMOST. ElevateGrips / DemoteGrips
-    // toggle TOPMOST while the dock group is focused so bars stay above mpv
-    // without covering unrelated apps.
+    // Regular grips always stay in the normal Z-order. Only the brief monitor
+    // identify overlays are TOPMOST.
     const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
     const WS_EX_NOACTIVATE: u32 = 0x0800_0000;
     const WS_EX_LAYERED: u32 = 0x0008_0000;
     /// Only monitor-number overlays use permanent TOPMOST (brief picker UX).
     const WS_EX_TOPMOST: u32 = 0x0000_0008;
-    const HWND_TOPMOST: isize = -1;
     const HWND_NOTOPMOST: isize = -2;
     const SWP_NOACTIVATE: u32 = 0x0010;
     const SWP_SHOWWINDOW: u32 = 0x0040;
@@ -942,7 +923,9 @@ fn grip_thread_main() {
     const IDC_SIZEWE: usize = 32644;
     const IDC_SIZENS: usize = 32645;
     const IDC_HAND: usize = 32649;
+    const GWL_EXSTYLE: i32 = -20;
     const GWLP_USERDATA: i32 = -21;
+    const GW_HWNDPREV: u32 = 3;
     const PM_REMOVE: u32 = 0x0001;
     const LWA_ALPHA: u32 = 0x0000_0002;
     const TME_LEAVE: u32 = 0x0000_0002;
@@ -1486,30 +1469,17 @@ fn grip_thread_main() {
         if hwnd.is_null() {
             return;
         }
-        // While elevated, keep TOPMOST on every place so Sync doesn't bury
-        // the bars under mpv. When demoted, only move/size (no z-order fight).
-        let elevated = GRIPS_ELEVATED.load(Ordering::SeqCst);
-        if elevated {
-            SetWindowPos(
-                hwnd,
-                HWND_TOPMOST as *mut core::ffi::c_void,
-                r.left,
-                r.top,
-                r.width().max(4),
-                r.height().max(4),
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-        } else {
-            SetWindowPos(
-                hwnd,
-                std::ptr::null_mut(),
-                r.left,
-                r.top,
-                r.width().max(4),
-                r.height().max(4),
-                SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
-            );
-        }
+        // Geometry updates never change the grip's Z-order. The streaming
+        // watchdog restacks the whole grip set relative to the dock members.
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            r.left,
+            r.top,
+            r.width().max(4),
+            r.height().max(4),
+            SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+        );
     }
 
     fn grip_hwnds_for_zorder(g: &GripWindows) -> Vec<*mut core::ffi::c_void> {
@@ -1529,38 +1499,65 @@ fn grip_thread_main() {
         list
     }
 
-    unsafe fn elevate_grips_inner() {
-        GRIPS_ELEVATED.store(true, Ordering::SeqCst);
+    unsafe fn restack_grips_inner(anchor: isize) {
+        let anchor = anchor as *mut core::ffi::c_void;
+        if anchor.is_null() || IsWindow(anchor) == 0 {
+            return;
+        }
         let Ok(g) = grips().lock() else {
             return;
         };
-        for &hwnd in &grip_hwnds_for_zorder(&g) {
+        let hwnds = grip_hwnds_for_zorder(&g);
+        if hwnds.is_empty() {
+            return;
+        }
+
+        // Defensive migration: an older build may have left a regular grip in
+        // the TOPMOST band. Strip that state before doing relative restacking.
+        for &hwnd in &hwnds {
+            if hwnd.is_null() || IsWindow(hwnd) == 0 {
+                continue;
+            }
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            if style & WS_EX_TOPMOST != 0 {
+                SetWindowPos(
+                    hwnd,
+                    HWND_NOTOPMOST as *mut core::ffi::c_void,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
+        }
+
+        // Put every grip in the normal band immediately above the topmost dock
+        // member. Any unrelated window already above the dock stays above it.
+        let mut after = GetWindow(anchor, GW_HWNDPREV);
+        while !after.is_null() && hwnds.contains(&after) {
+            after = GetWindow(after, GW_HWNDPREV);
+        }
+        if !after.is_null() {
+            let style = GetWindowLongPtrW(after, GWL_EXSTYLE) as u32;
+            if style & WS_EX_TOPMOST != 0 {
+                // A non-topmost grip cannot be inserted into the TOPMOST band.
+                // Null means HWND_TOP: top of the normal band.
+                after = std::ptr::null_mut();
+            }
+        }
+        for &hwnd in &hwnds {
+            if hwnd.is_null() || IsWindow(hwnd) == 0 {
+                continue;
+            }
             SetWindowPos(
                 hwnd,
-                HWND_TOPMOST as *mut core::ffi::c_void,
+                after,
                 0,
                 0,
                 0,
                 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-        }
-    }
-
-    unsafe fn demote_grips_inner() {
-        GRIPS_ELEVATED.store(false, Ordering::SeqCst);
-        let Ok(g) = grips().lock() else {
-            return;
-        };
-        for &hwnd in &grip_hwnds_for_zorder(&g) {
-            SetWindowPos(
-                hwnd,
-                HWND_NOTOPMOST as *mut core::ffi::c_void,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             );
         }
     }
@@ -1863,8 +1860,7 @@ fn grip_thread_main() {
                 DockCmd::HideGrips => hide_all_grips(),
                 DockCmd::SuppressSeam => suppress_seam_grips_inner(),
                 DockCmd::RestoreSeam => restore_seam_grips_inner(),
-                DockCmd::ElevateGrips => unsafe { elevate_grips_inner() },
-                DockCmd::DemoteGrips => unsafe { demote_grips_inner() },
+                DockCmd::RestackGrips(anchor) => unsafe { restack_grips_inner(anchor) },
                 DockCmd::PickMonitor => {
                     if PICKER_OPEN.load(Ordering::SeqCst) {
                         dismiss_monitor_picker();
@@ -2025,12 +2021,9 @@ fn grip_thread_main() {
                 }
             }
         }
+        // Sync owns grip creation/geometry only. The streaming watchdog owns
+        // relative Z-order because it has the live mpv/Chatterino HWNDs.
         drop(g);
-        // Default to elevated so bars are usable as soon as Sync runs; the
-        // visibility watchdog demotes when another app takes focus.
-        unsafe {
-            elevate_grips_inner();
-        }
     }
 
     fn effective_layout(count: usize, preset: &str) -> &str {

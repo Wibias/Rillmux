@@ -295,11 +295,7 @@ fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
     Some(u32::from_le_bytes(raw))
 }
 
-fn fixed_file_product_version(
-    buf: &[u8],
-    offset: usize,
-    reported_len: usize,
-) -> Option<String> {
+fn fixed_file_product_version(buf: &[u8], offset: usize, reported_len: usize) -> Option<String> {
     if reported_len < VS_FIXED_FILE_INFO_SIZE {
         return None;
     }
@@ -327,16 +323,16 @@ fn file_product_version(exe: &Path) -> Option<String> {
     unsafe extern "system" {
         fn GetFileVersionInfoSizeW(path: *const u16, handle: *mut u32) -> u32;
         fn GetFileVersionInfoW(
-  path: *const u16,
-  handle: u32,
-  len: u32,
-  data: *mut core::ffi::c_void,
+            path: *const u16,
+            handle: u32,
+            len: u32,
+            data: *mut core::ffi::c_void,
         ) -> i32;
         fn VerQueryValueW(
-  block: *const core::ffi::c_void,
-  sub: *const u16,
-  buf: *mut *mut core::ffi::c_void,
-  len: *mut u32,
+            block: *const core::ffi::c_void,
+            sub: *const u16,
+            buf: *mut *mut core::ffi::c_void,
+            len: *mut u32,
         ) -> i32;
     }
     let wide: Vec<u16> = exe
@@ -348,19 +344,19 @@ fn file_product_version(exe: &Path) -> Option<String> {
         let mut dummy = 0u32;
         let size = GetFileVersionInfoSizeW(wide.as_ptr(), &mut dummy);
         if size == 0 {
-  return None;
+            return None;
         }
         let mut buf = vec![0u8; size as usize];
         if GetFileVersionInfoW(wide.as_ptr(), 0, size, buf.as_mut_ptr().cast()) == 0 {
-  return None;
+            return None;
         }
         let sub: Vec<u16> = "\\".encode_utf16().chain(std::iter::once(0)).collect();
         let mut ptr: *mut core::ffi::c_void = std::ptr::null_mut();
         let mut len = 0u32;
         if VerQueryValueW(buf.as_ptr().cast(), sub.as_ptr(), &mut ptr, &mut len) == 0
-  || ptr.is_null()
+            || ptr.is_null()
         {
-  return None;
+            return None;
         }
         // The API returns an address into `buf`. Use it only to derive
         // a checked offset, then parse the owned bytes safely.
@@ -1025,7 +1021,10 @@ fn raise_dock_windows(channels: &[String], reserve_chat: bool) {
             raise_hwnd(hwnd, false);
         }
     }
-    crate::dock::raise_grips();
+    let members = dock_member_hwnds(channels, reserve_chat);
+    if let Some(anchor) = topmost_dock_member(&members) {
+        crate::dock::restack_grips_above(anchor as isize);
+    }
     raise_poll_overlay();
 }
 
@@ -1677,4 +1676,3 @@ fn retile_player_windows(channels: &[String], reserve_chat: bool, layout: &str) 
     }
     found
 }
-

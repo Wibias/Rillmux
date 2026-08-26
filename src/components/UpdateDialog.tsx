@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { isTauri } from "../lib/tauri";
 import { isSafeUrl, parseReleaseNotes } from "../lib/updater/notes";
 import "./UpdateDialog.css";
@@ -79,9 +80,7 @@ function InlineText({ text }: { text: string }) {
                 // webview without navigating the app away.
                 if (!isTauri()) return;
                 e.preventDefault();
-                void import("@tauri-apps/plugin-opener").then(({ openUrl }) =>
-                  openUrl(part.href ?? ""),
-                );
+                void openUrl(part.href ?? "");
               }}
             >
               {part.value}

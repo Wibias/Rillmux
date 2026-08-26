@@ -19,7 +19,7 @@ import { overlayRectMoved } from "../lib/streaming/pollOverlay";
 import { invoke, isTauri } from "../lib/tauri";
 
 const MAX_HUD_WINDOWS = 8;
-const PLAYER_MISS_GRACE = 3;
+const PLAYER_MISS_GRACE_MS = 8_000;
 
 async function closeHud(label: string) {
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -95,8 +95,20 @@ export function ChannelPointsHudSync() {
     hudSyncRunningKey(state.sessions),
   );
   const wantedRef = useRef<string[]>([]);
-  const missesRef = useRef<Record<string, number>>({});
+  const missingSinceRef = useRef<Record<string, number>>({});
   const lastPlacedRef = useRef<Record<string, OverlayRect>>({});
+
+  // This cleanup is intentionally separate from the synchronization effect.
+  // `runningKey` changes whenever a stream is added/removed; closing every HUD
+  // in that effect's cleanup made the normal 1 -> 2 stream transition tear down
+  // a healthy HUD before the next synchronization pass could preserve it.
+  useEffect(() => {
+    return () => {
+      for (const channel of wantedRef.current) {
+        void closeHud(pointsHudLabel(channel));
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -105,8 +117,11 @@ export function ChannelPointsHudSync() {
     const closeWantedHuds = async () => {
       for (const channel of wantedRef.current) {
         await closeHud(pointsHudLabel(channel));
+        if (!active) return;
       }
       wantedRef.current = [];
+      missingSinceRef.current = {};
+      lastPlacedRef.current = {};
     };
 
     const sync = async () => {
@@ -115,9 +130,12 @@ export function ChannelPointsHudSync() {
         await closeWantedHuds();
         return;
       }
-      const website = await getTwitchWebsiteAuthStatus().catch(() => null);
+      const website = await getTwitchWebsiteAuthStatus().catch(() => undefined);
       if (!active) return;
-      if (!website?.configured) {
+      // A transient status lookup failure is not proof that auth disappeared.
+      // Preserve already-running HUDs and retry on the next synchronization tick.
+      if (website === undefined) return;
+      if (!website.configured) {
         await closeWantedHuds();
         return;
       }
@@ -130,6 +148,7 @@ export function ChannelPointsHudSync() {
           await closeHud(pointsHudLabel(channel));
           if (!active) return;
           delete lastPlacedRef.current[channel];
+          delete missingSinceRef.current[channel];
         }
       }
       const kept: string[] = [];
@@ -140,18 +159,28 @@ export function ChannelPointsHudSync() {
         ).catch(() => null);
         if (!active) return;
         if (!place?.player) {
-          const misses = (missesRef.current[channel] ?? 0) + 1;
-          missesRef.current[channel] = misses;
-          if (misses >= PLAYER_MISS_GRACE) {
-            await closeHud(pointsHudLabel(channel));
-            if (!active) return;
-            delete lastPlacedRef.current[channel];
-          } else if (wantedRef.current.includes(channel)) {
+          const existingHud = wantedRef.current.includes(channel);
+          if (!existingHud) continue;
+
+          const now = Date.now();
+          const missingSince = missingSinceRef.current[channel] ?? now;
+          missingSinceRef.current[channel] = missingSince;
+          if (now - missingSince < PLAYER_MISS_GRACE_MS) {
             kept.push(channel);
+            continue;
           }
+
+          // A running session can briefly lose its discoverable HWND while the
+          // native layout is rebuilding. Only retire an existing HUD after a
+          // bounded grace period; normal stream stops are handled immediately by
+          // `runningKey` removing the channel above.
+          await closeHud(pointsHudLabel(channel));
+          if (!active) return;
+          delete lastPlacedRef.current[channel];
+          delete missingSinceRef.current[channel];
           continue;
         }
-        missesRef.current[channel] = 0;
+        delete missingSinceRef.current[channel];
         const offset =
           useSettingsStore.getState().settings.streaming.channelPointsHudOffset;
         const chip = chipRectForPlayer(
@@ -184,9 +213,6 @@ export function ChannelPointsHudSync() {
     return () => {
       active = false;
       window.clearInterval(timer);
-      for (const channel of wantedRef.current) {
-        void closeHud(pointsHudLabel(channel));
-      }
     };
   }, [hudEnabled, runningKey]);
 

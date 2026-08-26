@@ -10,13 +10,13 @@ import { invoke, isTauri } from "./tauri";
 
 const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
-type SentrySdk = typeof import("@sentry/react");
+type SentrySdk = typeof import("./sentry-sdk");
 
 let sdkPromise: Promise<SentrySdk> | null = null;
 let initialized = false;
 
 function loadSentrySdk(): Promise<SentrySdk> {
-  sdkPromise ??= import("@sentry/react");
+  sdkPromise ??= import("./sentry-sdk");
   return sdkPromise;
 }
 

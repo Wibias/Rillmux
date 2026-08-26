@@ -51,13 +51,13 @@ export interface StreamStatusEvent {
 
 interface WatchingState {
   sessions: StreamSession[];
-  /** Ordered multistream slots (lowercase logins). Ignored when seamless is on. */
+  /** Ordered Multistream slots (lowercase logins); empty in other modes. */
   slotChannels: string[];
   activeChatChannel: string | null;
   error: string | null;
   refresh: () => Promise<void>;
   watchStream: (stream: HelixStream) => Promise<void>;
-  /** Replace one watching slot after an outgoing raid (never kills other sessions). */
+  /** Replace the raiding session without killing unrelated sessions. */
   followRaid: (raid: RaidOutgoingEvent) => Promise<void>;
   stopSession: (id: string) => Promise<void>;
   stopAll: () => Promise<void>;
@@ -65,7 +65,7 @@ interface WatchingState {
   moveSlot: (channel: string, direction: -1 | 1) => void;
   /** Drag & drop reorder: replace the slot order outright (same channels). */
   reorderSlots: (channels: string[]) => void;
-  /** Retile + resync chat after layout preset changes. */
+  /** Retile + resync chat after mode/layout changes. */
   applyLayout: () => void;
   setActiveChat: (channel: string | null) => void;
   applyStatus: (payload: StreamStatusEvent) => void;
@@ -137,16 +137,17 @@ export function syncViewerPresence(force = false) {
   if (!isTauri()) return;
   const state = useWatchingStore.getState();
   const settings = useSettingsStore.getState().settings;
-  const preferredSessionIds = settings.streaming.seamlessSwitch
-    ? []
-    : state.slotChannels
-        .map(
-          (channel) =>
-            state.sessions.find(
-              (session) => session.channel.toLowerCase() === channel,
-            )?.id,
-        )
-        .filter((sessionId): sessionId is string => Boolean(sessionId));
+  const preferredSessionIds =
+    settings.streaming.streamOpenMode === "multistream"
+      ? state.slotChannels
+          .map(
+            (channel) =>
+              state.sessions.find(
+                (session) => session.channel.toLowerCase() === channel,
+              )?.id,
+          )
+          .filter((sessionId): sessionId is string => Boolean(sessionId))
+      : [];
   const enabled = settings.streaming.channelPoints;
   const targets = buildPresenceTargets(
     state.sessions,
@@ -189,36 +190,43 @@ function currentLayout(): MultistreamLayout {
   return isMultistreamLayout(raw) ? raw : DEFAULT_MULTISTREAM_LAYOUT;
 }
 
-function orderedChannels(): string[] {
+function runningChannels(): string[] {
+  return useWatchingStore
+    .getState()
+    .sessions.filter((session) => session.running)
+    .map((session) => session.channel.toLowerCase())
+    .filter(Boolean);
+}
+
+/** Only channels owned by the coordinated native layout. */
+function layoutChannels(): string[] {
   const state = useWatchingStore.getState();
-  const settings = useSettingsStore.getState().settings;
-  if (settings.streaming.seamlessSwitch) {
-    return state.sessions
-      .filter((s) => s.running)
-      .map((s) => s.channel.toLowerCase())
-      .filter(Boolean);
-  }
-  const running = new Set(
-    state.sessions
-      .filter((s) => s.running)
-      .map((s) => s.channel.toLowerCase()),
-  );
-  return state.slotChannels.filter((c) => running.has(c));
+  const mode = useSettingsStore.getState().settings.streaming.streamOpenMode;
+  if (mode === "independent") return [];
+  if (mode === "seamless") return runningChannels();
+
+  const running = new Set(runningChannels());
+  return state.slotChannels.filter((channel) => running.has(channel));
+}
+
+function chatterinoChannels(): string[] {
+  const mode = useSettingsStore.getState().settings.streaming.streamOpenMode;
+  return mode === "multistream" ? layoutChannels() : runningChannels();
 }
 
 function syncSlotsFromSessions(sessions: StreamSession[]) {
-  const settings = useSettingsStore.getState().settings;
-  if (settings.streaming.seamlessSwitch) {
+  const mode = useSettingsStore.getState().settings.streaming.streamOpenMode;
+  if (mode !== "multistream") {
     useWatchingStore.setState({ slotChannels: [] });
     return;
   }
   const running = sessions
-    .filter((s) => s.running)
-    .map((s) => s.channel.toLowerCase())
+    .filter((session) => session.running)
+    .map((session) => session.channel.toLowerCase())
     .filter(Boolean);
   const prev = useWatchingStore.getState().slotChannels;
-  const kept = prev.filter((c) => running.includes(c));
-  const added = running.filter((c) => !kept.includes(c));
+  const kept = prev.filter((channel) => running.includes(channel));
+  const added = running.filter((channel) => !kept.includes(channel));
   useWatchingStore.setState({ slotChannels: [...kept, ...added] });
 }
 
@@ -230,7 +238,7 @@ async function syncChatterino(channels: string[]) {
   if (!key) {
     const hasRunningSessions = useWatchingStore
       .getState()
-      .sessions.some((s) => s.running);
+      .sessions.some((session) => session.running);
     if (!chatterinoShouldCloseOnEmpty(chatSyncInflight, hasRunningSessions)) {
       debugRuntimeEvent("windows", "chatterino.close.skipped", {
         generation: chatSyncGeneration,
@@ -319,15 +327,30 @@ function scheduleLayoutAfterReady() {
   layoutTimer = setTimeout(() => {
     layoutTimer = null;
     const settings = useSettingsStore.getState().settings;
-    const reserveChat = settings.chat.provider === "chatterino";
-    const channels = orderedChannels();
-    if (!channels.length) return;
+    const channels = layoutChannels();
+    if (!channels.length) {
+      debugRuntimeEvent("windows", "layout.request", {
+        channels: "",
+        reserveChat: false,
+        reason: "layout-inactive",
+      });
+      void invoke("layout_watching", {
+        channels: [],
+        reserveChat: false,
+      }).catch(() => undefined);
+      return;
+    }
+    const mode = settings.streaming.streamOpenMode;
+    const reserveChat =
+      settings.chat.provider === "chatterino" && mode !== "independent";
+    const linkedDock =
+      mode === "multistream" && settings.streaming.linkedDock;
     const layout = currentLayout();
     debugRuntimeEvent("windows", "layout.request", {
       channels: channels.join(","),
       reserveChat,
       layout,
-      linkedDock: settings.streaming.linkedDock,
+      linkedDock,
       chatFraction: settings.streaming.chatWidthFraction,
       mainSide: settings.streaming.unevenMainSide,
     });
@@ -335,7 +358,7 @@ function scheduleLayoutAfterReady() {
       channels,
       reserveChat,
       layout,
-      linkedDock: settings.streaming.linkedDock,
+      linkedDock,
       chatFraction: settings.streaming.chatWidthFraction,
       mainSide: settings.streaming.unevenMainSide,
     })
@@ -356,35 +379,23 @@ function scheduleLayoutAfterReady() {
 }
 
 function afterSessionsChanged() {
-  const channels = orderedChannels();
+  const channels = runningChannels();
   debugRuntimeEvent("windows", "sessions.changed", {
     channels: channels.join(","),
     count: channels.length,
+    layoutChannels: layoutChannels().join(","),
   });
-  void syncChatterino(channels);
+  void syncChatterino(chatterinoChannels());
   syncEventSub();
   syncViewerPresence();
-  if (channels.length) {
-    scheduleLayoutAfterReady();
-  } else if (isTauri()) {
-    debugRuntimeEvent("windows", "layout.request", {
-      channels: "",
-      reserveChat: false,
-      reason: "sessions-empty",
-    });
-    // Tear down dock grips when the last stream ends (natural close or stop).
-    void invoke("layout_watching", {
-      channels: [],
-      reserveChat: false,
-    }).catch(() => undefined);
-  }
+  scheduleLayoutAfterReady();
 }
 
-/** Keep Rust EventSub subscriptions aligned with watching + settings. */
+/** Keep Rust EventSub subscriptions aligned with every running stream. */
 export function syncEventSub() {
   if (!isTauri()) return;
   const settings = useSettingsStore.getState().settings;
-  const channels = orderedChannels();
+  const channels = runningChannels();
   debugRuntimeEvent("raids", "eventsub.sync.frontend", {
     enabled: settings.streaming.followRaids,
     channels: channels.join(","),
@@ -487,7 +498,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     });
     presenceMetadata = prunePresenceMetadata(presenceMetadata, sessions);
     const active = get().activeChatChannel;
-    if (active && !sessions.some((s) => s.channel === active)) {
+    if (active && !sessions.some((session) => session.channel === active)) {
       set({ activeChatChannel: sessions[0]?.channel ?? null });
     }
     // minimizeOnWatch hid the app while watching — bring it back once the
@@ -537,15 +548,19 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
   watchStream: async (stream) => {
     set({ error: null });
     const settings = useSettingsStore.getState().settings;
-    const multi = !settings.streaming.seamlessSwitch;
+    const mode = settings.streaming.streamOpenMode;
+    const multi = mode === "multistream";
+    const seamless = mode === "seamless";
     const channel = stream.user_login.toLowerCase();
-    const running = get().sessions.filter((s) => s.running);
-    const already = running.some((s) => s.channel.toLowerCase() === channel);
+    const running = get().sessions.filter((session) => session.running);
+    const already = running.some(
+      (session) => session.channel.toLowerCase() === channel,
+    );
 
     if (multi && !already) {
       const cap = layoutCapacity(currentLayout());
-      const slots = get().slotChannels.filter((c) =>
-        running.some((s) => s.channel.toLowerCase() === c),
+      const slots = get().slotChannels.filter((slot) =>
+        running.some((session) => session.channel.toLowerCase() === slot),
       );
       if (slots.length >= cap) {
         const msg = `Layout holds ${cap} streams. Stop one or pick a larger layout.`;
@@ -554,16 +569,22 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       }
     }
 
-    const replaceExisting =
-      settings.streaming.seamlessSwitch && running.length > 0;
-    const reserveChat = settings.chat.provider === "chatterino";
+    const replaceExisting = seamless && running.length > 0;
+    const hasChatterino = settings.chat.provider === "chatterino";
+    const reserveChat = hasChatterino && mode !== "independent";
 
-    const launch = resolveChannelLaunch(settings, stream.user_login, {
-      title: stream.title,
-      game: stream.game_name,
-    });
+    const launch = resolveChannelLaunch(
+      settings,
+      stream.user_login,
+      {
+        title: stream.title,
+        game: stream.game_name,
+      },
+      { sideBySideChat: reserveChat },
+    );
     debugRuntimeEvent("windows", "watch.start", {
       channel,
+      mode,
       multi,
       already,
       replaceExisting,
@@ -581,28 +602,24 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
             : [...state.slotChannels, channel],
         }));
       } else if (!multi) {
-        set({ slotChannels: [channel] });
+        set({ slotChannels: [] });
       }
 
-      if (reserveChat) {
-        const chatChannels = multi
-          ? [
-              ...new Set(
-                [
-                  ...get().slotChannels,
-                  channel,
-                ].filter(Boolean),
-              ),
-            ]
-          : [channel];
+      if (hasChatterino) {
+        const existingChannels = running.map((session) =>
+          session.channel.toLowerCase(),
+        );
+        const chatChannels = replaceExisting
+          ? [channel]
+          : [...new Set([...existingChannels, channel])];
         void syncChatterino(chatChannels);
       }
 
-      // Planned dock position for the launch geometry, so mpv opens already
-      // snapped to its tile instead of resizing visibly after "ready".
-      const plannedChannels = replaceExisting
-        ? [channel]
-        : [...new Set([...orderedChannels(), channel])];
+      // Independent/Seamless launches are standalone. Only Multistream gives
+      // Streamlink a coordinated slot geometry before the later native retile.
+      const plannedChannels = multi
+        ? [...new Set([...get().slotChannels, channel])]
+        : [channel];
 
       const session = await invoke<StreamSession>("stream_start", {
         request: {
@@ -646,7 +663,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       }
       set((state) => ({
         sessions: [
-          ...state.sessions.filter((s) => s.id !== session.id),
+          ...state.sessions.filter((item) => item.id !== session.id),
           session,
         ],
         activeChatChannel:
@@ -655,9 +672,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
             : state.activeChatChannel,
       }));
       syncViewerPresence();
-      // Kick the debounced layout once the session is registered (orderedChannels
-      // reads the store). The "ready" status event re-triggers it later; the
-      // backend retries until every player window is actually tiled.
+      // Ready status re-triggers this later. In Independent mode this only
+      // clears stale native dock state and never tiles the standalone players.
       scheduleLayoutAfterReady();
       void get().refresh();
       syncEventSub();
@@ -679,16 +695,21 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     const from = raid.fromChannel.toLowerCase();
     const toLogin = raid.toChannel.toLowerCase();
     const settings = useSettingsStore.getState().settings;
-    const reserveChat = settings.chat.provider === "chatterino";
+    const mode = settings.streaming.streamOpenMode;
+    const multi = mode === "multistream";
+    const hasChatterino = settings.chat.provider === "chatterino";
+    const reserveChat = hasChatterino && mode !== "independent";
+    const previousSlotIndex = get().slotChannels.indexOf(from);
     debugRuntimeEvent("raids", "raid.follow", {
       from,
       to: toLogin,
       viewers: raid.viewers ?? 0,
+      mode,
       reserveChat,
     });
 
     const session = get().sessions.find(
-      (s) => s.channel.toLowerCase() === from,
+      (item) => item.channel.toLowerCase() === from,
     );
 
     // Resolve live Helix data when possible; fall back to a stub so we still jump.
@@ -712,25 +733,6 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       });
     }
 
-    // Replace slot in-place before stop so layout/chat see the new set.
-    const slots = [...get().slotChannels];
-    const idx = slots.indexOf(from);
-    if (idx >= 0) {
-      slots[idx] = toLogin;
-    } else {
-      slots.push(toLogin);
-    }
-    const nextSlots = [...new Set(slots.filter(Boolean))];
-    set({
-      slotChannels: nextSlots,
-      activeChatChannel:
-        settings.chat.provider === "embedded" &&
-        (get().activeChatChannel?.toLowerCase() === from ||
-          !get().activeChatChannel)
-          ? toLogin
-          : get().activeChatChannel,
-    });
-
     if (session?.running) {
       debugRuntimeEvent("raids", "raid.stop_old", {
         channel: from,
@@ -740,20 +742,50 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       await get().refresh();
     }
 
-    const launch = resolveChannelLaunch(settings, toLogin, {
-      title: target.title,
-      game: target.game_name,
+    if (multi) {
+      const nextSlots = get().slotChannels.filter(
+        (slot) => slot !== from && slot !== toLogin,
+      );
+      const index =
+        previousSlotIndex >= 0
+          ? Math.min(previousSlotIndex, nextSlots.length)
+          : nextSlots.length;
+      nextSlots.splice(index, 0, toLogin);
+      set({ slotChannels: nextSlots });
+    } else {
+      set({ slotChannels: [] });
+    }
+    set({
+      activeChatChannel:
+        settings.chat.provider === "embedded" &&
+        (get().activeChatChannel?.toLowerCase() === from ||
+          !get().activeChatChannel)
+          ? toLogin
+          : get().activeChatChannel,
     });
-    const plannedChannels = [...new Set([...orderedChannels(), toLogin])];
 
-    if (reserveChat) {
-      void syncChatterino(plannedChannels);
+    const launch = resolveChannelLaunch(
+      settings,
+      toLogin,
+      {
+        title: target.title,
+        game: target.game_name,
+      },
+      { sideBySideChat: reserveChat },
+    );
+    const plannedChannels = multi
+      ? [...new Set([...get().slotChannels, toLogin])]
+      : [toLogin];
+
+    if (hasChatterino) {
+      void syncChatterino([...new Set([...runningChannels(), toLogin])]);
     }
 
     try {
       debugRuntimeEvent("raids", "raid.start_new", {
         channel: toLogin,
         from,
+        mode,
         slotCount: plannedChannels.length,
       });
       const started = await invoke<StreamSession>("stream_start", {
@@ -791,7 +823,9 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       void ensurePresenceMetadata(started.id, target);
       set((state) => ({
         sessions: [
-          ...state.sessions.filter((s) => s.id !== started.id && s.id !== session?.id),
+          ...state.sessions.filter(
+            (item) => item.id !== started.id && item.id !== session?.id,
+          ),
           started,
         ],
       }));
@@ -813,7 +847,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
   },
 
   stopSession: async (id) => {
-    const session = get().sessions.find((s) => s.id === id);
+    const session = get().sessions.find((item) => item.id === id);
     delete presenceMetadata[id];
     const channel = session?.channel.toLowerCase();
     debugRuntimeEvent("windows", "stream.stop.request", {
@@ -838,7 +872,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     }
     if (channel) {
       set((state) => ({
-        slotChannels: state.slotChannels.filter((c) => c !== channel),
+        slotChannels: state.slotChannels.filter((slot) => slot !== channel),
         activeChatChannel:
           state.activeChatChannel?.toLowerCase() === channel
             ? null
@@ -864,6 +898,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     set({ sessions: [], slotChannels: [], activeChatChannel: null });
     syncEventSub();
     syncViewerPresence();
+    scheduleLayoutAfterReady();
   },
 
   toggleMute: async (id) => {
@@ -871,8 +906,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     try {
       const muted = await invoke<boolean>("stream_toggle_mute", { id });
       set((state) => ({
-        sessions: state.sessions.map((s) =>
-          s.id === id ? { ...s, muted } : s,
+        sessions: state.sessions.map((session) =>
+          session.id === id ? { ...session, muted } : session,
         ),
       }));
     } catch (err) {
@@ -895,23 +930,23 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     slots[j] = tmp;
     set({ slotChannels: slots });
     scheduleLayoutAfterReady();
-    void syncChatterino(orderedChannels());
+    void syncChatterino(chatterinoChannels());
   },
 
   reorderSlots: (channels) => {
     const current = new Set(get().slotChannels);
     const next = channels
-      .map((c) => c.toLowerCase())
-      .filter((c) => current.has(c));
+      .map((channel) => channel.toLowerCase())
+      .filter((channel) => current.has(channel));
     if (next.length !== current.size) return;
     set({ slotChannels: next });
     scheduleLayoutAfterReady();
-    void syncChatterino(orderedChannels());
+    void syncChatterino(chatterinoChannels());
   },
 
   applyLayout: () => {
     scheduleLayoutAfterReady();
-    void syncChatterino(orderedChannels());
+    void syncChatterino(chatterinoChannels());
   },
 
   setActiveChat: (channel) => set({ activeChatChannel: channel }),

@@ -23,6 +23,12 @@ export type ThemeMode = "system" | "dark" | "light";
 
 export type StreamlinkSource = "bundled" | "system" | "custom";
 
+export type StreamOpenMode = "independent" | "seamless" | "multistream";
+
+export function isStreamOpenMode(value: unknown): value is StreamOpenMode {
+  return value === "independent" || value === "seamless" || value === "multistream";
+}
+
 export type ChatProvider =
   | "embedded"
   | "chatterino"
@@ -100,16 +106,16 @@ export interface AppSettings {
      * the default top-right inset. One offset for every stream.
      */
     channelPointsHudOffset: { x: number; y: number } | null;
-    /** Start the next Streamlink process before stopping the previous one. */
-    seamlessSwitch: boolean;
-    /** Multistream grid when seamlessSwitch is off. */
+    /** How a newly opened stream interacts with already running streams. */
+    streamOpenMode: StreamOpenMode;
+    /** Multistream grid used only when streamOpenMode is multistream. */
     multistreamLayout: MultistreamLayout;
     /**
      * Where the large pane sits for 2+1 / 3+1 layouts.
      */
     unevenMainSide: UnevenMainSide;
     /**
-     * When true (default), show grips to resize chat↔video / tiles and move
+     * In Multistream mode, show grips to resize chat↔video / tiles and move
      * the dock between monitors. Opt-out.
      */
     linkedDock: boolean;
@@ -165,7 +171,7 @@ export interface AppSettings {
   closeToTray?: boolean;
 }
 
-export const SETTINGS_SCHEMA_VERSION = 20;
+export const SETTINGS_SCHEMA_VERSION = 21;
 
 export const defaultDebugCategories = (): DebugCategories => ({
   windows: true,
@@ -212,10 +218,10 @@ export const defaultSettings = (): AppSettings => ({
     channelPointsPolls: false,
     channelPointsHud: false,
     channelPointsHudOffset: null,
-    seamlessSwitch: true,
+    // Keep the pre-v21 fresh-install behavior: one stream replaces the current one.
+    streamOpenMode: "seamless",
     multistreamLayout: DEFAULT_MULTISTREAM_LAYOUT,
     unevenMainSide: DEFAULT_UNEVEN_MAIN_SIDE,
-    // Mutually exclusive with seamlessSwitch (default single-stream).
     linkedDock: false,
     followRaids: true,
     streamLanguages: [],

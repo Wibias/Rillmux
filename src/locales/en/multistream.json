@@ -1,7 +1,7 @@
 {
   "title": "Multistream",
   "lede": "Add channels, pick a layout, and arrange your streams.",
-  "seamlessNote": "Multistream is disabled while seamless switching is on. Turn it off in Settings → Streaming.",
+  "seamlessNote": "Multistream mode is not active. Choose Multistream under Settings → Streaming; Independent and Seamless streams stay outside this layout.",
   "layoutLabel": "Layout",
   "slotsUsed": "{{used}} of {{cap}} slots used",
   "layoutFull": "Layout is full — stop a stream or pick a larger layout.",

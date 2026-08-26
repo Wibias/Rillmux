@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.6] — 2026-08-26
+
+### Fixed
+
+- Moving a linked dock to another monitor no longer leaves the monitor picker/divider on the previous display or temporarily makes it unresponsive while mpv and Chatterino are being retiled
+- Opening a stream after a Channel Points Prediction has already started now hydrates the current active or locked Prediction immediately, so the overlay appears without waiting for a new realtime Prediction event
+
 ## [0.5.5] — 2026-08-26
 
 ### Added
@@ -312,7 +319,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.6...HEAD
+[0.5.6]: https://github.com/Wibias/Rillmux/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/Wibias/Rillmux/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/Wibias/Rillmux/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/Wibias/Rillmux/compare/v0.5.2...v0.5.3

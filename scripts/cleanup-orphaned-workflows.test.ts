@@ -208,6 +208,56 @@ describe("cleanupOrphanedWorkflowRuns", () => {
     expect(routes).toHaveLength(0);
   });
 
+  it("ignores an already-deleted historical run branch during preflight", async () => {
+    const routes = baseRoutes([
+      {
+        path: "/repos/Wibias/Rillmux/actions/workflows?per_page=100&page=1",
+        body: {
+          workflows: [
+            {
+              id: 2,
+              name: "Temporary helper",
+              path: ".github/workflows/tmp-helper.yml",
+            },
+          ],
+        },
+      },
+      {
+        path: "/repos/Wibias/Rillmux/actions/workflows/2/runs?per_page=100&page=1",
+        body: {
+          workflow_runs: [
+            {
+              id: 208,
+              status: "completed",
+              head_branch: "feature/deleted-helper",
+              head_repository: { full_name: REPOSITORY },
+            },
+          ],
+        },
+      },
+      {
+        path: "/repos/Wibias/Rillmux/git/ref/heads/feature/deleted-helper",
+        status: 404,
+        body: { message: "Not Found" },
+      },
+      {
+        path: "/repos/Wibias/Rillmux/git/ref/heads/main",
+        body: { object: { sha: SHA_A } },
+      },
+      {
+        method: "DELETE",
+        path: "/repos/Wibias/Rillmux/actions/runs/208",
+        status: 204,
+      },
+    ]);
+
+    const { result, calls } = await runWith(routes);
+    expect(result.approvedWorkflows).toBe(1);
+    expect(result.deletedRuns).toBe(1);
+    expect(calls).toContain("DELETE /repos/Wibias/Rillmux/actions/runs/208");
+    expect(routes).toHaveLength(0);
+  });
+
   it("never deletes an orphan with a non-completed run", async () => {
     const routes = baseRoutes([
       {
@@ -371,5 +421,66 @@ describe("cleanupOrphanedWorkflowRuns", () => {
     ).rejects.toThrow(/default_branch_moved_during_cleanup/);
     expect(calls.filter((call) => call.startsWith("DELETE "))).toHaveLength(1);
     expect(calls).not.toContain("DELETE /repos/Wibias/Rillmux/actions/runs/302");
+  });
+
+  it("fails closed if a captured run branch disappears during cleanup", async () => {
+    const headSha = "d".repeat(40);
+    const routes = baseRoutes([
+      {
+        path: "/repos/Wibias/Rillmux/actions/workflows?per_page=100&page=1",
+        body: {
+          workflows: [
+            {
+              id: 2,
+              name: "Temporary helper",
+              path: ".github/workflows/tmp-helper.yml",
+            },
+          ],
+        },
+      },
+      {
+        path: "/repos/Wibias/Rillmux/actions/workflows/2/runs?per_page=100&page=1",
+        body: {
+          workflow_runs: [
+            {
+              id: 303,
+              status: "completed",
+              head_branch: "feature/racy-helper",
+              head_repository: { full_name: REPOSITORY },
+            },
+          ],
+        },
+      },
+      {
+        path: "/repos/Wibias/Rillmux/git/ref/heads/feature/racy-helper",
+        body: { object: { sha: headSha } },
+      },
+      {
+        path: `/repos/Wibias/Rillmux/contents/.github/workflows/tmp-helper.yml?ref=${headSha}`,
+        status: 404,
+        body: { message: "Not Found" },
+      },
+      {
+        path: "/repos/Wibias/Rillmux/git/ref/heads/main",
+        body: { object: { sha: SHA_A } },
+      },
+      {
+        path: "/repos/Wibias/Rillmux/git/ref/heads/feature/racy-helper",
+        status: 404,
+        body: { message: "Not Found" },
+      },
+    ]);
+    const calls: string[] = [];
+    const { cleanupOrphanedWorkflowRuns } = await loadCleanup();
+
+    await expect(
+      cleanupOrphanedWorkflowRuns({
+        token: "test-token",
+        repository: REPOSITORY,
+        fetchImpl: mockFetch(routes, calls),
+        log: () => undefined,
+      }),
+    ).rejects.toThrow(/HTTP 404/);
+    expect(calls.some((call) => call.startsWith("DELETE "))).toBe(false);
   });
 });

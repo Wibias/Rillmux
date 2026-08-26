@@ -1076,7 +1076,9 @@ pub fn run() {
             }
         })
         .build({
-            let mut ctx = tauri::generate_context!();
+            let ctx = tauri::generate_context!();
+            #[cfg(all(windows, debug_assertions))]
+            let mut ctx = ctx;
             // Tauri always sets a WebView2 data dir (and ignores
             // WEBVIEW2_USER_DATA_FOLDER). Give debug a folder of its own so
             // `tauri:dev` can start while the installed app is already open.

@@ -26,7 +26,9 @@ export type StreamlinkSource = "bundled" | "system" | "custom";
 export type StreamOpenMode = "independent" | "seamless" | "multistream";
 
 export function isStreamOpenMode(value: unknown): value is StreamOpenMode {
-  return value === "independent" || value === "seamless" || value === "multistream";
+  return (
+    value === "independent" || value === "seamless" || value === "multistream"
+  );
 }
 
 export type ChatProvider =
@@ -94,7 +96,7 @@ export interface AppSettings {
     disableAds: boolean;
     /** Send undocumented Twitch viewer-presence telemetry for ready sessions. */
     channelPoints: boolean;
-    /** Show Channel Points polls over chat and allow voting. Opt-in. */
+    /** Show Channel Points polls and predictions. Opt-in. */
     channelPointsPolls: boolean;
     /**
      * Channel Points chip on each mpv window. Opt-in; requires presence
@@ -108,11 +110,14 @@ export interface AppSettings {
     channelPointsHudOffset: { x: number; y: number } | null;
     /** How a newly opened stream interacts with already running streams. */
     streamOpenMode: StreamOpenMode;
+    /**
+     * @deprecated Compatibility mirror for older views. False only when
+     * `streamOpenMode` is `multistream`; runtime launch behavior must not use it.
+     */
+    seamlessSwitch: boolean;
     /** Multistream grid used only when streamOpenMode is multistream. */
     multistreamLayout: MultistreamLayout;
-    /**
-     * Where the large pane sits for 2+1 / 3+1 layouts.
-     */
+    /** Where the large pane sits for 2+1 / 3+1 layouts. */
     unevenMainSide: UnevenMainSide;
     /**
      * In Multistream mode, show grips to resize chat↔video / tiles and move
@@ -220,6 +225,7 @@ export const defaultSettings = (): AppSettings => ({
     channelPointsHudOffset: null,
     // Keep the pre-v21 fresh-install behavior: one stream replaces the current one.
     streamOpenMode: "seamless",
+    seamlessSwitch: true,
     multistreamLayout: DEFAULT_MULTISTREAM_LAYOUT,
     unevenMainSide: DEFAULT_UNEVEN_MAIN_SIDE,
     linkedDock: false,

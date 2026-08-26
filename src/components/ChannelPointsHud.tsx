@@ -231,9 +231,12 @@ export function ChannelPointsHud() {
         .catch(() => window.devicePixelRatio || 1);
       if (!active || draggingRef.current) return;
       setScale(nextScale);
-      setHost(next?.player ?? null);
-      setCaptionAvoid(next?.captionAvoid ?? null);
-      if (!next?.player) setCatalogOpen(false);
+      // Player HWNDs can disappear briefly while a multi-stream layout is being
+      // rebuilt. Keep the last valid geometry and catalog state until the owner
+      // decides the running session is genuinely gone.
+      if (!next?.player) return;
+      setHost(next.player);
+      setCaptionAvoid(next.captionAvoid ?? null);
     };
     void tick();
     const timer = window.setInterval(() => void tick(), 250);

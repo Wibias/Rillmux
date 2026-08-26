@@ -20,7 +20,8 @@ function blockBody(source: string, signature: string): string {
 describe("monitor picker divider relocation", () => {
   test("queues grip sync immediately after dispatching the selected monitor apply", () => {
     const source = readFileSync("src-tauri/src/dock.rs", "utf8");
-    const body = blockBody(source, "if let GripKind::Identify(idx) = kind {");
+    const mouseDown = blockBody(source, "WM_LBUTTONDOWN => {");
+    const body = blockBody(mouseDown, "if let GripKind::Identify(idx) = kind {");
 
     const raise = body.indexOf("request_raise_after_apply();");
     const apply = body.indexOf("run_apply();");

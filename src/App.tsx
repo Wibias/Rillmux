@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -10,23 +11,8 @@ import * as Sentry from "@sentry/react";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "./components/AppShell";
 import { ThemeProvider } from "./components/ThemeProvider";
-import {
-  AboutPage,
-  AuthBootstrap,
-  FollowedPage,
-  StreamsPage,
-  WatchingPage,
-} from "./pages/BrowsePages";
-import {
-  ChannelPage,
-  GameStreamsPage,
-  GamesPage,
-  SearchPage,
-  TeamPage,
-  TeamsSearchPage,
-} from "./pages/BrowseExtraPages";
-import { SettingsPage, SettingsBootstrap } from "./pages/SettingsPage";
-import { MultistreamPage } from "./pages/MultistreamPage";
+import { AuthBootstrap } from "./components/AuthBootstrap";
+import { SettingsBootstrap } from "./components/SettingsBootstrap";
 import { TauriGuardBanner } from "./components/TauriGuardBanner";
 import { DesktopChrome } from "./components/DesktopChrome";
 import { HotkeyProvider } from "./components/HotkeyProvider";
@@ -37,7 +23,6 @@ import { LaunchErrorBanner } from "./components/LaunchErrorBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { RaidBanner } from "./components/RaidBanner";
 import { DebugDiagnosticsBootstrap } from "./components/DebugDiagnosticsBootstrap";
-import { DebugOutputSettings } from "./components/DebugOutputSettings";
 import {
   ChannelPointsPollOverlay,
   isPollOverlayWindow,
@@ -50,6 +35,48 @@ import { ChannelPointsHudSync } from "./components/ChannelPointsHudSync";
 import { settingsTabFromPath } from "./lib/settings/tabs";
 import { SentryBootstrap } from "./lib/sentry";
 import "./styles/global.css";
+
+const FollowedPage = lazy(() =>
+  import("./pages/BrowsePages").then((module) => ({ default: module.FollowedPage })),
+);
+const StreamsPage = lazy(() =>
+  import("./pages/BrowsePages").then((module) => ({ default: module.StreamsPage })),
+);
+const WatchingPage = lazy(() =>
+  import("./pages/BrowsePages").then((module) => ({ default: module.WatchingPage })),
+);
+const AboutPage = lazy(() =>
+  import("./pages/BrowsePages").then((module) => ({ default: module.AboutPage })),
+);
+const ChannelPage = lazy(() =>
+  import("./pages/BrowseExtraPages").then((module) => ({ default: module.ChannelPage })),
+);
+const GameStreamsPage = lazy(() =>
+  import("./pages/BrowseExtraPages").then((module) => ({ default: module.GameStreamsPage })),
+);
+const GamesPage = lazy(() =>
+  import("./pages/BrowseExtraPages").then((module) => ({ default: module.GamesPage })),
+);
+const SearchPage = lazy(() =>
+  import("./pages/BrowseExtraPages").then((module) => ({ default: module.SearchPage })),
+);
+const TeamPage = lazy(() =>
+  import("./pages/BrowseExtraPages").then((module) => ({ default: module.TeamPage })),
+);
+const TeamsSearchPage = lazy(() =>
+  import("./pages/BrowseExtraPages").then((module) => ({ default: module.TeamsSearchPage })),
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })),
+);
+const MultistreamPage = lazy(() =>
+  import("./pages/MultistreamPage").then((module) => ({ default: module.MultistreamPage })),
+);
+const DebugOutputSettings = lazy(() =>
+  import("./components/DebugOutputSettings").then((module) => ({
+    default: module.DebugOutputSettings,
+  })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,21 +123,23 @@ function AppRoutes() {
         </p>
       }
     >
-      <Routes>
-        <Route path="/" element={<FollowedPage />} />
-        <Route path="/streams" element={<StreamsPage />} />
-        <Route path="/games" element={<GamesPage />} />
-        <Route path="/games/:gameId" element={<GameStreamsPage />} />
-        <Route path="/search" element={<SearchPage />} />
-        <Route path="/teams" element={<TeamsSearchPage />} />
-        <Route path="/channel/:login" element={<ChannelPage />} />
-        <Route path="/team/:teamName" element={<TeamPage />} />
-        <Route path="/watching" element={<WatchingPage />} />
-        <Route path="/multistream" element={<MultistreamPage />} />
-        <Route path="/settings/*" element={<SettingsRoute />} />
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={null}>
+        <Routes>
+          <Route path="/" element={<FollowedPage />} />
+          <Route path="/streams" element={<StreamsPage />} />
+          <Route path="/games" element={<GamesPage />} />
+          <Route path="/games/:gameId" element={<GameStreamsPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/teams" element={<TeamsSearchPage />} />
+          <Route path="/channel/:login" element={<ChannelPage />} />
+          <Route path="/team/:teamName" element={<TeamPage />} />
+          <Route path="/watching" element={<WatchingPage />} />
+          <Route path="/multistream" element={<MultistreamPage />} />
+          <Route path="/settings/*" element={<SettingsRoute />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </Sentry.ErrorBoundary>
   );
 }

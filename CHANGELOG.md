@@ -12,6 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.5] — 2026-08-26
+
+### Added
+
+- Explicit **Independent**, **Seamless**, and **Multistream** stream-opening modes, so multiple standalone player windows can run at the same time without automatically joining the coordinated multistream layout
+- Settings migration that preserves the behavior of existing `seamlessSwitch` configurations while moving stream-opening behavior to the explicit mode model
+
+### Changed
+
+- Independent streams no longer participate in multistream slot capacity, shared tiling, or linked-dock layout behavior merely because more than one stream is open
+- Ordinary native layout refreshes only synchronize chat width when the persisted value actually differs, leaving normal player/Chatterino placement to the existing delayed latest-generation retile path
+
+### Fixed
+
+- Opening a second stream no longer re-enters the interactive chat-width setter and synchronously blocks the Rillmux UI while Chatterino is restarting; explicit chat-width changes also avoid a duplicate full native layout apply
+- Channel Points HUDs keep their last valid player geometry and open reward catalogs across transient player-HWND lookup gaps during stream/layout transitions
+- Adding or removing another running stream no longer tears down every existing Channel Points HUD as a side effect of the HUD synchronization effect restarting
+- Existing Channel Points HUDs use a bounded grace period for temporary placement misses while their stream remains running, while genuine stream removal still closes only the corresponding HUD
+- Temporary website-auth status lookup failures no longer get treated as logout and destroy otherwise healthy Channel Points HUDs
+
 ## [0.5.4] — 2026-08-26
 
 ### Added
@@ -292,7 +312,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.5...HEAD
+[0.5.5]: https://github.com/Wibias/Rillmux/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/Wibias/Rillmux/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/Wibias/Rillmux/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.2

@@ -8,9 +8,10 @@ use thiserror::Error;
 
 use crate::http::shared_client;
 use crate::twitch_gql_operations::{
-    CHANNEL_POINTS_CONTEXT_HASHES, CLAIM_COMMUNITY_POINTS_HASH, MAKE_PREDICTION_HASH,
-    MAKE_PREDICTION_QUERY, PREDICTION_QUERY, PREDICTION_QUERY_BARE, PREDICTION_QUERY_USER,
-    VIEWABLE_POLL_HASHES, VIEWABLE_POLL_QUERIES, VOTE_IN_POLL_QUERY, VOTE_POLL_QUERY,
+    CHANNEL_POINTS_CONTEXT_HASHES, CHANNEL_POINTS_PREDICTION_CONTEXT_HASH,
+    CLAIM_COMMUNITY_POINTS_HASH, MAKE_PREDICTION_HASH, MAKE_PREDICTION_QUERY, PREDICTION_QUERY,
+    PREDICTION_QUERY_BARE, PREDICTION_QUERY_USER, VIEWABLE_POLL_HASHES, VIEWABLE_POLL_QUERIES,
+    VOTE_IN_POLL_QUERY, VOTE_POLL_QUERY,
 };
 
 const TWITCH_URL: &str = "https://www.twitch.tv";
@@ -1021,8 +1022,12 @@ fn parse_prediction(body: &Value) -> Option<ChannelPointsPrediction> {
         return None;
     }
     [
+        "/data/community/channel/activePredictionEvents",
+        "/data/community/channel/lockedPredictionEvents",
         "/data/channel/activePredictionEvents",
+        "/data/channel/lockedPredictionEvents",
         "/data/user/channel/activePredictionEvents",
+        "/data/user/channel/lockedPredictionEvents",
         "/data/channel/predictionEvents",
     ]
     .into_iter()
@@ -1032,6 +1037,22 @@ fn parse_prediction(body: &Value) -> Option<ChannelPointsPrediction> {
             .into_iter()
             .flatten()
             .find_map(parse_prediction_event)
+    })
+}
+
+fn prediction_context_payload(channel_login: &str) -> Value {
+    json!({
+        "operationName": "ChannelPointsPredictionContext",
+        "variables": {
+            "count": 1,
+            "channelLogin": channel_login
+        },
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": CHANNEL_POINTS_PREDICTION_CONTEXT_HASH
+            }
+        }
     })
 }
 
@@ -1138,6 +1159,15 @@ async fn fetch_prediction(
     token: &str,
     client_version: &str,
 ) -> Option<ChannelPointsPrediction> {
+    let payload = prediction_context_payload(channel_login);
+    if let Ok((status, body)) = post_web_gql(&payload, channel_login, token, client_version).await {
+        if status.is_success() {
+            if let Some(prediction) = parse_prediction(&body) {
+                return Some(prediction);
+            }
+        }
+    }
+
     for query in [
         PREDICTION_QUERY,
         PREDICTION_QUERY_USER,
@@ -1623,6 +1653,18 @@ mod tests {
     }
 
     #[test]
+    fn builds_prediction_context_payload() {
+        let payload = prediction_context_payload("example");
+        assert_eq!(payload["operationName"], "ChannelPointsPredictionContext");
+        assert_eq!(payload["variables"]["channelLogin"], "example");
+        assert_eq!(payload["variables"]["count"], 1);
+        assert_eq!(
+            payload["extensions"]["persistedQuery"]["sha256Hash"],
+            CHANNEL_POINTS_PREDICTION_CONTEXT_HASH
+        );
+    }
+
+    #[test]
     fn builds_vote_poll_query_payload_without_persisted_hash() {
         let payload = vote_poll_query_payload("poll-1", "choice-2", 10);
         assert_eq!(payload["operationName"], "VotePoll");
@@ -1978,6 +2020,55 @@ mod tests {
         assert_eq!(prediction.predicted_points, Some(50));
         assert_eq!(prediction.outcomes[0].points, 400);
         assert_eq!(prediction.outcomes.len(), 2);
+    }
+
+    #[test]
+    fn parses_community_prediction_context_active_and_locked() {
+        let active = json!({
+            "data": {
+                "community": {
+                    "channel": {
+                        "activePredictionEvents": [{
+                            "id": "pred-active",
+                            "title": "Active?",
+                            "status": "ACTIVE",
+                            "createdAt": "2026-08-26T20:00:00Z",
+                            "predictionWindowSeconds": 120,
+                            "outcomes": [
+                                { "id": "a", "title": "Yes", "totalPoints": 12, "totalUsers": 2 },
+                                { "id": "b", "title": "No", "totalPoints": 8, "totalUsers": 1 }
+                            ]
+                        }],
+                        "lockedPredictionEvents": []
+                    }
+                }
+            }
+        });
+        assert_eq!(parse_prediction(&active).expect("active").id, "pred-active");
+
+        let locked = json!({
+            "data": {
+                "community": {
+                    "channel": {
+                        "activePredictionEvents": [],
+                        "lockedPredictionEvents": [{
+                            "id": "pred-locked",
+                            "title": "Locked?",
+                            "status": "LOCKED",
+                            "createdAt": "2026-08-26T20:00:00Z",
+                            "predictionWindowSeconds": 60,
+                            "outcomes": [
+                                { "id": "a", "title": "Yes", "totalPoints": 30, "totalUsers": 3 },
+                                { "id": "b", "title": "No", "totalPoints": 20, "totalUsers": 2 }
+                            ]
+                        }]
+                    }
+                }
+            }
+        });
+        let prediction = parse_prediction(&locked).expect("locked");
+        assert_eq!(prediction.id, "pred-locked");
+        assert_eq!(prediction.status, "LOCKED");
     }
 
     #[test]

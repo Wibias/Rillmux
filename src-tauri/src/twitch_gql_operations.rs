@@ -44,6 +44,8 @@ pub(crate) const VIEWABLE_POLL_QUERIES: [&str; 3] = [
     r#"query ViewableChannelPoll($login: String!) { user(login: $login) { channel { currentPoll { id title status remainingDurationMilliseconds settings { communityPointsVotes { isEnabled cost } } self { voter { choices { pollChoice { id } } } } choices { id title totalVoters votes { total communityPoints } } } } } }"#,
     r#"query ViewableChannelPoll($login: String!) { user(login: $login) { currentPoll { id title status remainingDurationMilliseconds settings { communityPointsVotes { isEnabled cost } } choices { id title totalVoters votes { total communityPoints } } } } }"#,
 ];
+pub(crate) const CHANNEL_POINTS_PREDICTION_CONTEXT_HASH: &str =
+    "beb846598256b75bd7c1fe54a80431335996153e358ca9c7837ce7bb83d7d383";
 pub(crate) const PREDICTION_QUERY: &str = r#"query ViewablePredictions($login: String!) { channel(name: $login) { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } self { prediction { points outcome { id } } } } } }"#;
 pub(crate) const PREDICTION_QUERY_USER: &str = r#"query ViewablePredictions($login: String!) { user(login: $login) { channel { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } self { prediction { points outcome { id } } } } } } }"#;
 pub(crate) const PREDICTION_QUERY_BARE: &str = r#"query ViewablePredictions($login: String!) { channel(name: $login) { id activePredictionEvents { id title status createdAt predictionWindowSeconds outcomes { id title totalPoints totalUsers } } } }"#;
@@ -59,6 +61,7 @@ const NO_HASHES: &[&str] = &[];
 const NO_FALLBACKS: &[QueryFallback] = &[];
 const CONTEXT_HASHES: &[&str] = &CHANNEL_POINTS_CONTEXT_HASHES;
 const POLL_HASHES: &[&str] = &VIEWABLE_POLL_HASHES;
+const PREDICTION_CONTEXT_HASHES: &[&str] = &[CHANNEL_POINTS_PREDICTION_CONTEXT_HASH];
 const MAKE_PREDICTION_HASHES: &[&str] = &[MAKE_PREDICTION_HASH];
 const CLAIM_HASHES: &[&str] = &[CLAIM_COMMUNITY_POINTS_HASH];
 const POLL_FALLBACKS: &[QueryFallback] = &[
@@ -119,9 +122,9 @@ pub(crate) const OPERATIONS: &[PrivateGqlOperation] = &[
         query_fallbacks: POLL_FALLBACKS,
     },
     PrivateGqlOperation {
-        family: "ViewablePredictions",
+        family: "ChannelPointsPredictionContext",
         auth: PrivateGqlAuth::Website,
-        persisted_hashes: NO_HASHES,
+        persisted_hashes: PREDICTION_CONTEXT_HASHES,
         query_fallbacks: PREDICTION_FALLBACKS,
     },
     PrivateGqlOperation {

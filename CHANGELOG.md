@@ -12,6 +12,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.4] — 2026-08-26
+
+### Added
+
+- Scheduled cleanup for completed GitHub Actions histories whose local workflow files and live branch copies no longer exist, with ref revalidation before destructive cleanup
+- Release-like CI contracts for frontend/Sentry bundle splitting and warning-free release-profile Rust builds
+
+### Changed
+
+- Browse, settings, multistream, auth, and supporting frontend code are split into route and stable vendor chunks instead of loading the former monolithic application bundle up front
+- Sentry's React SDK is loaded only when telemetry is configured and enabled, keeping the SDK out of the normal initial frontend graph while preserving crash capture through a local error boundary
+- Release CI treats Rust warnings as errors and verifies the release profile before packaging; stale NSIS/MSI JSON upload globs were removed while the updater manifest remains intact
+
+### Fixed
+
+- Successful Prediction votes now show an explicit confirmation with the selected stake and immediately disable further voting for that prediction
+- Confirmed Prediction participation is synchronized between the host and overlay windows so delayed Twitch snapshots cannot re-enable controls and allow an accidental duplicate point spend
+- Poll/prediction overlays now use a bounded ready/acknowledgement handshake and remain hidden until real state is available, preventing the blank gray startup window
+- Prediction participation remains visible when a later Twitch snapshot temporarily omits the user's selected outcome or stake
+- The poll/prediction dismiss action now says **Close** instead of **Hide**
+
 ## [0.5.3] — 2026-08-26
 
 ### Added
@@ -271,7 +292,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/Wibias/Rillmux/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/Wibias/Rillmux/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.2
 [0.5.1]: https://github.com/Wibias/Rillmux/releases/tag/v0.5.1

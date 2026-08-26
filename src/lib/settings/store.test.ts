@@ -26,7 +26,7 @@ describe("migrateSettings", () => {
     expect(result.streaming.channelPointsPolls).toBe(false);
     expect(result.streaming.channelPointsHud).toBe(false);
     expect(result.streaming.channelPointsHudOffset).toBeNull();
-    expect(result.streaming.seamlessSwitch).toBe(true);
+    expect(result.streaming.streamOpenMode).toBe("seamless");
     expect(result.streaming.followRaids).toBe(true);
     expect(result.streaming.streamLanguages).toEqual([]);
     expect(result.gui.onboardingDone).toBe(false);
@@ -83,7 +83,7 @@ describe("migrateSettings", () => {
     });
     expect(result.streaming.disableAds).toBe(false);
     expect(result.streaming.channelPoints).toBe(false);
-    expect(result.streaming.seamlessSwitch).toBe(true);
+    expect(result.streaming.streamOpenMode).toBe("seamless");
     expect(result.streaming.webbrowser).toBe(false);
     expect(result.player.input).toBe("default");
     expect(result.player.mpv.noBorder).toBe(true);

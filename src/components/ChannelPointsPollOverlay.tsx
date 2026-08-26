@@ -4,13 +4,18 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSettingsStore } from "../lib/settings/store";
 import {
+  applyConfirmedPredictionVote,
   isClosedPredictionError,
+  mergeConfirmedPredictionVoteSnapshot,
+  nextPollOverlayReadyAttempt,
   overlayRectMoved,
   pollOverlayRect,
   POLL_FALLBACK_REFRESH_MS,
+  POLL_OVERLAY_READY_RETRY_MS,
   pollOverlayShouldPollGql,
   predictionAcceptsVotes,
   predictionRemainingSeconds,
+  type ConfirmedPredictionVote,
   type OverlayRect,
 } from "../lib/streaming/pollOverlay";
 import { useWatchingStore } from "../lib/streaming/store";
@@ -58,6 +63,12 @@ interface ChannelPointsSnapshot {
   balance: number;
   poll?: ChannelPointsPoll | null;
   prediction?: ChannelPointsPrediction | null;
+}
+
+interface PollOverlayPredictionVoteConfirmed {
+  channel: string;
+  snapshot: ChannelPointsSnapshot;
+  confirmed: ConfirmedPredictionVote;
 }
 
 const OVERLAY_LABEL = "poll-overlay";
@@ -163,7 +174,7 @@ async function placeOverlayWindow(channel: string) {
     overlayOpen = true;
     lastPlacedRect = rect;
     await existing?.close().catch(() => undefined);
-    const overlay = new WebviewWindow(OVERLAY_LABEL, {
+    new WebviewWindow(OVERLAY_LABEL, {
       url: overlayUrl(channel),
       title: "Poll",
       decorations: false,
@@ -172,17 +183,12 @@ async function placeOverlayWindow(channel: string) {
       skipTaskbar: true,
       alwaysOnTop: true,
       resizable: false,
-      focus: true,
+      visible: false,
+      focus: false,
       x,
       y,
       width,
       height,
-    });
-    void overlay.once("tauri://created", () => {
-      void invoke("poll_overlay_raise");
-      if (lastHostSnapshot) {
-        void emit("poll-overlay-state", lastHostSnapshot);
-      }
     });
   } finally {
     placing = false;
@@ -227,6 +233,7 @@ export function ChannelPointsPollOverlay() {
   const [stake, setStake] = useState(MIN_PREDICTION_POINTS);
   const [, setTick] = useState(0);
   const dismissed = useRef<Set<string>>(new Set());
+  const confirmedPredictionVote = useRef<ConfirmedPredictionVote | null>(null);
 
   const channel = overlayWindow
     ? pollChannelFromSearch()?.toLowerCase() ?? null
@@ -241,15 +248,22 @@ export function ChannelPointsPollOverlay() {
     let active = true;
     const applySnapshot = (next: ChannelPointsSnapshot) => {
       if (!active) return;
-      lastHostSnapshot = next;
-      setSnapshot(next);
+      const merged: ChannelPointsSnapshot = {
+        ...next,
+        prediction: applyConfirmedPredictionVote(
+          next.prediction ?? null,
+          confirmedPredictionVote.current,
+        ),
+      };
+      lastHostSnapshot = merged;
+      setSnapshot(merged);
       setError(null);
-      const eventId = overlayEventId(next);
+      const eventId = overlayEventId(merged);
       if (!overlayWindow && eventId && !dismissed.current.has(eventId)) {
         void placeOverlayWindow(channel);
-        void emit("poll-overlay-state", next);
+        void emit("poll-overlay-state", merged);
       } else if (!overlayWindow && eventId) {
-        void emit("poll-overlay-state", next);
+        void emit("poll-overlay-state", merged);
       }
     };
     const refresh = async (useCache: boolean) => {
@@ -307,6 +321,9 @@ export function ChannelPointsPollOverlay() {
       const pollId = event.payload?.pollId?.trim();
       if (!pollId) return;
       dismissed.current.add(pollId);
+      if (confirmedPredictionVote.current?.eventId === pollId) {
+        confirmedPredictionVote.current = null;
+      }
       setSnapshot((current) => {
         if (!current) return current;
         if (current.poll?.id === pollId) return { ...current, poll: null };
@@ -321,17 +338,113 @@ export function ChannelPointsPollOverlay() {
   }, [overlayWindow]);
 
   useEffect(() => {
-    if (!overlayWindow || !isTauri()) return;
+    if (overlayWindow || !isTauri() || !channel) return;
+    let active = true;
+    let listenersReady = false;
+    let unlistenReady: (() => void) | undefined;
+    let unlistenConfirmedVote: (() => void) | undefined;
+
+    const readyListener = listen<{ channel: string }>("poll-overlay-ready", (event) => {
+      if (!listenersReady) return;
+      const readyChannel = event.payload?.channel?.trim().toLowerCase();
+      if (readyChannel !== channel) return;
+      if (lastHostSnapshot?.channelLogin.toLowerCase() !== channel) return;
+      void emit("poll-overlay-state", lastHostSnapshot);
+    });
+    const confirmedVoteListener = listen<PollOverlayPredictionVoteConfirmed>(
+      "poll-overlay-vote-confirmed",
+      (event) => {
+        if (!listenersReady) return;
+        const payload = event.payload;
+        const confirmedChannel = payload?.channel?.trim().toLowerCase();
+        if (confirmedChannel !== channel) return;
+        if (payload.snapshot?.channelLogin.toLowerCase() !== channel) return;
+        const merged = mergeConfirmedPredictionVoteSnapshot(
+          payload.snapshot,
+          lastHostSnapshot?.prediction ?? null,
+          payload.confirmed,
+        );
+        confirmedPredictionVote.current = payload.confirmed;
+        lastHostSnapshot = merged;
+        setSnapshot(merged);
+        setError(null);
+        void emit("poll-overlay-state", merged);
+      },
+    );
+
+    void Promise.all([readyListener, confirmedVoteListener]).then(
+      ([readyUnlisten, confirmedVoteUnlisten]) => {
+        if (!active) {
+          readyUnlisten();
+          confirmedVoteUnlisten();
+          return;
+        }
+        unlistenReady = readyUnlisten;
+        unlistenConfirmedVote = confirmedVoteUnlisten;
+        listenersReady = true;
+      },
+    );
+
+    return () => {
+      active = false;
+      listenersReady = false;
+      unlistenReady?.();
+      unlistenConfirmedVote?.();
+    };
+  }, [channel, overlayWindow]);
+
+  useEffect(() => {
+    if (!overlayWindow || !isTauri() || !channel) return;
+    let active = true;
+    let acknowledged = false;
+    let attempts = 0;
+    let retryTimer = 0;
     let unlisten: (() => void) | undefined;
+
+    const clearRetry = () => {
+      if (!retryTimer) return;
+      window.clearTimeout(retryTimer);
+      retryTimer = 0;
+    };
+    const requestState = () => {
+      if (!active) return;
+      const nextAttempt = nextPollOverlayReadyAttempt(attempts, acknowledged);
+      if (nextAttempt == null) return;
+      attempts = nextAttempt;
+      void emit("poll-overlay-ready", { channel }).finally(() => {
+        if (!active || acknowledged) return;
+        retryTimer = window.setTimeout(requestState, POLL_OVERLAY_READY_RETRY_MS);
+      });
+    };
+
     void listen<ChannelPointsSnapshot>("poll-overlay-state", (event) => {
       if (!event.payload) return;
-      setSnapshot(event.payload);
+      acknowledged = true;
+      clearRetry();
+      const next = event.payload;
+      setSnapshot({
+        ...next,
+        prediction: applyConfirmedPredictionVote(
+          next.prediction ?? null,
+          confirmedPredictionVote.current,
+        ),
+      });
       setError(null);
     }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
       unlisten = fn;
+      requestState();
     });
-    return () => unlisten?.();
-  }, [overlayWindow]);
+
+    return () => {
+      active = false;
+      clearRetry();
+      unlisten?.();
+    };
+  }, [channel, overlayWindow]);
 
   const poll = snapshot?.poll;
   const prediction = snapshot?.prediction;
@@ -361,6 +474,17 @@ export function ChannelPointsPollOverlay() {
     const timer = window.setInterval(() => setTick((tick) => tick + 1), 1000);
     return () => window.clearInterval(timer);
   }, [predictionOpen, showPrediction]);
+
+  useEffect(() => {
+    if (!overlayWindow || !isTauri() || !showOverlay) return;
+    const frame = window.requestAnimationFrame(() => {
+      void getCurrentWindow()
+        .show()
+        .then(() => invoke("poll_overlay_raise"))
+        .catch(() => undefined);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [overlayWindow, showOverlay, poll?.id, prediction?.id]);
 
   useEffect(() => {
     if (overlayWindow || !isTauri()) return;
@@ -394,8 +518,8 @@ export function ChannelPointsPollOverlay() {
     if (!prediction || !channel || votingId) return;
     if (!predictionAcceptsVotes(prediction)) return;
     if (
-      prediction.predictedOutcomeId &&
-      prediction.predictedOutcomeId !== outcomeId
+      prediction.predictedOutcomeId ||
+      confirmedPredictionVote.current?.eventId === prediction.id
     ) {
       return;
     }
@@ -410,12 +534,30 @@ export function ChannelPointsPollOverlay() {
           points: clampedStake,
         },
       );
-      setSnapshot(next);
+      const confirmed: ConfirmedPredictionVote = {
+        eventId: prediction.id,
+        outcomeId,
+        points: clampedStake,
+      };
+      confirmedPredictionVote.current = confirmed;
+      const merged = mergeConfirmedPredictionVoteSnapshot(
+        next,
+        prediction,
+        confirmed,
+      );
+      setSnapshot(merged);
       setError(null);
-      if (overlayWindow && isTauri() && !overlayEventId(next)) {
-        dismissed.current.add(prediction.id);
-        await emit("poll-overlay-dismiss", { pollId: prediction.id });
-        await getCurrentWindow().close().catch(() => undefined);
+      if (isTauri()) {
+        if (overlayWindow) {
+          void emit("poll-overlay-vote-confirmed", {
+            channel,
+            snapshot: merged,
+            confirmed,
+          } satisfies PollOverlayPredictionVoteConfirmed);
+        } else {
+          lastHostSnapshot = merged;
+          void emit("poll-overlay-state", merged);
+        }
       }
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
@@ -443,6 +585,9 @@ export function ChannelPointsPollOverlay() {
     const eventId = overlayEventId(snapshot);
     if (!eventId) return;
     dismissed.current.add(eventId);
+    if (confirmedPredictionVote.current?.eventId === eventId) {
+      confirmedPredictionVote.current = null;
+    }
     setSnapshot((current) => {
       if (!current) return current;
       if (current.poll?.id === eventId) return { ...current, poll: null };
@@ -465,6 +610,7 @@ export function ChannelPointsPollOverlay() {
 
   if (showPrediction && prediction && !showPoll) {
     const locked = !predictionOpen;
+    const alreadyPredicted = Boolean(prediction.predictedOutcomeId);
     return (
       <aside className={cardClass} role="dialog" aria-label={prediction.title}>
         <header className="poll-overlay__head">
@@ -487,7 +633,12 @@ export function ChannelPointsPollOverlay() {
               ? t("pollVoteRemaining", { seconds: remainingPrediction })
               : t("pollPredictionStake")}
         </p>
-        {locked ? null : (
+        {alreadyPredicted ? (
+          <p className="poll-overlay__confirmation" role="status">
+            <span aria-hidden="true">✓</span> {t("pollPredictionPlaced")}
+          </p>
+        ) : null}
+        {locked || alreadyPredicted ? null : (
           <label className="poll-overlay__stake">
             <span>{t("pollPredictionStake")}</span>
             <input
@@ -507,9 +658,6 @@ export function ChannelPointsPollOverlay() {
         <ul className="poll-overlay__choices">
           {prediction.outcomes.map((outcome) => {
             const voted = prediction.predictedOutcomeId === outcome.id;
-            const otherPicked =
-              Boolean(prediction.predictedOutcomeId) &&
-              prediction.predictedOutcomeId !== outcome.id;
             return (
               <li key={outcome.id}>
                 <button
@@ -517,7 +665,7 @@ export function ChannelPointsPollOverlay() {
                   className={
                     voted ? "poll-overlay__choice is-voted" : "poll-overlay__choice"
                   }
-                  disabled={locked || otherPicked || votingId !== null}
+                  disabled={locked || alreadyPredicted || votingId !== null}
                   onClick={() => void votePrediction(outcome.id)}
                 >
                   <span>{outcome.title}</span>

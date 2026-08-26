@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   POLL_FALLBACK_REFRESH_MS,
+  POLL_OVERLAY_READY_MAX_ATTEMPTS,
+  applyConfirmedPredictionVote,
   isClosedPredictionError,
+  mergeConfirmedPredictionVoteSnapshot,
+  nextPollOverlayReadyAttempt,
   overlayRectMoved,
   pollOverlayRect,
   pollOverlayShouldPollGql,
@@ -73,5 +77,75 @@ describe("prediction vote window", () => {
     expect(isClosedPredictionError("Not enough Channel Points to make that prediction")).toBe(
       false,
     );
+  });
+});
+
+describe("confirmed prediction participation", () => {
+  const prediction = {
+    id: "prediction-1",
+    status: "ACTIVE",
+    predictedOutcomeId: null,
+    predictedPoints: null,
+  };
+
+  it("restores a successful local vote when a later snapshot omits participation", () => {
+    expect(
+      applyConfirmedPredictionVote(prediction, {
+        eventId: "prediction-1",
+        outcomeId: "outcome-blue",
+        points: 10_500,
+      }),
+    ).toEqual({
+      ...prediction,
+      predictedOutcomeId: "outcome-blue",
+      predictedPoints: 10_500,
+    });
+  });
+
+  it("does not carry a local vote into another or removed prediction", () => {
+    const confirmed = {
+      eventId: "prediction-1",
+      outcomeId: "outcome-blue",
+      points: 10_500,
+    };
+    expect(applyConfirmedPredictionVote({ ...prediction, id: "prediction-2" }, confirmed)).toEqual({
+      ...prediction,
+      id: "prediction-2",
+    });
+    expect(applyConfirmedPredictionVote(null, confirmed)).toBeNull();
+  });
+
+  it("builds one confirmed snapshot that can be shared with the peer window", () => {
+    const snapshot = {
+      channelLogin: "xthesolutiontv",
+      balance: 61_634,
+      prediction: null,
+    };
+    expect(
+      mergeConfirmedPredictionVoteSnapshot(snapshot, prediction, {
+        eventId: "prediction-1",
+        outcomeId: "outcome-blue",
+        points: 10_500,
+      }),
+    ).toEqual({
+      ...snapshot,
+      prediction: {
+        ...prediction,
+        predictedOutcomeId: "outcome-blue",
+        predictedPoints: 10_500,
+      },
+    });
+  });
+});
+
+describe("poll overlay ready handshake", () => {
+  it("retries a lost ready event until state is acknowledged", () => {
+    expect(nextPollOverlayReadyAttempt(0, false)).toBe(1);
+    expect(nextPollOverlayReadyAttempt(1, false)).toBe(2);
+    expect(nextPollOverlayReadyAttempt(2, true)).toBeNull();
+  });
+
+  it("bounds ready retries when the host never acknowledges", () => {
+    expect(nextPollOverlayReadyAttempt(POLL_OVERLAY_READY_MAX_ATTEMPTS, false)).toBeNull();
   });
 });

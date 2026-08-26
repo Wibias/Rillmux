@@ -26,6 +26,11 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             {
+              name: "sentry",
+              test: /node_modules[\\/]@sentry[\\/]/,
+              priority: 40,
+            },
+            {
               name: "react-core",
               test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
               priority: 30,

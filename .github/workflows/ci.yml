@@ -53,6 +53,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Sentry release-like bundle split
+        env:
+          VITE_SENTRY_DSN: https://public@example.invalid/1
+        run: |
+          npm run build
+          node scripts/assert-sentry-split.mjs
       - name: Dependency audit gate
         run: node scripts/audit-gate.mjs
 

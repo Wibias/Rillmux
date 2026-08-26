@@ -1,11 +1,24 @@
-import * as Sentry from "@sentry/react";
-import { useEffect, useRef } from "react";
+import {
+  Component,
+  useEffect,
+  useRef,
+  type ErrorInfo,
+  type ReactNode,
+} from "react";
 import { useSettingsStore } from "./settings/store";
 import { invoke, isTauri } from "./tauri";
 
 const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
+type SentrySdk = typeof import("./sentry-sdk");
+
+let sdkPromise: Promise<SentrySdk> | null = null;
 let initialized = false;
+
+function loadSentrySdk(): Promise<SentrySdk> {
+  sdkPromise ??= import("./sentry-sdk");
+  return sdkPromise;
+}
 
 /**
  * Redact anything that could carry credentials:
@@ -56,9 +69,11 @@ function scrubData(value: unknown): unknown {
   return value;
 }
 
-function ensureInit(): boolean {
-  if (!dsn) return false;
-  if (initialized) return true;
+async function ensureInit(): Promise<SentrySdk | null> {
+  if (!dsn) return null;
+  const Sentry = await loadSentrySdk();
+  if (initialized) return Sentry;
+
   Sentry.init({
     dsn,
     enabled: true,
@@ -96,11 +111,11 @@ function ensureInit(): boolean {
     },
   });
   initialized = true;
-  return true;
+  return Sentry;
 }
 
 /** Syncs the persisted consent toggle with both React and native Sentry. */
-export function SentryBootstrap({ children }: { children: React.ReactNode }) {
+export function SentryBootstrap({ children }: { children: ReactNode }) {
   const enabled = useSettingsStore((s) => s.settings.sentryEnabled);
   const hydrated = useSettingsStore((s) => s.hydrated);
   const last = useRef<boolean | null>(null);
@@ -118,13 +133,33 @@ export function SentryBootstrap({ children }: { children: React.ReactNode }) {
 
     if (!dsn || last.current === enabled) return;
     last.current = enabled;
+    let cancelled = false;
 
-    // Do not initialise telemetry for an opted-out user merely to disable it.
-    if (enabled && !ensureInit()) return;
-    const client = Sentry.getClient();
-    if (client) {
-      client.getOptions().enabled = enabled;
+    if (enabled) {
+      void ensureInit()
+        .then((Sentry) => {
+          if (cancelled || !Sentry) return;
+          const client = Sentry.getClient();
+          if (client) client.getOptions().enabled = true;
+        })
+        .catch(() => {
+          if (!cancelled) last.current = null;
+        });
+    } else {
+      // An opted-out user should not download the SDK just so we can disable it.
+      if (!sdkPromise) return;
+      void sdkPromise
+        .then((Sentry) => {
+          if (cancelled) return;
+          const client = Sentry.getClient();
+          if (client) client.getOptions().enabled = false;
+        })
+        .catch(() => undefined);
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [enabled, hydrated]);
 
   return children;
@@ -132,6 +167,42 @@ export function SentryBootstrap({ children }: { children: React.ReactNode }) {
 
 export function captureAppError(error: unknown, context?: string): void {
   if (!dsn || !useSettingsStore.getState().settings.sentryEnabled) return;
-  ensureInit();
-  Sentry.captureException(error, context ? { tags: { context } } : undefined);
+  void ensureInit()
+    .then((Sentry) => {
+      if (!Sentry || !useSettingsStore.getState().settings.sentryEnabled) return;
+      Sentry.captureException(
+        error,
+        context ? { tags: { context } } : undefined,
+      );
+    })
+    .catch(() => undefined);
+}
+
+type AppErrorBoundaryProps = {
+  children: ReactNode;
+  fallback: ReactNode;
+};
+
+type AppErrorBoundaryState = {
+  failed: boolean;
+};
+
+/** Keeps React crash containment synchronous while reporting lazily to Sentry. */
+export class AppErrorBoundary extends Component<
+  AppErrorBoundaryProps,
+  AppErrorBoundaryState
+> {
+  state: AppErrorBoundaryState = { failed: false };
+
+  static getDerivedStateFromError(): AppErrorBoundaryState {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo) {
+    captureAppError(error, "react_error_boundary");
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
 }

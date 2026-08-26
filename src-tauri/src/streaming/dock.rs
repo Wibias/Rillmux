@@ -1,4 +1,19 @@
 /// Re-tile mpv windows for active channels; optionally leave the right strip for chat.
+fn sync_layout_chat_fraction(chat_fraction: Option<f64>) {
+    let Some(requested) = chat_fraction else {
+        return;
+    };
+    let requested = crate::dock::clamp_chat_fraction(requested);
+    let current = crate::dock::chat_fraction();
+    // Ordinary session/layout refreshes always carry the persisted fraction.
+    // Re-entering the interactive setter when it is unchanged synchronously
+    // runs a full Win32 dock apply against mpv/Chatterino and can block for
+    // seconds while Chatterino is restarting for a new multistream channel.
+    if (current - requested).abs() >= 0.001 {
+        crate::dock::set_chat_fraction(requested);
+    }
+}
+
 pub fn layout_watching(
     channels: &[String],
     reserve_chat: bool,
@@ -17,9 +32,7 @@ pub fn layout_watching(
         return Ok(());
     }
     let layout = normalize_layout(layout);
-    if let Some(f) = chat_fraction {
-        crate::dock::set_chat_fraction(f);
-    }
+    sync_layout_chat_fraction(chat_fraction);
     if let Some(side) = main_side {
         crate::dock::set_main_side(side);
     }
@@ -682,7 +695,6 @@ pub fn dock_set_linked(enabled: bool) {
 
 pub fn dock_set_chat_fraction(f: f64) {
     crate::dock::set_chat_fraction(f);
-    apply_dock_layout();
 }
 
 pub fn dock_cycle_monitor() {

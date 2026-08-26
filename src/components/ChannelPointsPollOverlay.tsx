@@ -6,9 +6,12 @@ import { useSettingsStore } from "../lib/settings/store";
 import {
   applyConfirmedPredictionVote,
   isClosedPredictionError,
+  mergeConfirmedPredictionVoteSnapshot,
+  nextPollOverlayReadyAttempt,
   overlayRectMoved,
   pollOverlayRect,
   POLL_FALLBACK_REFRESH_MS,
+  POLL_OVERLAY_READY_RETRY_MS,
   pollOverlayShouldPollGql,
   predictionAcceptsVotes,
   predictionRemainingSeconds,
@@ -60,6 +63,12 @@ interface ChannelPointsSnapshot {
   balance: number;
   poll?: ChannelPointsPoll | null;
   prediction?: ChannelPointsPrediction | null;
+}
+
+interface PollOverlayPredictionVoteConfirmed {
+  channel: string;
+  snapshot: ChannelPointsSnapshot;
+  confirmed: ConfirmedPredictionVote;
 }
 
 const OVERLAY_LABEL = "poll-overlay";
@@ -330,23 +339,88 @@ export function ChannelPointsPollOverlay() {
 
   useEffect(() => {
     if (overlayWindow || !isTauri() || !channel) return;
-    let unlisten: (() => void) | undefined;
-    void listen<{ channel: string }>("poll-overlay-ready", (event) => {
+    let active = true;
+    let listenersReady = false;
+    let unlistenReady: (() => void) | undefined;
+    let unlistenConfirmedVote: (() => void) | undefined;
+
+    const readyListener = listen<{ channel: string }>("poll-overlay-ready", (event) => {
+      if (!listenersReady) return;
       const readyChannel = event.payload?.channel?.trim().toLowerCase();
       if (readyChannel !== channel) return;
       if (lastHostSnapshot?.channelLogin.toLowerCase() !== channel) return;
       void emit("poll-overlay-state", lastHostSnapshot);
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
+    const confirmedVoteListener = listen<PollOverlayPredictionVoteConfirmed>(
+      "poll-overlay-vote-confirmed",
+      (event) => {
+        if (!listenersReady) return;
+        const payload = event.payload;
+        const confirmedChannel = payload?.channel?.trim().toLowerCase();
+        if (confirmedChannel !== channel) return;
+        if (payload.snapshot?.channelLogin.toLowerCase() !== channel) return;
+        const merged = mergeConfirmedPredictionVoteSnapshot(
+          payload.snapshot,
+          lastHostSnapshot?.prediction ?? null,
+          payload.confirmed,
+        );
+        confirmedPredictionVote.current = payload.confirmed;
+        lastHostSnapshot = merged;
+        setSnapshot(merged);
+        setError(null);
+        void emit("poll-overlay-state", merged);
+      },
+    );
+
+    void Promise.all([readyListener, confirmedVoteListener]).then(
+      ([readyUnlisten, confirmedVoteUnlisten]) => {
+        if (!active) {
+          readyUnlisten();
+          confirmedVoteUnlisten();
+          return;
+        }
+        unlistenReady = readyUnlisten;
+        unlistenConfirmedVote = confirmedVoteUnlisten;
+        listenersReady = true;
+      },
+    );
+
+    return () => {
+      active = false;
+      listenersReady = false;
+      unlistenReady?.();
+      unlistenConfirmedVote?.();
+    };
   }, [channel, overlayWindow]);
 
   useEffect(() => {
     if (!overlayWindow || !isTauri() || !channel) return;
+    let active = true;
+    let acknowledged = false;
+    let attempts = 0;
+    let retryTimer = 0;
     let unlisten: (() => void) | undefined;
+
+    const clearRetry = () => {
+      if (!retryTimer) return;
+      window.clearTimeout(retryTimer);
+      retryTimer = 0;
+    };
+    const requestState = () => {
+      if (!active) return;
+      const nextAttempt = nextPollOverlayReadyAttempt(attempts, acknowledged);
+      if (nextAttempt == null) return;
+      attempts = nextAttempt;
+      void emit("poll-overlay-ready", { channel }).finally(() => {
+        if (!active || acknowledged) return;
+        retryTimer = window.setTimeout(requestState, POLL_OVERLAY_READY_RETRY_MS);
+      });
+    };
+
     void listen<ChannelPointsSnapshot>("poll-overlay-state", (event) => {
       if (!event.payload) return;
+      acknowledged = true;
+      clearRetry();
       const next = event.payload;
       setSnapshot({
         ...next,
@@ -357,10 +431,19 @@ export function ChannelPointsPollOverlay() {
       });
       setError(null);
     }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
       unlisten = fn;
-      void emit("poll-overlay-ready", { channel });
+      requestState();
     });
-    return () => unlisten?.();
+
+    return () => {
+      active = false;
+      clearRetry();
+      unlisten?.();
+    };
   }, [channel, overlayWindow]);
 
   const poll = snapshot?.poll;
@@ -457,13 +540,25 @@ export function ChannelPointsPollOverlay() {
         points: clampedStake,
       };
       confirmedPredictionVote.current = confirmed;
-      const responsePrediction =
-        next.prediction?.id === prediction.id ? next.prediction : prediction;
-      setSnapshot({
-        ...next,
-        prediction: applyConfirmedPredictionVote(responsePrediction, confirmed),
-      });
+      const merged = mergeConfirmedPredictionVoteSnapshot(
+        next,
+        prediction,
+        confirmed,
+      );
+      setSnapshot(merged);
       setError(null);
+      if (isTauri()) {
+        if (overlayWindow) {
+          void emit("poll-overlay-vote-confirmed", {
+            channel,
+            snapshot: merged,
+            confirmed,
+          } satisfies PollOverlayPredictionVoteConfirmed);
+        } else {
+          lastHostSnapshot = merged;
+          void emit("poll-overlay-state", merged);
+        }
+      }
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
       if (isClosedPredictionError(message)) {

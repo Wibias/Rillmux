@@ -20,6 +20,36 @@ export default defineConfig({
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(pkg.version),
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "react-core",
+              test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+              priority: 30,
+            },
+            {
+              name: "tauri",
+              test: /node_modules[\\/]@tauri-apps[\\/]/,
+              priority: 20,
+            },
+            {
+              name: "i18n",
+              test: /node_modules[\\/](?:i18next|react-i18next)[\\/]/,
+              priority: 20,
+            },
+            {
+              name: "app-state",
+              test: /node_modules[\\/](?:@tanstack[\\/]react-query|react-router|zustand)[\\/]/,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

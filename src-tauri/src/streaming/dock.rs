@@ -112,14 +112,6 @@ fn apply_dock_layout_inner(raise_after_apply: bool) {
     }
 }
 
-/// Immediate retile from dock grip drags (no delayed retry loop).
-pub fn apply_dock_layout() {
-    #[cfg(windows)]
-    {
-        apply_dock_layout_inner(crate::dock::take_raise_after_apply());
-    }
-}
-
 fn apply_dock_layout_cb() {
     #[cfg(windows)]
     {
@@ -133,8 +125,6 @@ fn apply_dock_layout_cb() {
         }
         apply_dock_layout_inner(false);
     }
-    #[cfg(not(windows))]
-    apply_dock_layout();
 }
 
 static CHATTERINO_PLACE_GEN: AtomicU64 = AtomicU64::new(0);

@@ -200,6 +200,10 @@ export function migrateSettings(raw: unknown): AppSettings {
   if (merged.streaming.streamOpenMode !== "multistream") {
     merged.streaming.linkedDock = false;
   }
+  // Older browse/multistream views still consume this derived compatibility
+  // bit. Launch/session behavior uses streamOpenMode exclusively.
+  merged.streaming.seamlessSwitch =
+    merged.streaming.streamOpenMode !== "multistream";
 
   // v8: webbrowser default flipped off — it made first stream starts very slow.
   if (prevSchema < 8) {
@@ -208,9 +212,6 @@ export function migrateSettings(raw: unknown): AppSettings {
 
   delete (merged as { quality?: string }).quality;
   delete (merged as { closeToTray?: boolean }).closeToTray;
-  delete (
-    merged.streaming as AppSettings["streaming"] & { seamlessSwitch?: boolean }
-  ).seamlessSwitch;
   return merged;
 }
 

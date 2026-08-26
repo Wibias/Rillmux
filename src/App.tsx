@@ -7,7 +7,6 @@ import {
   useLocation,
 } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import * as Sentry from "@sentry/react";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "./components/AppShell";
 import { ThemeProvider } from "./components/ThemeProvider";
@@ -33,7 +32,7 @@ import {
 } from "./components/ChannelPointsHud";
 import { ChannelPointsHudSync } from "./components/ChannelPointsHudSync";
 import { settingsTabFromPath } from "./lib/settings/tabs";
-import { SentryBootstrap } from "./lib/sentry";
+import { AppErrorBoundary, SentryBootstrap } from "./lib/sentry";
 import "./styles/global.css";
 
 const FollowedPage = lazy(() =>
@@ -114,9 +113,9 @@ function SettingsRoute() {
 function AppRoutes() {
   const { t } = useTranslation("errors");
   return (
-    // One failing page must not white-screen the whole app; Sentry captures
-    // the exception (only when crash reports are enabled).
-    <Sentry.ErrorBoundary
+    // One failing page must not white-screen the whole app; reporting remains
+    // opt-in and loads the Sentry SDK only when telemetry is actually used.
+    <AppErrorBoundary
       fallback={
         <p className="muted" role="alert" style={{ padding: "2rem" }}>
           {t("generic")}
@@ -140,7 +139,7 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
-    </Sentry.ErrorBoundary>
+    </AppErrorBoundary>
   );
 }
 
@@ -198,9 +197,9 @@ export default function App() {
                           <UpdateBanner />
                           <RaidBanner />
                           <ChannelPointsPollOverlay />
-                          <Sentry.ErrorBoundary fallback={<span hidden />}>
+                          <AppErrorBoundary fallback={<span hidden />}>
                             <ChannelPointsHudSync />
-                          </Sentry.ErrorBoundary>
+                          </AppErrorBoundary>
                           <AppRoutes />
                         </AppShell>
                       </StreamingBootstrap>

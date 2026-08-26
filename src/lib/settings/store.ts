@@ -4,6 +4,7 @@ import {
   defaultDebugCategories,
   defaultHotkeys,
   defaultSettings,
+  isStreamOpenMode,
   SETTINGS_SCHEMA_VERSION,
 } from "./types";
 import {
@@ -49,10 +50,14 @@ export function migrateSettings(raw: unknown): AppSettings {
   if (!raw || typeof raw !== "object") {
     return base;
   }
-  const input = raw as Partial<AppSettings> & {
+  const input = raw as Omit<Partial<AppSettings>, "streaming"> & {
     schemaVersion?: number;
     quality?: string;
     closeToTray?: boolean;
+    streaming?: Partial<AppSettings["streaming"]> & {
+      /** v20 and older. */
+      seamlessSwitch?: boolean;
+    };
   };
   const prevSchema = input.schemaVersion ?? 0;
 
@@ -72,8 +77,13 @@ export function migrateSettings(raw: unknown): AppSettings {
       ...input.streaming,
       quality: input.streaming?.quality ?? input.quality ?? base.streaming.quality,
       disableAds: input.streaming?.disableAds ?? base.streaming.disableAds,
-      seamlessSwitch:
-        input.streaming?.seamlessSwitch ?? base.streaming.seamlessSwitch,
+      streamOpenMode: (() => {
+        const mode = input.streaming?.streamOpenMode;
+        if (isStreamOpenMode(mode)) return mode;
+        if (input.streaming?.seamlessSwitch === false) return "multistream";
+        if (input.streaming?.seamlessSwitch === true) return "seamless";
+        return base.streaming.streamOpenMode;
+      })(),
       multistreamLayout: (() => {
         const raw = input.streaming?.multistreamLayout;
         return raw && isMultistreamLayout(raw)
@@ -186,10 +196,14 @@ export function migrateSettings(raw: unknown): AppSettings {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
   };
 
-  // Seamless and linked dock cannot both be on.
-  if (merged.streaming.seamlessSwitch && merged.streaming.linkedDock) {
+  // Only an actual Multistream session may use the linked dock.
+  if (merged.streaming.streamOpenMode !== "multistream") {
     merged.streaming.linkedDock = false;
   }
+  // Older browse/multistream views still consume this derived compatibility
+  // bit. Launch/session behavior uses streamOpenMode exclusively.
+  merged.streaming.seamlessSwitch =
+    merged.streaming.streamOpenMode !== "multistream";
 
   // v8: webbrowser default flipped off — it made first stream starts very slow.
   if (prevSchema < 8) {

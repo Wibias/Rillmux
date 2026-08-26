@@ -14,6 +14,7 @@ import type {
   HotkeySettings,
   PlayerId,
   PlayerInput,
+  StreamOpenMode,
   ThemeMode,
 } from "../lib/settings/types";
 import { defaultMpvPresets, describeMpvPresets } from "../lib/settings/mpv";
@@ -531,38 +532,45 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <label className="settings__row settings__row--check">
-          <input
-            type="checkbox"
-            checked={settings.streaming.seamlessSwitch}
+        <label className="settings__row">
+          <span className="settings__label">
+            <span>{t("settings:streamOpenMode")}</span>
+            <small className="muted">{t("settings:streamOpenModeHint")}</small>
+          </span>
+          <select
+            value={settings.streaming.streamOpenMode}
             onChange={(e) => {
-              const seamless = e.target.checked;
-              // Seamless and linked dock are mutually exclusive: leaving seamless
-              // enables the dock grips so you don't need two toggles.
-              const linkedDock = seamless ? false : true;
+              const mode = e.target.value as StreamOpenMode;
+              const linkedDock =
+                mode === "multistream" ? settings.streaming.linkedDock : false;
               setSettings({
                 streaming: {
                   ...settings.streaming,
-                  seamlessSwitch: seamless,
+                  streamOpenMode: mode,
                   linkedDock,
                 },
               });
-              void import("../lib/tauri").then(({ invoke, isTauri }) => {
-                if (isTauri()) {
-                  void invoke("dock_set_linked", { enabled: linkedDock }).catch(
-                    () => undefined,
-                  );
-                }
+              if (isTauri()) {
+                void invoke("dock_set_linked", { enabled: linkedDock }).catch(
+                  () => undefined,
+                );
+              }
+              queueMicrotask(() => {
+                void useWatchingStore
+                  .getState()
+                  .refresh()
+                  .then(() => useWatchingStore.getState().applyLayout())
+                  .catch(() => undefined);
               });
             }}
-          />
-          <span className="settings__check-text">
-            {t("settings:seamlessSwitch")}
-            <small className="muted">{t("settings:seamlessSwitchHint")}</small>
-          </span>
+          >
+            <option value="independent">{t("settings:streamOpenIndependent")}</option>
+            <option value="seamless">{t("settings:streamOpenSeamless")}</option>
+            <option value="multistream">{t("settings:streamOpenMultistream")}</option>
+          </select>
         </label>
 
-        {!settings.streaming.seamlessSwitch ? (
+        {settings.streaming.streamOpenMode === "multistream" ? (
           <label className="settings__row">
             <span className="settings__label">
               <span>{t("settings:multistreamLayout")}</span>
@@ -570,15 +578,16 @@ export function SettingsPage() {
             </span>
             <select
               value={settings.streaming.multistreamLayout}
-              onChange={(e) =>
+              onChange={(e) => {
                 setSettings({
                   streaming: {
                     ...settings.streaming,
                     multistreamLayout: e.target
                       .value as typeof settings.streaming.multistreamLayout,
                   },
-                })
-              }
+                });
+                queueMicrotask(applyLayout);
+              }}
             >
               <option value="1">{t("settings:layout1")}</option>
               <option value="2">{t("settings:layout2")}</option>
@@ -595,7 +604,7 @@ export function SettingsPage() {
           </label>
         ) : null}
 
-        {!settings.streaming.seamlessSwitch &&
+        {settings.streaming.streamOpenMode === "multistream" &&
         (settings.streaming.multistreamLayout === "2plus1" ||
           settings.streaming.multistreamLayout === "3plus1") ? (
           <label className="settings__row">
@@ -624,32 +633,31 @@ export function SettingsPage() {
           </label>
         ) : null}
 
-        <label className="settings__row settings__row--check">
-          <input
-            type="checkbox"
-            checked={settings.streaming.linkedDock}
-            onChange={(e) => {
-              const enabled = e.target.checked;
-              setSettings({
-                streaming: {
-                  ...settings.streaming,
-                  linkedDock: enabled,
-                  // Enabling dock forces multistream (seamless off).
-                  seamlessSwitch: enabled ? false : settings.streaming.seamlessSwitch,
-                },
-              });
-              void import("../lib/tauri").then(({ invoke, isTauri }) => {
+        {settings.streaming.streamOpenMode === "multistream" ? (
+          <label className="settings__row settings__row--check">
+            <input
+              type="checkbox"
+              checked={settings.streaming.linkedDock}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                setSettings({
+                  streaming: {
+                    ...settings.streaming,
+                    linkedDock: enabled,
+                  },
+                });
                 if (isTauri()) {
                   void invoke("dock_set_linked", { enabled }).catch(() => undefined);
                 }
-              });
-            }}
-          />
-          <span className="settings__check-text">
-            {t("settings:linkedDock")}
-            <small className="muted">{t("settings:linkedDockHint")}</small>
-          </span>
-        </label>
+                queueMicrotask(applyLayout);
+              }}
+            />
+            <span className="settings__check-text">
+              {t("settings:linkedDock")}
+              <small className="muted">{t("settings:linkedDockHint")}</small>
+            </span>
+          </label>
+        ) : null}
 
         <label className="settings__row settings__row--check">
           <input
@@ -673,7 +681,8 @@ export function SettingsPage() {
           </span>
         </label>
 
-        {settings.streaming.linkedDock ? (
+        {settings.streaming.streamOpenMode === "multistream" &&
+        settings.streaming.linkedDock ? (
           <label className="settings__row">
             <span className="settings__label">
               <span>{t("settings:chatWidthFraction")}</span>
@@ -693,13 +702,11 @@ export function SettingsPage() {
                     chatWidthFraction: fraction,
                   },
                 });
-                void import("../lib/tauri").then(({ invoke, isTauri }) => {
-                  if (isTauri()) {
-                    void invoke("dock_set_chat_fraction", { fraction }).catch(
-                      () => undefined,
-                    );
-                  }
-                });
+                if (isTauri()) {
+                  void invoke("dock_set_chat_fraction", { fraction }).catch(
+                    () => undefined,
+                  );
+                }
               }}
             />
             <span className="muted">

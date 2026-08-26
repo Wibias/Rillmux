@@ -8,6 +8,38 @@ export type PredictionVoteState = {
   windowSeconds?: number | null;
 };
 
+export type ConfirmedPredictionVote = {
+  eventId: string;
+  outcomeId: string;
+  points: number;
+};
+
+type PredictionParticipationState = {
+  id: string;
+  predictedOutcomeId?: string | null;
+  predictedPoints?: number | null;
+};
+
+export function applyConfirmedPredictionVote<T extends PredictionParticipationState>(
+  prediction: T | null,
+  confirmed: ConfirmedPredictionVote | null,
+): T | null {
+  if (!prediction || !confirmed || prediction.id !== confirmed.eventId) {
+    return prediction;
+  }
+  if (
+    prediction.predictedOutcomeId &&
+    prediction.predictedOutcomeId !== confirmed.outcomeId
+  ) {
+    return prediction;
+  }
+  return {
+    ...prediction,
+    predictedOutcomeId: confirmed.outcomeId,
+    predictedPoints: prediction.predictedPoints ?? confirmed.points,
+  };
+}
+
 /** Safety net when Hermes poll/prediction pushes are unavailable. */
 export const POLL_FALLBACK_REFRESH_MS = 10_000;
 

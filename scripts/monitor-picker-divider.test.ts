@@ -18,26 +18,39 @@ function blockBody(source: string, signature: string): string {
 }
 
 describe("monitor picker divider relocation", () => {
-  test("moves existing grips before applying the selected monitor layout", () => {
+  test("queues grip sync immediately after dispatching the selected monitor apply", () => {
     const source = readFileSync("src-tauri/src/dock.rs", "utf8");
     const body = blockBody(source, "if let GripKind::Identify(idx) = kind {");
 
-    expect(body).toContain("reposition_all_grips_static();");
-    expect(body.indexOf("reposition_all_grips_static();")).toBeLessThan(
-      body.indexOf("thread::spawn"),
-    );
-  });
-
-  test("does not run the cross-process dock apply synchronously in the grip window proc", () => {
-    const source = readFileSync("src-tauri/src/dock.rs", "utf8");
-    const body = blockBody(source, "if let GripKind::Identify(idx) = kind {");
-
-    const spawn = body.indexOf("thread::spawn");
+    const raise = body.indexOf("request_raise_after_apply();");
     const apply = body.indexOf("run_apply();");
     const sync = body.indexOf("post_cmd(DockCmd::Sync);");
 
-    expect(spawn).toBeGreaterThanOrEqual(0);
-    expect(apply).toBeGreaterThan(spawn);
+    expect(raise).toBeGreaterThanOrEqual(0);
+    expect(apply).toBeGreaterThan(raise);
     expect(sync).toBeGreaterThan(apply);
+  });
+
+  test("dispatches monitor-change native placement off the grip window-proc thread", () => {
+    const source = readFileSync("src-tauri/src/streaming/dock.rs", "utf8");
+    const body = blockBody(source, "fn apply_dock_layout_cb()");
+
+    const monitorApply = body.indexOf("crate::dock::take_raise_after_apply()");
+    const spawn = body.indexOf("thread::spawn");
+    const asyncApply = body.indexOf("apply_dock_layout_inner(true)");
+    const dragApply = body.indexOf("apply_dock_layout_inner(false)");
+
+    expect(monitorApply).toBeGreaterThanOrEqual(0);
+    expect(spawn).toBeGreaterThan(monitorApply);
+    expect(asyncApply).toBeGreaterThan(spawn);
+    expect(dragApply).toBeGreaterThan(asyncApply);
+  });
+
+  test("preserves raise-after-monitor-move semantics inside the worker apply", () => {
+    const source = readFileSync("src-tauri/src/streaming/dock.rs", "utf8");
+    const body = blockBody(source, "fn apply_dock_layout_inner(raise_after_apply: bool)");
+
+    expect(body).toContain("if raise_after_apply");
+    expect(body).toContain("raise_dock_windows(&cfg.channels, cfg.reserve_chat);");
   });
 });

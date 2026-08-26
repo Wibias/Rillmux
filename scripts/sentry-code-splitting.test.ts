@@ -8,10 +8,11 @@ async function readRepo(path: string): Promise<string> {
 describe("Sentry code splitting", () => {
   it("keeps the Sentry SDK out of the initial frontend graph", async () => {
     const source = await readRepo("src/lib/sentry.tsx");
+    const boundary = await readRepo("src/lib/sentry-sdk.ts");
 
-    expect(source).not.toMatch(/import\s+\*\s+as\s+Sentry\s+from\s+["']@sentry\/react["']/);
     expect(source).not.toMatch(/from\s+["']@sentry\/react["']/);
-    expect(source).toContain('import("@sentry/react")');
+    expect(source).toContain('import("./sentry-sdk")');
+    expect(boundary).toContain('export * from "@sentry/react"');
   });
 
   it("uses the local error boundary instead of statically importing Sentry in App", async () => {

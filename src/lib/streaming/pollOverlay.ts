@@ -20,6 +20,10 @@ type PredictionParticipationState = {
   predictedPoints?: number | null;
 };
 
+type PredictionSnapshot<TPrediction extends PredictionParticipationState> = {
+  prediction?: TPrediction | null;
+};
+
 export function applyConfirmedPredictionVote<T extends PredictionParticipationState>(
   prediction: T | null,
   confirmed: ConfirmedPredictionVote | null,
@@ -40,8 +44,37 @@ export function applyConfirmedPredictionVote<T extends PredictionParticipationSt
   };
 }
 
+export function mergeConfirmedPredictionVoteSnapshot<
+  TPrediction extends PredictionParticipationState,
+  TSnapshot extends PredictionSnapshot<TPrediction>,
+>(
+  snapshot: TSnapshot,
+  fallbackPrediction: TPrediction | null,
+  confirmed: ConfirmedPredictionVote,
+): TSnapshot & { prediction: TPrediction | null } {
+  const responsePrediction = snapshot.prediction ?? null;
+  const candidate =
+    responsePrediction ??
+    (fallbackPrediction?.id === confirmed.eventId ? fallbackPrediction : null);
+  return {
+    ...snapshot,
+    prediction: applyConfirmedPredictionVote(candidate, confirmed),
+  };
+}
+
 /** Safety net when Hermes poll/prediction pushes are unavailable. */
 export const POLL_FALLBACK_REFRESH_MS = 10_000;
+
+export const POLL_OVERLAY_READY_RETRY_MS = 250;
+export const POLL_OVERLAY_READY_MAX_ATTEMPTS = 20;
+
+export function nextPollOverlayReadyAttempt(
+  attempts: number,
+  acknowledged: boolean,
+): number | null {
+  if (acknowledged || attempts >= POLL_OVERLAY_READY_MAX_ATTEMPTS) return null;
+  return attempts + 1;
+}
 
 export function pollOverlayShouldPollGql(overlayWindow: boolean): boolean {
   return !overlayWindow;

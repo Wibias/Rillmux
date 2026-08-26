@@ -1,4 +1,3 @@
-/// Re-tile mpv windows for active channels; optionally leave the right strip for chat.
 fn sync_layout_chat_fraction(chat_fraction: Option<f64>) {
     let Some(requested) = chat_fraction else {
         return;
@@ -14,6 +13,7 @@ fn sync_layout_chat_fraction(chat_fraction: Option<f64>) {
     }
 }
 
+/// Re-tile mpv windows for active channels; optionally leave the right strip for chat.
 pub fn layout_watching(
     channels: &[String],
     reserve_chat: bool,

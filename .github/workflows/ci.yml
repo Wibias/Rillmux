@@ -89,6 +89,11 @@ jobs:
       - name: Cargo check
         working-directory: src-tauri
         run: cargo check
+      - name: Cargo check release warnings
+        working-directory: src-tauri
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo check --release
       - name: Cargo test
         working-directory: src-tauri
         run: cargo test

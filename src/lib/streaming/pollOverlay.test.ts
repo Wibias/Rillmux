@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   POLL_FALLBACK_REFRESH_MS,
+  applyConfirmedPredictionVote,
   isClosedPredictionError,
   overlayRectMoved,
   pollOverlayRect,
@@ -73,5 +74,41 @@ describe("prediction vote window", () => {
     expect(isClosedPredictionError("Not enough Channel Points to make that prediction")).toBe(
       false,
     );
+  });
+});
+
+describe("confirmed prediction participation", () => {
+  const prediction = {
+    id: "prediction-1",
+    status: "ACTIVE",
+    predictedOutcomeId: null,
+    predictedPoints: null,
+  };
+
+  it("restores a successful local vote when a later snapshot omits participation", () => {
+    expect(
+      applyConfirmedPredictionVote(prediction, {
+        eventId: "prediction-1",
+        outcomeId: "outcome-blue",
+        points: 10_500,
+      }),
+    ).toEqual({
+      ...prediction,
+      predictedOutcomeId: "outcome-blue",
+      predictedPoints: 10_500,
+    });
+  });
+
+  it("does not carry a local vote into another or removed prediction", () => {
+    const confirmed = {
+      eventId: "prediction-1",
+      outcomeId: "outcome-blue",
+      points: 10_500,
+    };
+    expect(applyConfirmedPredictionVote({ ...prediction, id: "prediction-2" }, confirmed)).toEqual({
+      ...prediction,
+      id: "prediction-2",
+    });
+    expect(applyConfirmedPredictionVote(null, confirmed)).toBeNull();
   });
 });

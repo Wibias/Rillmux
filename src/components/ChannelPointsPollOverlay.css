@@ -42,6 +42,11 @@ body:has(.poll-overlay--window) {
   margin: 0.2rem 0 0;
 }
 
+.poll-overlay__confirmation {
+  margin: 0.45rem 0 0;
+  font-weight: 600;
+}
+
 .poll-overlay__choices {
   list-style: none;
   margin: 0.6rem 0 0;

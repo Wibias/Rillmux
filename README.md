@@ -75,7 +75,7 @@ Twitch Client ID for local builds: set `TWITCH_CLIENT_ID` / `VITE_TWITCH_CLIENT_
 
 ## Release (maintainers)
 
-Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.3**).
+Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.4**).
 
 Pushes to `main` or `master` expect a PR with green Windows CI (`frontend` + `rust`). A local `pre-push` hook runs `npm run ci`. Skip it only with `SKIP_CI_HOOK=1`. The Release workflow runs those checks again before building installers.
 

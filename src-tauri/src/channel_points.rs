@@ -2083,7 +2083,7 @@ mod tests {
             .as_str()
             .expect("inline MakePrediction query");
         assert!(
-            query.contains("prediction {") ,
+            query.contains("prediction {"),
             "MakePredictionPayload.prediction is the user bet, not predictionEvent"
         );
         assert!(

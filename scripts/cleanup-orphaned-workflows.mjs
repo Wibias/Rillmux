@@ -105,12 +105,22 @@ async function captureRunHeadRefs({ client, runs }) {
         `Workflow run returned invalid head_repository.full_name: ${JSON.stringify(fullName)}`,
       );
     }
-    const sha = await readBranchGeneration({
-      client,
-      owner: headOwner,
-      repo: headRepo,
-      branch,
-    });
+
+    let sha;
+    try {
+      sha = await readBranchGeneration({
+        client,
+        owner: headOwner,
+        repo: headRepo,
+        branch,
+      });
+    } catch (error) {
+      if (error instanceof GitHubHttpError && error.status === 404) {
+        continue;
+      }
+      throw error;
+    }
+
     heads.set(key, { fullName, branch, owner: headOwner, repo: headRepo, sha });
   }
   return [...heads.values()];
@@ -269,16 +279,18 @@ export async function cleanupOrphanedWorkflowRuns({
         break outer;
       }
 
+      // Each DELETE must still be justified by current immutable ref evidence.
+      // Ref failures are repository-wide safety failures and must stop cleanup.
+      await assertCleanupRefsUnchanged({
+        client,
+        owner,
+        repo,
+        defaultBranch,
+        defaultBranchGeneration,
+        heads,
+      });
+
       try {
-        // Each DELETE must still be justified by current immutable ref evidence.
-        await assertCleanupRefsUnchanged({
-          client,
-          owner,
-          repo,
-          defaultBranch,
-          defaultBranchGeneration,
-          heads,
-        });
         await client.request(`/repos/${owner}/${repo}/actions/runs/${run.id}`, { method: "DELETE" });
         deletedRuns += 1;
       } catch (error) {

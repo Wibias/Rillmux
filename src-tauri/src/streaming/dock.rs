@@ -89,33 +89,51 @@ pub fn layout_watching(
 /// When true, skip retile/place so we don't un-minimize the dock group.
 static DOCK_GROUP_MINIMIZED: AtomicBool = AtomicBool::new(false);
 
+#[cfg(windows)]
+fn apply_dock_layout_inner(raise_after_apply: bool) {
+    if DOCK_GROUP_MINIMIZED.load(Ordering::SeqCst) {
+        return;
+    }
+    let cfg = crate::dock::snapshot();
+    if cfg.channels.is_empty() {
+        return;
+    }
+    let _ = retile_player_windows(&cfg.channels, cfg.reserve_chat, &cfg.layout);
+    if cfg.reserve_chat {
+        place_chatterino_window_right(0);
+        schedule_chatterino_place();
+    }
+    if raise_after_apply {
+        raise_dock_windows(&cfg.channels, cfg.reserve_chat);
+    }
+    // Raising mpv buries an owned HUD under the player. Restack after.
+    if let Some(app) = DOCK_APP.get() {
+        restack_all_points_huds(app);
+    }
+}
+
 /// Immediate retile from dock grip drags (no delayed retry loop).
 pub fn apply_dock_layout() {
     #[cfg(windows)]
     {
-        if DOCK_GROUP_MINIMIZED.load(Ordering::SeqCst) {
-            return;
-        }
-        let cfg = crate::dock::snapshot();
-        if cfg.channels.is_empty() {
-            return;
-        }
-        let _ = retile_player_windows(&cfg.channels, cfg.reserve_chat, &cfg.layout);
-        if cfg.reserve_chat {
-            place_chatterino_window_right(0);
-            schedule_chatterino_place();
-        }
-        if crate::dock::take_raise_after_apply() {
-            raise_dock_windows(&cfg.channels, cfg.reserve_chat);
-        }
-        // Raising mpv buries an owned HUD under the player. Restack after.
-        if let Some(app) = DOCK_APP.get() {
-            restack_all_points_huds(app);
-        }
+        apply_dock_layout_inner(crate::dock::take_raise_after_apply());
     }
 }
 
 fn apply_dock_layout_cb() {
+    #[cfg(windows)]
+    {
+        // A monitor-picker click runs this callback from the grip window-proc
+        // thread. Cross-process mpv/Chatterino placement can block, so dispatch
+        // monitor changes to a worker and let the grip thread process its queued
+        // Sync immediately. Normal divider drags remain synchronous.
+        if crate::dock::take_raise_after_apply() {
+            thread::spawn(|| apply_dock_layout_inner(true));
+            return;
+        }
+        apply_dock_layout_inner(false);
+    }
+    #[cfg(not(windows))]
     apply_dock_layout();
 }
 

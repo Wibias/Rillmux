@@ -22,10 +22,10 @@ About includes **View changelog** and a setup check once Streamlink, mpv, and Ch
 
 - Twitch login (OAuth Device Code); normal app OAuth tokens live in the OS keyring
 - **Website auth** for Streamlink playback; the website token stays in the OS credential manager and is supplied to Streamlink through a randomized ephemeral config only for the launched process. Rillmux does not persist it in the user's `config.twitch`
-- Experimental **Channel Points HUD and farming**: live balance, passive watch credit, automatic +50 bonus claims, reward catalog/redemption, polls, and predictions when enabled in Settings; bonus claims use a separate read-only Twitch TV device session
+- Experimental **Channel Points HUD and farming**: live balance, passive watch credit, automatic +50 bonus claims, reward catalog/redemption (including Twitch prompt text), polls, and predictions when enabled in Settings; bonus claims use a separate read-only Twitch TV device session
 - Followed (list or grid, search, pins, hide mature), top streams, categories with viewer counts, search, channel pages, teams
 - Language filter on top/category streams
-- Follow outgoing raids from a prompt over mpv or Chatterino
+- Follow outgoing raids from a prompt over mpv or Chatterino when the raid starts
 - Streamlink launch (bundled in release builds, or the system install)
 - Watching list with Streamlink status; choose **Independent**, **Seamless**, or **Multistream** opening behavior
 - Embedded chat by default, or Chatterino7 / a browser; the docked Chatterino uses an isolated Rillmux-owned profile so unrelated user windows are left alone
@@ -75,13 +75,13 @@ Twitch Client ID for local builds: set `TWITCH_CLIENT_ID` / `VITE_TWITCH_CLIENT_
 
 ## Release (maintainers)
 
-Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.6**).
+Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.7**).
 
 Pushes to `main` or `master` expect a PR with green Windows CI (`frontend` + `rust`). A local `pre-push` hook runs `npm run ci`. Skip it only with `SKIP_CI_HOOK=1`. The Release workflow runs those checks again before building installers.
 
 ```bash
-git tag v0.5.6
-git push origin v0.5.6
+git tag v0.5.7
+git push origin v0.5.7
 ```
 
 That runs [`.github/workflows/release.yml`](.github/workflows/release.yml): fetch Streamlink → `tauri build` (NSIS + MSI + updater signatures) → GitHub Release with auto-generated notes. Keep the narrative in [CHANGELOG.md](CHANGELOG.md) in sync when you cut a version.

@@ -163,7 +163,10 @@ mod tests {
             "rillmux-some_channel-1 - VLC media player",
             "Some_Channel-1"
         ));
-        assert!(!player_window_title_matches("other-hello", "Some_Channel-1"));
+        assert!(!player_window_title_matches(
+            "other-hello",
+            "Some_Channel-1"
+        ));
     }
 
     #[test]

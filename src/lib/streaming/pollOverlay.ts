@@ -80,6 +80,9 @@ export function pollOverlayShouldPollGql(overlayWindow: boolean): boolean {
   return !overlayWindow;
 }
 
+/** Locked overlay stays up briefly, then auto-dismisses. */
+export const PREDICTION_LOCKED_DISMISS_MS = 5_000;
+
 export function predictionRemainingSeconds(
   prediction: PredictionVoteState,
   now = Date.now(),
@@ -97,6 +100,16 @@ export function predictionAcceptsVotes(
 ): boolean {
   if (prediction.status !== "ACTIVE") return false;
   return predictionRemainingSeconds(prediction, now) !== 0;
+}
+
+/** Active betting window, plus a short locked recap before the overlay closes. */
+export function predictionOverlayVisible(status: string): boolean {
+  return status === "ACTIVE" || status === "LOCKED";
+}
+
+/** Host waits this long after LOCKED, then dismisses. */
+export function lockedPredictionDismissAfterMs(status: string): number | null {
+  return status === "LOCKED" ? PREDICTION_LOCKED_DISMISS_MS : null;
 }
 
 export function isClosedPredictionError(message: string): boolean {

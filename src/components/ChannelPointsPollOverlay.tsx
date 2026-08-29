@@ -14,7 +14,9 @@ import {
   POLL_OVERLAY_READY_RETRY_MS,
   pollOverlayShouldPollGql,
   predictionAcceptsVotes,
+  predictionOverlayVisible,
   predictionRemainingSeconds,
+  lockedPredictionDismissAfterMs,
   type ConfirmedPredictionVote,
   type OverlayRect,
 } from "../lib/streaming/pollOverlay";
@@ -79,7 +81,7 @@ function overlayEventId(snapshot: ChannelPointsSnapshot | null): string | null {
   if (snapshot?.poll?.status === "ACTIVE") return snapshot.poll.id;
   if (
     snapshot?.prediction &&
-    (snapshot.prediction.status === "ACTIVE" || snapshot.prediction.status === "LOCKED")
+    predictionOverlayVisible(snapshot.prediction.status)
   ) {
     return snapshot.prediction.id;
   }
@@ -456,7 +458,7 @@ export function ChannelPointsPollOverlay() {
       enabled &&
         channel &&
         prediction &&
-        (prediction.status === "ACTIVE" || prediction.status === "LOCKED"),
+        predictionOverlayVisible(prediction.status),
     ) && !(prediction && dismissed.current.has(prediction.id));
   const showOverlay = showPoll || showPrediction;
   const remainingPrediction = prediction
@@ -474,6 +476,23 @@ export function ChannelPointsPollOverlay() {
     const timer = window.setInterval(() => setTick((tick) => tick + 1), 1000);
     return () => window.clearInterval(timer);
   }, [predictionOpen, showPrediction]);
+
+  useEffect(() => {
+    if (overlayWindow || !prediction) return;
+    const delay = lockedPredictionDismissAfterMs(prediction.status);
+    if (delay == null) return;
+    const id = prediction.id;
+    if (dismissed.current.has(id)) return;
+    const timer = window.setTimeout(() => {
+      dismissed.current.add(id);
+      setSnapshot((current) =>
+        current?.prediction?.id === id
+          ? { ...current, prediction: null }
+          : current,
+      );
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [overlayWindow, prediction?.id, prediction?.status]);
 
   useEffect(() => {
     if (!overlayWindow || !isTauri() || !showOverlay) return;

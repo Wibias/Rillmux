@@ -8,10 +8,10 @@
 - Twitch login should recover when the network returns without requiring a full quit and restart.
 - The in-app updater should check on launch and again every 60 minutes while the app is running.
 - Followed stream cards must show the stream name plus two lines of text under it; if a grid row cannot fit that, do not display the row.
-- Dock dividers should only stack above streams and chat, not other programs; do not hide dividers or sidebars while a Chatterino usercard is open — keep grips visible and raise the usercard above them. Do not relocate the user's always-on multi-chat Chatterino window when docking a per-stream chat. Docked per-stream chat must follow the stream across monitors; the move-monitor control stays in its usual place but stacks above chat, not under it.
-- Do not name the app data folder after the package identifier (`com.wibias.rillmux`); use a human product name.
+- Dock dividers should only stack above streams and chat, not other programs; do not hide dividers or sidebars while a Chatterino usercard is open — keep grips visible and raise the usercard above them. Do not relocate the user's always-on multi-chat Chatterino window when docking a per-stream chat. Docked per-stream chat must follow the stream across monitors and close when that stream is closed; the move-monitor control stays in its usual place but stacks above chat, not under it.
+- Do not name the app data folder after the package identifier (`com.wibias.rillmux`); use a human product name. mpv/stream window titles should be `{streamer}-{stream_title}`, not `rillmux-{streamer}`.
 - A `tauri:dev` / debug instance should be allowed to run while the installed release is already open; closing the debug app or its console must clear leftover Windows taskbar-overflow / tray icons.
-- Channel Points on streams is an opt-in HUD on each mpv player (not the title bar, not desktop-topmost, not the Rillmux chrome): a dim, hover-visible chip that can be dragged and remembers a stream-relative position, with a reset-to-default control (stream top edge, left of caption buttons); it must not sit under caption buttons or be re-parked there when returning to the stream; it must follow the stream across monitors; a click opens the rewards catalog for redeem; timed +50 stays automatic with no claim button.
+- Channel Points on streams is an opt-in HUD on each mpv player (not the title bar, not desktop-topmost, not the Rillmux chrome): a dim, hover-visible chip that can be dragged and remembers a stream-relative position, with a reset-to-default control (stream top edge, left of caption buttons); it must not sit under caption buttons or be re-parked there when returning to the stream; it must follow the stream across monitors; a click opens the rewards catalog for redeem and should show the twitch.tv prompt/subtext when a reward is selected; timed +50 stays automatic with no claim button.
 
 ## Learned Workspace Facts
 
@@ -21,7 +21,7 @@
 - App version must stay in sync across `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
 - The Release workflow publishes on `v*` tag push or `workflow_dispatch` from `main`/`master`; dispatch from other branches builds artifacts only.
 - Twitch `MakePrediction` payload field is `prediction` (the user's bet, with nested `event`), not `predictionEvent`.
-- Hermes prediction topics should clear the overlay on `event-completed` / cancel types and on `event-updated` with RESOLVED or CANCELED statuses.
+- Hermes prediction topics should clear the overlay on `event-completed` / cancel types and on `event-updated` with RESOLVED or CANCELED statuses. Locked predictions stay visible for 5 seconds, then the overlay closes.
 - Website auth and bonus claims are separate Twitch sessions; bonus claims uses a dedicated device-code TV session for +50 claims. Timed +50 auto-claims when presence and claim auth are connected; the stream HUD is display plus catalog redeem only.
 - Security policy lives at `.github/SECURITY.md`; CI and Release workflows pin Actions to full-length commit SHAs and CI uses `contents: read`.
 - Installed builds check GitHub `latest.json` a few seconds after launch and every 60 minutes; `tauri:dev` / unsigned Vite windows do not show the update dialog.

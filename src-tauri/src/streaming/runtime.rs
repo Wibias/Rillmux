@@ -408,6 +408,7 @@ pub fn start_stream(
             let pipe = format!(r"\\.\pipe\rillmux-mpv-{}", Uuid::new_v4().simple());
             let dock_argv = mpv_dock_arg_parts(
                 &channel,
+                &title,
                 reserve_chat,
                 &preset_player_args,
                 slot_index,
@@ -539,13 +540,14 @@ pub fn start_stream(
     } else {
         // Keep Streamlink's own title short so it doesn't override our mpv --title=.
         args.push("--title".into());
-        args.push(mpv_window_title(&channel));
+        args.push(mpv_window_title(&channel, &title));
         if let Some(player_path) = &player {
             args.push("--player".into());
             args.push(player_path.to_string_lossy().to_string());
             let player_args = if player_id == "mpv" {
                 build_mpv_dock_args(
                     &channel,
+                    &title,
                     reserve_chat,
                     &preset_player_args,
                     slot_index,
@@ -1037,7 +1039,7 @@ fn close_player_windows_for_channel_windows(channel: &str) {
     const PROCESS_TERMINATE: u32 = 0x0001;
 
     struct Data {
-        prefixes: [String; 2],
+        channel: String,
         pids: Mutex<Vec<u32>>,
     }
 
@@ -1052,16 +1054,9 @@ fn close_player_windows_for_channel_windows(channel: &str) {
             return 1;
         }
         let title = String::from_utf16_lossy(&buf[..n as usize]);
-        let lower = title.to_ascii_lowercase();
-        let matches_player = data.prefixes.iter().any(|prefix| {
-            lower == prefix.as_str()
-                || lower.starts_with(&format!("{prefix} -"))
-                || lower.starts_with(&format!("{prefix}:"))
-        });
-        // Player windows we spawn are titled rillmux-<channel> (mpv --title /
-        // VLC --input-title-format); VLC appends " - VLC media player".
-        // Older builds used stgui-<channel>.
-        if !matches_player {
+        // Player windows are titled <channel>-<stream_title>. Older builds used
+        // rillmux-<channel> / stgui-<channel>; VLC appends " - VLC media player".
+        if !player_window_title_matches(&title, &data.channel) {
             return 1;
         }
         let mut pid = 0u32;
@@ -1079,7 +1074,7 @@ fn close_player_windows_for_channel_windows(channel: &str) {
     }
 
     let data = Data {
-        prefixes: [mpv_window_title(channel), legacy_mpv_window_title(channel)],
+        channel: channel.to_string(),
         pids: Mutex::new(Vec::new()),
     };
     unsafe {

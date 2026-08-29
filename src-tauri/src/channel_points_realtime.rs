@@ -5,7 +5,7 @@
 //! private viewer + channel PubSub topics over Hermes, so viewer presence is
 //! established here before the existing minute-watched worker is started.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -34,6 +34,7 @@ struct DesiredPresence {
     token: String,
     viewer_id: String,
     channel_ids: Vec<String>,
+    logins_by_id: HashMap<String, String>,
 }
 
 struct RealtimeState {
@@ -90,6 +91,8 @@ fn topic_kind(topic: &str) -> &'static str {
         "poll"
     } else if topic.starts_with("predictions-channel-v1.") {
         "prediction"
+    } else if topic.starts_with("raid.") {
+        "raid"
     } else {
         "other"
     }
@@ -150,14 +153,23 @@ pub async fn sync(
         );
     }
 
+    let mut logins_by_id = HashMap::new();
     let mut channel_ids = targets
         .iter()
-        .map(|target| target.channel_id.trim().to_string())
-        .filter(|channel_id| {
-            !channel_id.is_empty()
-                && channel_id
+        .filter_map(|target| {
+            let channel_id = target.channel_id.trim();
+            if channel_id.is_empty()
+                || !channel_id
                     .chars()
                     .all(|character| character.is_ascii_digit())
+            {
+                return None;
+            }
+            let login = target.channel_login.trim().to_ascii_lowercase();
+            if !login.is_empty() {
+                logins_by_id.insert(channel_id.to_string(), login);
+            }
+            Some(channel_id.to_string())
         })
         .collect::<Vec<_>>();
     channel_ids.sort();
@@ -172,6 +184,7 @@ pub async fn sync(
         token: web_auth.token,
         viewer_id,
         channel_ids,
+        logins_by_id,
     };
     let realtime = state();
     let (generation, changed) = {
@@ -412,7 +425,7 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
             desired.channel_ids.len()
         ),
     );
-    wait_for_subscriptions(&mut socket, &mut subscriptions).await?;
+    wait_for_subscriptions(&mut socket, &mut subscriptions, &desired.logins_by_id).await?;
     debug_credit(
         "hermes.subscription.ack",
         &format!(
@@ -436,7 +449,9 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
             desired.channel_ids.len()
         ),
     );
-    if let Err(error) = subscribe_poll_topics(&mut socket, &desired.channel_ids).await {
+    if let Err(error) =
+        subscribe_poll_topics(&mut socket, &desired.channel_ids, &desired.logins_by_id).await
+    {
         debug_poll(
             "poll.subscription.fallback",
             &format!(
@@ -450,6 +465,18 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
             &format!(
                 "generation={generation} channel_count={}",
                 desired.channel_ids.len()
+            ),
+        );
+    }
+    if let Err(error) =
+        subscribe_raid_topics(&mut socket, &desired.channel_ids, &desired.logins_by_id).await
+    {
+        crate::diagnostics::log_event(
+            crate::diagnostics::DebugCategory::Raids,
+            "raid.subscription.fallback",
+            &format!(
+                "generation={generation} reason={}",
+                hermes_error_class(&error)
             ),
         );
     }
@@ -506,6 +533,9 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
                             }
                             if let Some((topic, message)) = pubsub_topic_and_message(&value) {
                                 let kind = topic_kind(&topic);
+                                if kind == "raid" {
+                                    emit_raid_pubsub(&topic, &message, &desired.logins_by_id);
+                                }
                                 let changed = crate::channel_points::ingest_pubsub(&topic, &message);
                                 if matches!(kind, "poll" | "prediction") {
                                     debug_poll(
@@ -535,9 +565,100 @@ async fn run_session(desired: &DesiredPresence, generation: u64) -> Result<(), S
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RaidPubsubKind {
+    Start,
+    Go,
+    Cancel,
+}
+
+fn emit_raid_pubsub(topic: &str, message: &Value, logins_by_id: &HashMap<String, String>) {
+    let Some((kind, raid)) = parse_raid_pubsub(topic, message, logins_by_id) else {
+        return;
+    };
+    crate::diagnostics::log_event(
+        crate::diagnostics::DebugCategory::Raids,
+        "raid.pubsub",
+        &format!(
+            "kind={:?} from={} to={} viewers={:?}",
+            kind, raid.from_channel, raid.to_channel, raid.viewers
+        ),
+    );
+    if let Some(app) = APP.get() {
+        let event = match kind {
+            RaidPubsubKind::Cancel => "raid-cancelled",
+            RaidPubsubKind::Start | RaidPubsubKind::Go => "raid-outgoing",
+        };
+        let _ = app.emit(event, raid);
+    }
+}
+
+fn parse_raid_pubsub(
+    topic: &str,
+    message: &Value,
+    logins_by_id: &HashMap<String, String>,
+) -> Option<(RaidPubsubKind, crate::eventsub::RaidOutgoing)> {
+    let channel_id = topic.strip_prefix("raid.")?.trim();
+    if channel_id.is_empty() {
+        return None;
+    }
+    let from_channel = logins_by_id.get(channel_id)?.clone();
+    let event = json_value(message);
+    let kind = match event
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "raid_update_v2" => RaidPubsubKind::Start,
+        "raid_go_v2" => RaidPubsubKind::Go,
+        "raid_cancel_v2" => RaidPubsubKind::Cancel,
+        _ => return None,
+    };
+    let raid = event.get("raid").unwrap_or(&event);
+    let to_channel = raid
+        .get("target_login")
+        .and_then(Value::as_str)
+        .filter(|login| !login.is_empty())?
+        .to_ascii_lowercase();
+    let to_user_id = raid
+        .get("target_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?
+        .to_string();
+    let viewers = raid.get("viewer_count").and_then(Value::as_u64);
+    let remaining_seconds = raid
+        .get("force_raid_now_seconds")
+        .and_then(Value::as_u64)
+        .or(match kind {
+            RaidPubsubKind::Start => Some(90),
+            _ => None,
+        });
+    Some((
+        kind,
+        crate::eventsub::RaidOutgoing {
+            from_channel,
+            to_channel,
+            to_user_id,
+            viewers,
+            remaining_seconds,
+            kind: Some(
+                match kind {
+                    RaidPubsubKind::Start => "start",
+                    RaidPubsubKind::Go => "go",
+                    RaidPubsubKind::Cancel => "cancel",
+                }
+                .into(),
+            ),
+        },
+    ))
+}
+
 async fn subscribe_poll_topics(
     socket: &mut HermesSocket,
     channel_ids: &[String],
+    logins_by_id: &HashMap<String, String>,
 ) -> Result<(), String> {
     let mut subscriptions = HashSet::new();
     for channel_id in channel_ids {
@@ -549,10 +670,29 @@ async fn subscribe_poll_topics(
 
     tokio::time::timeout(
         Duration::from_secs(3),
-        wait_for_subscriptions(socket, &mut subscriptions),
+        wait_for_subscriptions(socket, &mut subscriptions, logins_by_id),
     )
     .await
     .map_err(|_| "Hermes poll/prediction subscription confirmation timed out".to_string())?
+}
+
+async fn subscribe_raid_topics(
+    socket: &mut HermesSocket,
+    channel_ids: &[String],
+    logins_by_id: &HashMap<String, String>,
+) -> Result<(), String> {
+    let mut subscriptions = HashSet::new();
+    for channel_id in channel_ids {
+        let raid = format!("raid.{channel_id}");
+        subscriptions.insert(send_subscription(socket, &raid).await?);
+    }
+
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        wait_for_subscriptions(socket, &mut subscriptions, logins_by_id),
+    )
+    .await
+    .map_err(|_| "Hermes raid subscription confirmation timed out".to_string())?
 }
 
 fn json_value(value: &Value) -> Value {
@@ -635,12 +775,16 @@ async fn send_subscription(socket: &mut HermesSocket, topic: &str) -> Result<Str
 async fn wait_for_subscriptions(
     socket: &mut HermesSocket,
     pending: &mut HashSet<String>,
+    logins_by_id: &HashMap<String, String>,
 ) -> Result<(), String> {
     while !pending.is_empty() {
         let value = receive_json(socket).await?;
         if value.get("type").and_then(Value::as_str) != Some("subscribeResponse") {
             if let Some((topic, message)) = pubsub_topic_and_message(&value) {
                 let kind = topic_kind(&topic);
+                if kind == "raid" {
+                    emit_raid_pubsub(&topic, &message, logins_by_id);
+                }
                 let changed = crate::channel_points::ingest_pubsub(&topic, &message);
                 if matches!(kind, "poll" | "prediction") {
                     debug_poll(
@@ -835,6 +979,7 @@ mod tests {
         assert_eq!(topic_kind("video-playback-by-id.456"), "playback");
         assert_eq!(topic_kind("polls.789"), "poll");
         assert_eq!(topic_kind("predictions-channel-v1.789"), "prediction");
+        assert_eq!(topic_kind("raid.789"), "raid");
     }
 
     #[test]
@@ -855,5 +1000,61 @@ mod tests {
             hermes_error_class("Hermes read: connection closed"),
             "socket"
         );
+    }
+
+    #[test]
+    fn parses_raid_update_as_start_with_countdown() {
+        let mut logins = HashMap::new();
+        logins.insert("111".into(), "alice".into());
+        let (kind, raid) = parse_raid_pubsub(
+            "raid.111",
+            &json!({
+                "type": "raid_update_v2",
+                "raid": {
+                    "target_id": "222",
+                    "target_login": "CVZen",
+                    "viewer_count": 80,
+                    "force_raid_now_seconds": 90
+                }
+            }),
+            &logins,
+        )
+        .expect("raid start");
+        assert_eq!(kind, RaidPubsubKind::Start);
+        assert_eq!(raid.from_channel, "alice");
+        assert_eq!(raid.to_channel, "cvzen");
+        assert_eq!(raid.to_user_id, "222");
+        assert_eq!(raid.viewers, Some(80));
+        assert_eq!(raid.remaining_seconds, Some(90));
+        assert_eq!(raid.kind.as_deref(), Some("start"));
+    }
+
+    #[test]
+    fn parses_raid_go_and_cancel() {
+        let mut logins = HashMap::new();
+        logins.insert("111".into(), "alice".into());
+        let go = parse_raid_pubsub(
+            "raid.111",
+            &json!({
+                "type": "raid_go_v2",
+                "raid": { "target_id": "222", "target_login": "cvzen" }
+            }),
+            &logins,
+        )
+        .expect("raid go");
+        assert_eq!(go.0, RaidPubsubKind::Go);
+        assert_eq!(go.1.kind.as_deref(), Some("go"));
+        assert!(go.1.remaining_seconds.is_none());
+
+        let cancel = parse_raid_pubsub(
+            "raid.111",
+            &json!({
+                "type": "raid_cancel_v2",
+                "raid": { "target_id": "222", "target_login": "cvzen" }
+            }),
+            &logins,
+        )
+        .expect("raid cancel");
+        assert_eq!(cancel.0, RaidPubsubKind::Cancel);
     }
 }

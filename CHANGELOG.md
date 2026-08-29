@@ -12,6 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.7] — 2026-08-29
+
+### Added
+
+- Channel Points reward catalog shows Twitch's prompt/subtext when a reward is selected
+
+### Changed
+
+- Locked Channel Points predictions stay on the overlay for five seconds, then close
+- mpv/stream window titles use `{streamer}-{stream_title}` instead of `rillmux-{streamer}`
+
+### Fixed
+
+- Raid follow prompt appears when the raid starts instead of only after the source stream has already ended
+
 ## [0.5.6] — 2026-08-26
 
 ### Fixed

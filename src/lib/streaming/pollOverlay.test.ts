@@ -10,6 +10,9 @@ import {
   pollOverlayRect,
   pollOverlayShouldPollGql,
   predictionAcceptsVotes,
+  predictionOverlayVisible,
+  PREDICTION_LOCKED_DISMISS_MS,
+  lockedPredictionDismissAfterMs,
 } from "./pollOverlay";
 
 describe("pollOverlayRect", () => {
@@ -48,6 +51,17 @@ describe("poll overlay GQL", () => {
 });
 
 describe("prediction vote window", () => {
+  it("keeps a locked prediction visible until the short recap delay elapses", () => {
+    expect(predictionOverlayVisible("ACTIVE")).toBe(true);
+    expect(predictionOverlayVisible("LOCKED")).toBe(true);
+    expect(predictionOverlayVisible("RESOLVED")).toBe(false);
+    expect(lockedPredictionDismissAfterMs("ACTIVE")).toBeNull();
+    expect(lockedPredictionDismissAfterMs("LOCKED")).toBe(
+      PREDICTION_LOCKED_DISMISS_MS,
+    );
+    expect(PREDICTION_LOCKED_DISMISS_MS).toBe(5_000);
+  });
+
   it("locks voting when the prediction is LOCKED or the window has elapsed", () => {
     expect(
       predictionAcceptsVotes({

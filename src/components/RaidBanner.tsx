@@ -6,6 +6,7 @@ import { invoke, isTauri } from "../lib/tauri";
 import { debugRuntimeEvent } from "../lib/diagnostics/runtimeDebug";
 import {
   enqueueRaid,
+  raidCountdownSeconds,
   raidDedupeKey,
   raidOverlayRect,
   type OverlayRect,
@@ -15,7 +16,6 @@ import { useWatchingStore } from "../lib/streaming/store";
 import { useSettingsStore } from "../lib/settings/store";
 import "./RaidBanner.css";
 
-const COUNTDOWN_SECS = 15;
 const OVERLAY_LABEL = "raid-overlay";
 
 function isRaidOverlayWindow() {
@@ -29,11 +29,17 @@ function raidFromSearch(): RaidOutgoingEvent | null {
   const toUserId = params.get("toUserId")?.trim() ?? "";
   if (!fromChannel || !toChannel) return null;
   const viewers = Number(params.get("viewers"));
+  const remainingSeconds = Number(params.get("seconds"));
+  const kind = params.get("kind")?.trim() || undefined;
   return {
     fromChannel,
     toChannel,
     toUserId,
     viewers: Number.isFinite(viewers) ? viewers : undefined,
+    remainingSeconds: Number.isFinite(remainingSeconds)
+      ? remainingSeconds
+      : undefined,
+    kind,
   };
 }
 
@@ -45,6 +51,8 @@ function overlayUrl(raid: RaidOutgoingEvent): string {
     toUserId: raid.toUserId,
   });
   if (raid.viewers != null) params.set("viewers", String(raid.viewers));
+  params.set("seconds", String(raidCountdownSeconds(raid)));
+  if (raid.kind) params.set("kind", raid.kind);
   return `/?${params.toString()}`;
 }
 
@@ -100,7 +108,9 @@ async function closeOverlayWindow() {
 function RaidOverlayPrompt() {
   const { t } = useTranslation("common");
   const raid = raidFromSearch();
-  const [seconds, setSeconds] = useState(COUNTDOWN_SECS);
+  const [seconds, setSeconds] = useState(() =>
+    raid ? raidCountdownSeconds(raid) : 0,
+  );
   const sentRef = useRef(false);
 
   useEffect(() => {
@@ -158,6 +168,8 @@ export function RaidBanner() {
   const [queue, setQueue] = useState<RaidOutgoingEvent[]>([]);
   const cooldownRef = useRef<Set<string>>(new Set());
   const followingRef = useRef(false);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   const followRaids = useSettingsStore((s) => s.settings.streaming.followRaids);
   const active = queue[0] ?? null;
 
@@ -181,6 +193,15 @@ export function RaidBanner() {
         });
         return;
       }
+      const isGo = !payload.kind || payload.kind === "go";
+      if (isGo && queueRef.current.some((item) => raidDedupeKey(item) === key)) {
+        debugRuntimeEvent("raids", "raid.go.follow", {
+          from: payload.fromChannel.toLowerCase(),
+          to: payload.toChannel.toLowerCase(),
+        });
+        void accept(payload);
+        return;
+      }
       setQueue((q) => enqueueRaid(q, payload));
     }).then((fn) => {
       unlisten = fn;
@@ -192,6 +213,7 @@ export function RaidBanner() {
     if (!isTauri() || isRaidOverlayWindow()) return;
     let unFollow: (() => void) | undefined;
     let unStay: (() => void) | undefined;
+    let unCancel: (() => void) | undefined;
     void listen<RaidOutgoingEvent>("raid-overlay-follow", (event) => {
       if (!event.payload?.fromChannel) return;
       void accept(event.payload);
@@ -204,9 +226,16 @@ export function RaidBanner() {
     }).then((fn) => {
       unStay = fn;
     });
+    void listen<RaidOutgoingEvent>("raid-cancelled", (event) => {
+      if (!event.payload?.fromChannel) return;
+      drop(event.payload);
+    }).then((fn) => {
+      unCancel = fn;
+    });
     return () => {
       unFollow?.();
       unStay?.();
+      unCancel?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- accept/stay close over refs
   }, []);
@@ -240,6 +269,11 @@ export function RaidBanner() {
     const key = raidDedupeKey(raid);
     cooldownRef.current.add(key);
     window.setTimeout(() => cooldownRef.current.delete(key), 60_000);
+    drop(raid);
+  }
+
+  function drop(raid: RaidOutgoingEvent) {
+    const key = raidDedupeKey(raid);
     setQueue((q) => q.filter((item) => raidDedupeKey(item) !== key));
   }
 

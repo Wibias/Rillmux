@@ -41,6 +41,7 @@ export interface ChannelPointsReward {
   inStock: boolean;
   isEnabled: boolean;
   isUserInputRequired: boolean;
+  prompt?: string | null;
   cooldownSeconds: number;
 }
 
@@ -531,8 +532,10 @@ export function ChannelPointsHud() {
                     className="points-hud__reward"
                     disabled={!reward.redeemable || redeeming === reward.id}
                     onClick={() => {
-                      if (reward.isUserInputRequired) {
+                      const prompt = reward.prompt?.trim();
+                      if (reward.isUserInputRequired || prompt) {
                         setInputFor(reward.id);
+                        setInputText("");
                         return;
                       }
                       void redeem(reward);
@@ -569,22 +572,42 @@ export function ChannelPointsHud() {
                   </button>
                   {inputFor === reward.id ? (
                     <form
-                      className="points-hud__input-row"
+                      className="points-hud__redeem"
                       onSubmit={(event) => {
                         event.preventDefault();
-                        if (!inputText.trim()) return;
-                        void redeem(reward, inputText.trim());
+                        if (reward.isUserInputRequired && !inputText.trim()) return;
+                        void redeem(
+                          reward,
+                          reward.isUserInputRequired
+                            ? inputText.trim()
+                            : undefined,
+                        );
                       }}
                     >
-                      <input
-                        value={inputText}
-                        onChange={(event) => setInputText(event.target.value)}
-                        placeholder={t("pointsHudInputPlaceholder")}
-                        autoFocus
-                      />
-                      <button type="submit" disabled={!inputText.trim()}>
-                        {t("pointsHudRedeem")}
-                      </button>
+                      {reward.prompt?.trim() ? (
+                        <p className="points-hud__prompt">{reward.prompt.trim()}</p>
+                      ) : null}
+                      <div className="points-hud__input-row">
+                        {reward.isUserInputRequired ? (
+                          <input
+                            value={inputText}
+                            onChange={(event) => setInputText(event.target.value)}
+                            placeholder={
+                              reward.prompt?.trim() ||
+                              t("pointsHudInputPlaceholder")
+                            }
+                            autoFocus
+                          />
+                        ) : null}
+                        <button
+                          type="submit"
+                          disabled={
+                            reward.isUserInputRequired && !inputText.trim()
+                          }
+                        >
+                          {t("pointsHudRedeem")}
+                        </button>
+                      </div>
                     </form>
                   ) : null}
                 </li>

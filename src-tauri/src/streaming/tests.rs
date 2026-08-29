@@ -145,13 +145,25 @@ mod tests {
 
     #[test]
     fn channel_and_quality_validation() {
-        // mpv_window_title strips anything outside [a-z0-9_-].
-        assert_eq!(mpv_window_title("Some_Channel-1"), "rillmux-some_channel-1");
-        assert_eq!(mpv_window_title("äöü"), "rillmux-stream");
+        // mpv_window_title is <channel>-<stream_title>; non [a-z0-9_-] becomes `_`.
+        assert_eq!(
+            mpv_window_title("Some_Channel-1", "Hello World!"),
+            "some_channel-1-hello_world"
+        );
+        assert_eq!(mpv_window_title("äöü", ""), "stream-stream");
         assert_eq!(
             legacy_mpv_window_title("Some_Channel-1"),
             "stgui-some_channel-1"
         );
+        assert!(player_window_title_matches(
+            "some_channel-1-hello_world",
+            "Some_Channel-1"
+        ));
+        assert!(player_window_title_matches(
+            "rillmux-some_channel-1 - VLC media player",
+            "Some_Channel-1"
+        ));
+        assert!(!player_window_title_matches("other-hello", "Some_Channel-1"));
     }
 
     #[test]
@@ -856,7 +868,7 @@ mod tests {
             effective_layout(channels.len(), &layout)
         );
         for (i, channel) in channels.iter().enumerate() {
-            let title = mpv_window_title(channel);
+            let title = mpv_window_title(channel, channel);
             println!(
                 "EVID launch geometry idx {i}: {:?}",
                 mpv_geometry_for_dock(true, i, channels.len(), Some(&layout))
@@ -872,7 +884,7 @@ mod tests {
         let found = retile_player_windows(&channels, true, &layout);
         println!("EVID retile(layout={layout}) found={found}");
         for channel in &channels {
-            let title = mpv_window_title(channel);
+            let title = mpv_window_title(channel, channel);
             if let Some(hwnd) = find_player_window(channel) {
                 println!("EVID window '{title}': rect after = {:?}", rect_of(hwnd));
             }
@@ -906,6 +918,7 @@ mod tests {
         // --no-keepaspect-window and --loop-*.
         let args = build_mpv_dock_args(
             "chan",
+            "Just Chatting",
             false,
             "--loop-file=inf --cache=yes --volume=42 --title=\"chan - g - t\" --geometry=50%x50%+0+0 --window-maximized=yes",
             0,
@@ -919,7 +932,7 @@ mod tests {
         assert!(!args.contains("--geometry=50%x50%"));
         assert!(!args.contains("--window-maximized"));
         assert!(!args.contains("chan - g - t"));
-        assert!(args.contains("--title=rillmux-chan"));
-        assert!(args.contains("--force-media-title=rillmux-chan"));
+        assert!(args.contains("--title=chan-just_chatting"));
+        assert!(args.contains("--force-media-title=chan-just_chatting"));
     }
 }

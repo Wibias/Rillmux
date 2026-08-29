@@ -27,6 +27,29 @@ export const MPV_SCOOP = "scoop install mpv";
 export const MPV_PORTABLE_URL =
   "https://github.com/shinchiro/mpv-winbuild-cmake/releases";
 
+function sanitizePlayerChannel(value: string): string {
+  const cleaned = [...value]
+    .filter((c) => /[a-z0-9_-]/i.test(c))
+    .join("")
+    .toLowerCase();
+  return cleaned || "stream";
+}
+
+function sanitizePlayerFragment(value: string): string {
+  const cleaned = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^[_-]+|[_-]+$/g, "")
+    .slice(0, 80)
+    .replace(/_+$/g, "");
+  return cleaned || "stream";
+}
+
+/** Window title shown by mpv: `<channel>-<stream_title>`. */
+export function mpvWindowTitle(channel: string, streamTitle: string): string {
+  return `${sanitizePlayerChannel(channel)}-${sanitizePlayerFragment(streamTitle)}`;
+}
+
 /** Build Streamlink --player-args for mpv from toggles + optional extras. */
 export function composeMpvPlayerArgs(
   presets: MpvPresetSettings,
@@ -40,11 +63,7 @@ export function composeMpvPlayerArgs(
     deferLayout?: boolean;
   },
 ): string {
-  const channel = meta.channel || "stream";
-  const title = meta.title || channel;
-  const game = meta.game || "";
-  // Streamlink tokenizes --player-args with shlex — quote values that contain spaces.
-  const label = `${channel} - ${game} - ${title}`.replace(/"/g, "");
+  const label = mpvWindowTitle(meta.channel, meta.title || meta.channel);
   const parts: string[] = [
     "--force-window=yes",
     "--keep-open=no",

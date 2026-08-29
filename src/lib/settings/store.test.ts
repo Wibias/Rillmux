@@ -211,7 +211,7 @@ describe("composeMpvPlayerArgs", () => {
     expect(args).toContain("--window-maximized=yes");
     expect(args).toContain("--demuxer-max-back-bytes=250M");
     expect(args).toContain("--vo=gpu");
-    expect(args).toContain('--title="forsen - Minecraft - hello"');
+    expect(args).toContain('--title="forsen-hello"');
   });
 
   it("uses side geometry instead of maximized for Chatterino layout", () => {
@@ -237,7 +237,7 @@ describe("resolveChannelLaunch", () => {
     expect(launch.quality).toBe("720p");
     expect(launch.playerId).toBe("mpv");
     expect(launch.playerCustomArgs).toContain("--no-border");
-    expect(launch.playerCustomArgs).toContain("forsen - Variety - Live");
+    expect(launch.playerCustomArgs).toContain("forsen-live");
   });
 
   it("composes side-by-side mpv geometry when chat is Chatterino", () => {

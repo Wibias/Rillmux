@@ -63,6 +63,10 @@ pub struct RaidOutgoing {
     pub to_channel: String,
     pub to_user_id: String,
     pub viewers: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 struct EventSubState {
@@ -724,6 +728,8 @@ fn parse_raid_notification(env: &WsEnvelope) -> Option<RaidOutgoing> {
         to_channel: to,
         to_user_id,
         viewers,
+        remaining_seconds: None,
+        kind: Some("go".into()),
     })
 }
 
@@ -777,6 +783,7 @@ mod tests {
         assert_eq!(raid.to_channel, "bob");
         assert_eq!(raid.to_user_id, "222");
         assert_eq!(raid.viewers, Some(42));
+        assert_eq!(raid.kind.as_deref(), Some("go"));
     }
 
     #[test]

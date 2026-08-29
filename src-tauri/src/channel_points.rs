@@ -83,6 +83,7 @@ pub struct ChannelPointsReward {
     pub in_stock: bool,
     pub is_enabled: bool,
     pub is_user_input_required: bool,
+    pub prompt: Option<String>,
     pub cooldown_seconds: u64,
 }
 
@@ -471,6 +472,12 @@ fn parse_custom_reward(value: &Value) -> Option<ChannelPointsReward> {
         is_enabled: json_bool(value, &["isEnabled", "isEnabled"]).unwrap_or(true),
         is_user_input_required: json_bool(value, &["isUserInputRequired", "isUserInputRequired"])
             .unwrap_or(false),
+        prompt: value
+            .get("prompt")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|prompt| !prompt.is_empty())
+            .map(str::to_string),
         cooldown_seconds: value
             .get("cooldownSeconds")
             .and_then(json_u64)
@@ -1189,8 +1196,8 @@ async fn fetch_prediction(
 }
 
 const CUSTOM_REWARDS_QUERIES: [&str; 2] = [
-    r#"query ChannelCustomRewards($login: String!) { channel(name: $login) { communityPointsSettings { customRewards { id title cost isPaused isEnabled isInStock isUserInputRequired cooldownSeconds image { url } defaultImage { url } } } } }"#,
-    r#"query ChannelCustomRewards($login: String!) { user(login: $login) { channel { communityPointsSettings { customRewards { id title cost isPaused isEnabled isInStock isUserInputRequired cooldownSeconds image { url } defaultImage { url } } } } } }"#,
+    r#"query ChannelCustomRewards($login: String!) { channel(name: $login) { communityPointsSettings { customRewards { id title prompt cost isPaused isEnabled isInStock isUserInputRequired cooldownSeconds image { url } defaultImage { url } } } } }"#,
+    r#"query ChannelCustomRewards($login: String!) { user(login: $login) { channel { communityPointsSettings { customRewards { id title prompt cost isPaused isEnabled isInStock isUserInputRequired cooldownSeconds image { url } defaultImage { url } } } } } }"#,
 ];
 
 fn custom_rewards_payload(channel_login: &str, query: &str) -> Value {
@@ -1728,6 +1735,7 @@ mod tests {
                                     "isEnabled": true,
                                     "isInStock": true,
                                     "isUserInputRequired": false,
+                                    "prompt": "Clip that play",
                                     "image": { "url": "https://example/a.png" }
                                 },
                                 {
@@ -1738,6 +1746,7 @@ mod tests {
                                     "isEnabled": true,
                                     "isInStock": true,
                                     "isUserInputRequired": true,
+                                    "prompt": "Who should I shout out?",
                                     "cooldownSeconds": 30
                                 },
                                 { "id": "", "title": "bad" }
@@ -1763,8 +1772,13 @@ mod tests {
             Some("https://example/a.png")
         );
         assert!(!context.rewards[0].is_user_input_required);
+        assert_eq!(context.rewards[0].prompt.as_deref(), Some("Clip that play"));
         assert!(context.rewards[1].is_paused);
         assert!(context.rewards[1].is_user_input_required);
+        assert_eq!(
+            context.rewards[1].prompt.as_deref(),
+            Some("Who should I shout out?")
+        );
         assert_eq!(context.rewards[1].cooldown_seconds, 30);
     }
 
@@ -2204,8 +2218,26 @@ mod tests {
     }
 
     #[test]
-    fn clears_prediction_on_event_completed() {
+    fn caches_locked_prediction_for_overlay_recap() {
         ingest_pubsub(
+            "predictions-channel-v1.44",
+            &json!({
+                "type": "event-updated",
+                "data": {
+                    "event": {
+                        "id": "pred-44",
+                        "title": "Over?",
+                        "status": "ACTIVE",
+                        "outcomes": [
+                            { "id": "a", "title": "Yes", "total_points": 1, "total_users": 1 },
+                            { "id": "b", "title": "No", "total_points": 2, "total_users": 2 }
+                        ]
+                    }
+                }
+            }),
+        );
+        assert!(cached_prediction("44").is_some());
+        assert!(ingest_pubsub(
             "predictions-channel-v1.44",
             &json!({
                 "type": "event-updated",
@@ -2221,13 +2253,35 @@ mod tests {
                     }
                 }
             }),
-        );
+        ));
         assert_eq!(cached_prediction("44").expect("cached").status, "LOCKED");
+    }
+
+    #[test]
+    fn clears_prediction_on_event_completed() {
+        ingest_pubsub(
+            "predictions-channel-v1.45",
+            &json!({
+                "type": "event-updated",
+                "data": {
+                    "event": {
+                        "id": "pred-45",
+                        "title": "Over?",
+                        "status": "ACTIVE",
+                        "outcomes": [
+                            { "id": "a", "title": "Yes", "total_points": 1, "total_users": 1 },
+                            { "id": "b", "title": "No", "total_points": 2, "total_users": 2 }
+                        ]
+                    }
+                }
+            }),
+        );
+        assert!(cached_prediction("45").is_some());
         assert!(ingest_pubsub(
-            "predictions-channel-v1.44",
+            "predictions-channel-v1.45",
             &json!({ "type": "event-completed" }),
         ));
-        assert!(cached_prediction("44").is_none());
+        assert!(cached_prediction("45").is_none());
     }
 
     #[test]

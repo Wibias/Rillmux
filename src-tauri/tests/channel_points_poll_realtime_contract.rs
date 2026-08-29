@@ -3,7 +3,7 @@ fn poll_and_prediction_subscriptions_are_acknowledged_before_ready() {
     let source = include_str!("../src/channel_points_realtime.rs");
 
     let subscribe = source
-        .find("subscribe_poll_topics(&mut socket, &desired.channel_ids).await")
+        .find("subscribe_poll_topics(")
         .expect("missing poll/prediction subscription step");
     let mark_ready = source
         .find("mark_ready(generation);")

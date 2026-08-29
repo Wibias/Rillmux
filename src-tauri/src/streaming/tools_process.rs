@@ -112,21 +112,20 @@ fn resolve_player(player_id: &str, custom: Option<&str>) -> Result<Option<PathBu
     }
 }
 
-fn default_player_args(player_id: &str, channel: &str, title: &str, game: &str) -> String {
+fn default_player_args(player_id: &str, channel: &str, title: &str, _game: &str) -> String {
     match player_id {
         // Fallback when the UI sends no args. Prefer frontend composeMpvPlayerArgs
         // (wiki Recommendations, verified against mpv master manual).
         "mpv" => {
-            let label = format!("{channel} - {game} - {title}").replace('"', "");
+            let label = mpv_window_title(channel, title);
             format!(
                 "--force-window=yes --keep-open=yes --no-border --no-keepaspect-window --loop-playlist=inf --loop-file=inf --title=\"{label}\" --force-media-title=\"{label}\""
             )
         }
         "vlc" => {
-            // Same rillmux-<channel> marker mpv uses, so stop/prune can find
-            // and close the window (close_player_windows_for_channel matches
-            // the prefix). VLC shows it as "<title> - VLC media player".
-            let label = mpv_window_title(channel);
+            // Same <channel>-<stream_title> marker mpv uses, so stop/prune can
+            // find and close the window. VLC shows it as "<title> - VLC media player".
+            let label = mpv_window_title(channel, title);
             format!("--play-and-exit --input-title-format \"{label}\"")
         }
         _ => String::new(),

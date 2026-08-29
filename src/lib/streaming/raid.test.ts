@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { enqueueRaid, raidDedupeKey, raidOverlayRect, type RaidOutgoingEvent } from "./raid";
+import {
+  enqueueRaid,
+  raidCountdownSeconds,
+  raidDedupeKey,
+  raidOverlayRect,
+  type RaidOutgoingEvent,
+} from "./raid";
 
 const base = (over: Partial<RaidOutgoingEvent> = {}): RaidOutgoingEvent => ({
   fromChannel: "alice",
@@ -39,7 +45,16 @@ describe("raid helpers", () => {
     expect(q).toHaveLength(2);
     expect(q.map((e) => e.fromChannel)).toEqual(["alice", "carol"]);
   });
-it("keeps a queued raid when the source session ends", () => {
+  it("uses the raid-start window when Twitch has not sent a remaining count", () => {
+    expect(raidCountdownSeconds(base({ kind: "start" }))).toBe(90);
+    expect(raidCountdownSeconds(base({ kind: "start", remainingSeconds: 75 }))).toBe(
+      75,
+    );
+    expect(raidCountdownSeconds(base({ kind: "go" }))).toBe(15);
+    expect(raidCountdownSeconds(base())).toBe(15);
+  });
+
+  it("keeps a queued raid when the source session ends", () => {
     const queue = enqueueRaid([], base());
     expect(queue).toHaveLength(1);
     expect(queue[0].fromChannel).toBe("alice");

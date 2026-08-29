@@ -181,10 +181,24 @@ body:has(.points-hud) {
   color: var(--accent-light);
 }
 
+.points-hud__redeem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0.15rem;
+}
+
+.points-hud__prompt {
+  margin: 0;
+  color: #b0b0b8;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
 .points-hud__input-row {
   display: flex;
   gap: 0.3rem;
-  margin: 0.25rem 0 0.15rem;
 }
 
 .points-hud__input-row input {

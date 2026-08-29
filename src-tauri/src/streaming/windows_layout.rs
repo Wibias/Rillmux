@@ -488,6 +488,7 @@ fn loading_image_path() -> Option<PathBuf> {
 
 fn mpv_dock_arg_parts(
     channel: &str,
+    stream_title: &str,
     reserve_chat: bool,
     preset_args: &str,
     index: usize,
@@ -536,8 +537,9 @@ fn mpv_dock_arg_parts(
         }
     }
     // Unique title so Win32 can find this mpv window (not a browser tab named after the channel).
-    parts.push(format!("--title={}", mpv_window_title(channel)));
-    parts.push(format!("--force-media-title={}", mpv_window_title(channel)));
+    let title = mpv_window_title(channel, stream_title);
+    parts.push(format!("--title={title}"));
+    parts.push(format!("--force-media-title={title}"));
     // Last-one-wins: keep audible even if a custom extra tried to mute.
     parts.push("--mute=no".into());
     parts
@@ -545,13 +547,23 @@ fn mpv_dock_arg_parts(
 
 fn build_mpv_dock_args(
     channel: &str,
+    stream_title: &str,
     reserve_chat: bool,
     preset_args: &str,
     index: usize,
     count: usize,
     layout: Option<&str>,
 ) -> String {
-    mpv_dock_arg_parts(channel, reserve_chat, preset_args, index, count, layout).join(" ")
+    mpv_dock_arg_parts(
+        channel,
+        stream_title,
+        reserve_chat,
+        preset_args,
+        index,
+        count,
+        layout,
+    )
+    .join(" ")
 }
 
 fn sanitize_player_channel(channel: &str) -> String {
@@ -566,10 +578,39 @@ fn sanitize_player_channel(channel: &str) -> String {
     }
 }
 
-fn mpv_window_title(channel: &str) -> String {
+fn sanitize_player_fragment(value: &str) -> String {
+    let mut out = String::new();
+    let mut prev_sep = false;
+    for c in value.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+            out.push(c.to_ascii_lowercase());
+            prev_sep = false;
+        } else if !out.is_empty() && !prev_sep {
+            out.push('_');
+            prev_sep = true;
+        }
+    }
+    while out.ends_with('_') || out.ends_with('-') {
+        out.pop();
+    }
+    if out.len() > 80 {
+        out.truncate(80);
+        while out.ends_with('_') || out.ends_with('-') {
+            out.pop();
+        }
+    }
+    if out.is_empty() {
+        "stream".into()
+    } else {
+        out
+    }
+}
+
+fn mpv_window_title(channel: &str, stream_title: &str) -> String {
     format!(
-        "{PLAYER_WINDOW_PREFIX}-{}",
-        sanitize_player_channel(channel)
+        "{}-{}",
+        sanitize_player_channel(channel),
+        sanitize_player_fragment(stream_title)
     )
 }
 
@@ -580,9 +621,25 @@ fn legacy_mpv_window_title(channel: &str) -> String {
     )
 }
 
+fn prefixed_mpv_window_title(channel: &str) -> String {
+    format!(
+        "{PLAYER_WINDOW_PREFIX}-{}",
+        sanitize_player_channel(channel)
+    )
+}
+
+fn player_window_title_matches(title: &str, channel: &str) -> bool {
+    let lower = title.to_ascii_lowercase();
+    let ch = sanitize_player_channel(channel);
+    lower.starts_with(&format!("{ch}-"))
+        || lower.starts_with(&prefixed_mpv_window_title(channel))
+        || lower.starts_with(&legacy_mpv_window_title(channel))
+}
+
 #[cfg(windows)]
 fn find_player_window(channel: &str) -> Option<*mut core::ffi::c_void> {
-    find_window_by_title(&mpv_window_title(channel), true)
+    find_window_by_title(&format!("{}-", sanitize_player_channel(channel)), false)
+        .or_else(|| find_window_by_title(&prefixed_mpv_window_title(channel), true))
         .or_else(|| find_window_by_title(&legacy_mpv_window_title(channel), true))
 }
 

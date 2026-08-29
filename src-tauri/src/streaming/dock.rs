@@ -70,6 +70,7 @@ pub fn layout_watching(
                 if found >= expected && chat_ok {
                     streak += 1;
                     if streak >= 2 {
+                        restack_dock_windows(&cleaned, reserve_chat);
                         return;
                     }
                 } else {
@@ -77,6 +78,7 @@ pub fn layout_watching(
                 }
                 thread::sleep(Duration::from_millis(250));
             }
+            restack_dock_windows(&cleaned, reserve_chat);
         });
     }
     #[cfg(not(windows))]

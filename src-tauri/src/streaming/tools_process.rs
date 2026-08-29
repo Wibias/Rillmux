@@ -179,6 +179,7 @@ pub fn launch_chatterino_for_channels(channels: &[String]) -> Result<String, Str
                 place_chatterino_window_right(pid);
             }
             schedule_chatterino_place();
+            restack_dock_windows(&cleaned, true);
             return Ok(path.to_string_lossy().into_owned());
         }
         ChatterinoLaunchPlan::RestartOwned => {

@@ -1027,11 +1027,13 @@ fn raise_hwnd(hwnd: *mut core::ffi::c_void, foreground: bool) {
     const SWP_NOSIZE: u32 = 0x0001;
     const SWP_SHOWWINDOW: u32 = 0x0040;
     const SW_SHOW: i32 = 5;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SW_SHOWNA: i32 = 8;
     if hwnd.is_null() {
         return;
     }
     unsafe {
-        ShowWindow(hwnd, SW_SHOW);
+        ShowWindow(hwnd, if foreground { SW_SHOW } else { SW_SHOWNA });
         SetWindowPos(
             hwnd,
             HWND_TOP as *mut core::ffi::c_void,
@@ -1039,10 +1041,10 @@ fn raise_hwnd(hwnd: *mut core::ffi::c_void, foreground: bool) {
             0,
             0,
             0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | if foreground { 0 } else { SWP_NOACTIVATE },
         );
-        BringWindowToTop(hwnd);
         if foreground {
+            BringWindowToTop(hwnd);
             let fg = GetForegroundWindow();
             let mut fg_pid = 0u32;
             let fg_tid = GetWindowThreadProcessId(fg, &mut fg_pid);
@@ -1060,10 +1062,20 @@ fn raise_hwnd(hwnd: *mut core::ffi::c_void, foreground: bool) {
 
 #[cfg(windows)]
 fn raise_dock_windows(channels: &[String], reserve_chat: bool) {
+    raise_dock_windows_inner(channels, reserve_chat, true);
+}
+
+#[cfg(windows)]
+fn restack_dock_windows(channels: &[String], reserve_chat: bool) {
+    raise_dock_windows_inner(channels, reserve_chat, false);
+}
+
+#[cfg(windows)]
+fn raise_dock_windows_inner(channels: &[String], reserve_chat: bool, foreground: bool) {
     let mut first = true;
     for channel in channels.iter().take(8) {
         if let Some(hwnd) = find_player_window(channel) {
-            raise_hwnd(hwnd, first);
+            raise_hwnd(hwnd, foreground && first);
             first = false;
         }
     }
@@ -1074,7 +1086,6 @@ fn raise_dock_windows(channels: &[String], reserve_chat: bool) {
             .and_then(|g| *g)
             .unwrap_or(0);
         if let Some(hwnd) = find_main_window_for_pid(pid) {
-            // Chat after video so it ends up in the Z-order next to mpv; don't steal FG from video.
             raise_hwnd(hwnd, false);
         }
     }
@@ -1084,6 +1095,9 @@ fn raise_dock_windows(channels: &[String], reserve_chat: bool) {
     }
     raise_poll_overlay();
 }
+
+#[cfg(not(windows))]
+fn restack_dock_windows(_channels: &[String], _reserve_chat: bool) {}
 
 /// Largest top-level window owned by `pid` (our spawned Chatterino only).
 /// Visible --channels splits beat a cloaked/empty notebook, which otherwise

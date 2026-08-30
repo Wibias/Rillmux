@@ -1041,10 +1041,7 @@ fn raise_hwnd(hwnd: *mut core::ffi::c_void, foreground: bool) {
             0,
             0,
             0,
-            SWP_NOMOVE
-                | SWP_NOSIZE
-                | SWP_SHOWWINDOW
-                | if foreground { 0 } else { SWP_NOACTIVATE },
+            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | if foreground { 0 } else { SWP_NOACTIVATE },
         );
         if foreground {
             BringWindowToTop(hwnd);

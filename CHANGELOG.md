@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Channel Points HUD and reward catalog stay above their mpv player after a dock or multistream layout raise, so the chip stays clickable
 - Dock dividers stay stacked above streams and chat without covering Chatterino usercards or other programs
+- Release workflow parses again: Authenticode secrets are gated inside the import step instead of `if: secrets.*`, so Actions shows **Release** instead of the workflow file path
 
 ## [0.5.7] — 2026-08-29
 

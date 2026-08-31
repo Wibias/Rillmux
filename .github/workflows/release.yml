@@ -67,8 +67,9 @@ jobs:
       - name: Fetch bundled Streamlink
         run: npm run streamlink:fetch
 
+      # GitHub Actions rejects `secrets` in `if:` (parse error, workflow shows
+      # as the file path instead of "Release"). Gate inside the step instead.
       - name: Import Windows Authenticode certificate
-        if: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_THUMBPRINT != '' }}
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
@@ -76,6 +77,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_THUMBPRINT)) {
+            Write-Host "Authenticode secrets not configured; building unsigned installers"
+            return
+          }
           $pfxPath = Join-Path $env:RUNNER_TEMP "windows-codesign.pfx"
           $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE.Trim())
           [IO.File]::WriteAllBytes($pfxPath, $bytes)

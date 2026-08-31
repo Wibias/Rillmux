@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.8] — 2026-09-01
+
+### Changed
+
+- Changelog, update, onboarding, and poll/prediction cards use native dialogs
+- CI fails the `react-doctor` job on any finding so the frontend health score stays at 100
+
+### Fixed
+
+- Channel Points HUD and reward catalog stay above their mpv player after a dock or multistream layout raise, so the chip stays clickable
+- Dock dividers stay stacked above streams and chat without covering Chatterino usercards or other programs
+
 ## [0.5.7] — 2026-08-29
 
 ### Added
@@ -334,7 +346,9 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.6...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.8...HEAD
+[0.5.8]: https://github.com/Wibias/Rillmux/compare/v0.5.7...v0.5.8
+[0.5.7]: https://github.com/Wibias/Rillmux/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/Wibias/Rillmux/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/Wibias/Rillmux/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/Wibias/Rillmux/compare/v0.5.3...v0.5.4

@@ -69,19 +69,20 @@ npm run tauri:dev
 - `npm run tauri:dev` — desktop app (Vite + Tauri). Use this for login and Streamlink.
 - `npm run dev` — Vite only in a browser; no Tauri APIs, so Followed/Helix stay empty.
 - `npm test` — unit tests
+- `npm run doctor` — full React Doctor scan (CI fails on any finding)
 - `npm run streamlink:fetch` — download a Windows Streamlink build into `src-tauri/resources/streamlink/` (gitignored binaries)
 
 Twitch Client ID for local builds: set `TWITCH_CLIENT_ID` / `VITE_TWITCH_CLIENT_ID`, or use the documented env fallback for tryouts. Production releases need your own public Twitch application (Device Code / public client).
 
 ## Release (maintainers)
 
-Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.7**).
+Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.8**).
 
-Pushes to `main` or `master` expect a PR with green Windows CI (`frontend` + `rust`). A local `pre-push` hook runs `npm run ci`. Skip it only with `SKIP_CI_HOOK=1`. The Release workflow runs those checks again before building installers.
+Pushes to `main` or `master` expect a PR with green CI (`frontend`, `rust`, and `react-doctor`). A local `pre-push` hook runs `npm run ci`. Skip it only with `SKIP_CI_HOOK=1`. The Release workflow runs the frontend and rust checks again before building installers.
 
 ```bash
-git tag v0.5.7
-git push origin v0.5.7
+git tag v0.5.8
+git push origin v0.5.8
 ```
 
 That runs [`.github/workflows/release.yml`](.github/workflows/release.yml): fetch Streamlink → `tauri build` (NSIS + MSI + updater signatures) → GitHub Release with auto-generated notes. Keep the narrative in [CHANGELOG.md](CHANGELOG.md) in sync when you cut a version.

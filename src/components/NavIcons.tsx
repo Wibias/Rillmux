@@ -228,15 +228,3 @@ export function AboutIcon() {
     </svg>
   );
 }
-
-export const NAV_ICONS = {
-  followed: HeartIcon,
-  streams: StreamsIcon,
-  games: CategoriesIcon,
-  search: SearchNavIcon,
-  teams: TeamsIcon,
-  watching: WatchingIcon,
-  multistream: MultistreamIcon,
-  settings: SettingsIcon,
-  about: AboutIcon,
-} as const;

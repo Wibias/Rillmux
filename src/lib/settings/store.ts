@@ -108,10 +108,11 @@ export function migrateSettings(raw: unknown): AppSettings {
         if (!Array.isArray(raw)) return base.streaming.streamLanguages;
         return [
           ...new Set(
-            raw
-              .filter((c): c is string => typeof c === "string")
-              .map((c) => c.trim().toLowerCase())
-              .filter((c) => c === "other" || /^[a-z]{2}$/.test(c)),
+            raw.flatMap((c) => {
+              if (typeof c !== "string") return [];
+              const n = c.trim().toLowerCase();
+              return n === "other" || /^[a-z]{2}$/.test(n) ? [n] : [];
+            }),
           ),
         ].slice(0, 100);
       })(),
@@ -167,10 +168,11 @@ export function migrateSettings(raw: unknown): AppSettings {
         if (!Array.isArray(raw)) return base.gui.pinnedFollowed;
         return [
           ...new Set(
-            raw
-              .filter((c): c is string => typeof c === "string")
-              .map((c) => c.trim().toLowerCase())
-              .filter(Boolean),
+            raw.flatMap((c) => {
+              if (typeof c !== "string") return [];
+              const n = c.trim().toLowerCase();
+              return n ? [n] : [];
+            }),
           ),
         ].slice(0, 50);
       })(),
@@ -183,10 +185,11 @@ export function migrateSettings(raw: unknown): AppSettings {
         if (!Array.isArray(raw)) return base.notifications.mutedFollowed;
         return [
           ...new Set(
-            raw
-              .filter((c): c is string => typeof c === "string")
-              .map((c) => c.trim().toLowerCase())
-              .filter(Boolean),
+            raw.flatMap((c) => {
+              if (typeof c !== "string") return [];
+              const n = c.trim().toLowerCase();
+              return n ? [n] : [];
+            }),
           ),
         ];
       })(),

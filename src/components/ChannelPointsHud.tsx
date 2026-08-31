@@ -18,7 +18,6 @@ import {
   cssPx,
   hudDragSurfaceRect,
   hudGeometryTransitionNeedsConceal,
-  isPointsHudOverlay,
   movementIsDrag,
   offsetFromChipRect,
   overlayRectForHud,
@@ -51,10 +50,6 @@ export interface ChannelPointsHudSnapshot {
   bonusAvailable: boolean;
   bonusClaimed: boolean;
   rewards?: ChannelPointsReward[];
-}
-
-export function isPointsHudOverlayWindow() {
-  return isPointsHudOverlay(window.location.search);
 }
 
 type OverlayApplyRequest = {
@@ -90,7 +85,7 @@ async function flushOverlayRect() {
   }
 }
 
-export function ChannelPointsHud() {
+function useChannelPointsHudModel() {
   const { t } = useTranslation("common");
   const channel = pointsHudChannelFromSearch(window.location.search);
   const offset = useSettingsStore(
@@ -155,13 +150,7 @@ export function ChannelPointsHud() {
       width: dragChip.width,
       height: dragChip.height,
     });
-  }, [
-    Boolean(dragChip),
-    host,
-    captionAvoid,
-    dragChip?.width,
-    dragChip?.height,
-  ]);
+  }, [dragChip, host, captionAvoid]);
 
   const overlay = useMemo(() => {
     if (dragSurface) return dragSurface;
@@ -223,13 +212,14 @@ export function ChannelPointsHud() {
     let active = true;
     const tick = async () => {
       if (draggingRef.current) return;
-      const next = await invoke<ChannelPointsHudPlace | null>(
-        "channel_points_hud_place",
-        { channelLogin: channel },
-      ).catch(() => null);
-      const nextScale = await getCurrentWindow()
-        .scaleFactor()
-        .catch(() => window.devicePixelRatio || 1);
+      const [next, nextScale] = await Promise.all([
+        invoke<ChannelPointsHudPlace | null>("channel_points_hud_place", {
+          channelLogin: channel,
+        }).catch(() => null),
+        getCurrentWindow()
+          .scaleFactor()
+          .catch(() => window.devicePixelRatio || 1),
+      ]);
       if (!active || draggingRef.current) return;
       setScale(nextScale);
       // Player HWNDs can disappear briefly while a multi-stream layout is being
@@ -461,10 +451,69 @@ export function ChannelPointsHud() {
     }
   }
 
-  if (!channel || !chip || !overlay || !host) {
-    return <div className="points-hud points-hud--empty" />;
-  }
+  return {
+    channel,
+    showLogin,
+    host,
+    chip,
+    overlay,
+    panel,
+    scale,
+    dragChip,
+    snapshot,
+    catalogOpen,
+    geometryConcealed,
+    error,
+    inputFor,
+    inputText,
+    setInputText,
+    setInputFor,
+    redeeming,
+    flashBonus,
+    chipLocal,
+    panelLocal,
+    rewards,
+    redeem,
+    onChipPointerDown,
+    onChipPointerMove,
+    onChipPointerUp,
+    onChipPointerCancel,
+    t,
+  };
+}
 
+function ChannelPointsHudView({
+  channel,
+  showLogin,
+  chip,
+  overlay,
+  panel,
+  scale,
+  dragChip,
+  snapshot,
+  catalogOpen,
+  geometryConcealed,
+  error,
+  inputFor,
+  inputText,
+  setInputText,
+  setInputFor,
+  redeeming,
+  flashBonus,
+  chipLocal,
+  panelLocal,
+  rewards,
+  redeem,
+  onChipPointerDown,
+  onChipPointerMove,
+  onChipPointerUp,
+  onChipPointerCancel,
+  t,
+}: ReturnType<typeof useChannelPointsHudModel> & {
+  channel: string;
+  chip: OverlayRect;
+  overlay: OverlayRect;
+}) {
   return (
     <div
       className={catalogOpen ? "points-hud points-hud--open" : "points-hud"}
@@ -596,6 +645,8 @@ export function ChannelPointsHud() {
                               reward.prompt?.trim() ||
                               t("pointsHudInputPlaceholder")
                             }
+                            // Focus the reward prompt after the user selects it.
+                            // react-doctor-disable-next-line react-doctor/no-autofocus
                             autoFocus
                           />
                         ) : null}
@@ -617,5 +668,20 @@ export function ChannelPointsHud() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+export function ChannelPointsHud() {
+  const model = useChannelPointsHudModel();
+  if (!model.channel || !model.chip || !model.overlay || !model.host) {
+    return <div className="points-hud points-hud--empty" />;
+  }
+  return (
+    <ChannelPointsHudView
+      {...model}
+      channel={model.channel}
+      chip={model.chip}
+      overlay={model.overlay}
+    />
   );
 }

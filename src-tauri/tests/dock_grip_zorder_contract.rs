@@ -34,6 +34,25 @@ fn regular_dock_grips_never_enter_global_topmost_band() {
 }
 
 #[test]
+fn raising_dock_windows_restacks_channel_points_huds() {
+    let windows_layout = include_str!("../src/streaming/windows_layout.rs");
+    let start = windows_layout
+        .find("fn raise_dock_windows_inner(")
+        .expect("raise_dock_windows_inner");
+    let body = &windows_layout[start..windows_layout.len().min(start + 1800)];
+    let grips = body
+        .find("crate::dock::restack_grips_above(anchor as isize)")
+        .expect("grip restack after raise");
+    let huds = body
+        .find("restack_all_points_huds")
+        .expect("HUD restack after HWND_TOP would bury the catalog");
+    assert!(
+        huds > grips,
+        "HUDs must be restacked after players/grips so the catalog stays clickable"
+    );
+}
+
+#[test]
 fn monitor_identify_overlay_remains_the_only_permanent_topmost_grip() {
     let dock = include_str!("../src/dock.rs");
     assert!(dock.contains("if is_identify { WS_EX_TOPMOST } else { 0 }"));

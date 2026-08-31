@@ -59,8 +59,3 @@ export function summarizeLanguages(
   if (codes.length === 1) return first;
   return `${first} +${codes.length - 1}`;
 }
-
-/** Helix-accepted language token. */
-export function isTwitchLanguageCode(code: string): boolean {
-  return code === "other" || /^[a-z]{2}$/.test(code);
-}

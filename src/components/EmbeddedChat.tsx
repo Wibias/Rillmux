@@ -1,11 +1,22 @@
 import { useTranslation } from "react-i18next";
 import "./EmbeddedChat.css";
 
-interface EmbeddedChatProps {
-  channel: string | null;
+function twitchChatFrame(src: string, title: string) {
+  // Twitch's embed requires scripts + same-origin; dropping either breaks chat.
+  return (
+    // react-doctor-disable-next-line react-doctor/iframe-missing-sandbox
+    <iframe
+      className="embedded-chat__frame"
+      title={title}
+      src={src}
+      allow="clipboard-write"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
+      referrerPolicy="no-referrer"
+    />
+  );
 }
 
-export function EmbeddedChat({ channel }: EmbeddedChatProps) {
+export function EmbeddedChat({ channel }: { channel: string | null }) {
   const { t } = useTranslation("routes");
 
   if (!channel) {
@@ -23,14 +34,7 @@ export function EmbeddedChat({ channel }: EmbeddedChatProps) {
       <header className="embedded-chat__header">
         {t("chatTitle", { channel })}
       </header>
-      <iframe
-        className="embedded-chat__frame"
-        title={t("chatTitle", { channel })}
-        src={src}
-        allow="clipboard-write"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
-        referrerPolicy="no-referrer"
-      />
+      {twitchChatFrame(src, t("chatTitle", { channel }))}
     </aside>
   );
 }

@@ -4,7 +4,11 @@
   bottom: 1rem;
   z-index: 40;
   width: min(22rem, calc(100vw - 2rem));
+  margin: 0;
+  max-width: none;
+  max-height: none;
   padding: 0.75rem 0.9rem;
+  color: inherit;
   background: var(--bg-elevated);
   border: 1px solid var(--accent);
   border-radius: 4px;

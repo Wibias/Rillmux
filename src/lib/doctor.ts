@@ -38,5 +38,3 @@ export const CHATTERINO_INSTALL_URL =
 export const CHATTERINO_WINGET =
   "winget install -e --id SevenTV.Chatterino7";
 export const CHATTERINO_CHOCO = "choco install chatterino7";
-/** @deprecated Prefer CHATTERINO_CHOCO — Scoop has no official Chatterino7 package. */
-export const CHATTERINO_SCOOP = CHATTERINO_CHOCO;

@@ -45,7 +45,11 @@ export function OnboardingWizard() {
   if (!open) return null;
 
   return (
-    <div className="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <dialog
+      className="onboarding"
+      open
+      aria-labelledby="onboarding-title"
+    >
       <div className="onboarding__panel">
         <header className="onboarding__header">
           <div>
@@ -133,6 +137,6 @@ export function OnboardingWizard() {
           </div>
         </footer>
       </div>
-    </div>
+    </dialog>
   );
 }

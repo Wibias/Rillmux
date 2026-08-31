@@ -5,7 +5,6 @@ import { useSettingsStore } from "../lib/settings/store";
 import {
   POINTS_HUD_CHIP_HEIGHT,
   POINTS_HUD_CHIP_MIN_WIDTH,
-  POINTS_HUD_MOVE_SLOP,
   chipRectForPlayer,
   hudSyncRunningKey,
   pointsHudLabel,
@@ -15,7 +14,6 @@ import {
   type OverlayRect,
 } from "../lib/streaming/pointsHud";
 import { useWatchingStore } from "../lib/streaming/store";
-import { overlayRectMoved } from "../lib/streaming/pollOverlay";
 import { invoke, isTauri } from "../lib/tauri";
 
 const MAX_HUD_WINDOWS = 8;
@@ -43,7 +41,6 @@ async function ensureHud(
   rect: OverlayRect,
   showLogin: boolean,
   offset: HudOffset,
-  forcePlace: boolean,
   isActive: () => boolean,
 ) {
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -52,10 +49,6 @@ async function ensureHud(
   const existing = await WebviewWindow.getByLabel(label);
   if (!isActive()) return false;
   if (existing) {
-    if (forcePlace) {
-      await placeHud(channel, rect, true);
-      if (!isActive()) return false;
-    }
     return true;
   }
   const scale = await getCurrentWindow().scaleFactor().catch(() => 1);
@@ -96,7 +89,6 @@ export function ChannelPointsHudSync() {
   );
   const wantedRef = useRef<string[]>([]);
   const missingSinceRef = useRef<Record<string, number>>({});
-  const lastPlacedRef = useRef<Record<string, OverlayRect>>({});
 
   // This cleanup is intentionally separate from the synchronization effect.
   // `runningKey` changes whenever a stream is added/removed; closing every HUD
@@ -115,13 +107,12 @@ export function ChannelPointsHudSync() {
     let active = true;
 
     const closeWantedHuds = async () => {
-      for (const channel of wantedRef.current) {
-        await closeHud(pointsHudLabel(channel));
-        if (!active) return;
-      }
+      const channels = wantedRef.current;
       wantedRef.current = [];
       missingSinceRef.current = {};
-      lastPlacedRef.current = {};
+      await Promise.all(
+        channels.map((channel) => closeHud(pointsHudLabel(channel))),
+      );
     };
 
     const sync = async () => {
@@ -142,15 +133,20 @@ export function ChannelPointsHudSync() {
       const wanted = [
         ...new Set(runningKey.split("|").filter(Boolean)),
       ].slice(0, MAX_HUD_WINDOWS);
+      const wantedSet = new Set(wanted);
+      const openSet = new Set(wantedRef.current);
       const showLogin = wanted.length > 1;
-      for (const channel of wantedRef.current) {
-        if (!wanted.includes(channel)) {
-          await closeHud(pointsHudLabel(channel));
-          if (!active) return;
-          delete lastPlacedRef.current[channel];
-          delete missingSinceRef.current[channel];
-        }
-      }
+      await Promise.all(
+        wantedRef.current.flatMap((channel) => {
+          if (wantedSet.has(channel)) return [];
+          return [
+            closeHud(pointsHudLabel(channel)).then(() => {
+              delete missingSinceRef.current[channel];
+            }),
+          ];
+        }),
+      );
+      if (!active) return;
       const kept: string[] = [];
       for (const channel of wanted) {
         const place = await invoke<ChannelPointsHudPlace | null>(
@@ -159,7 +155,7 @@ export function ChannelPointsHudSync() {
         ).catch(() => null);
         if (!active) return;
         if (!place?.player) {
-          const existingHud = wantedRef.current.includes(channel);
+          const existingHud = openSet.has(channel);
           if (!existingHud) continue;
 
           const now = Date.now();
@@ -176,7 +172,6 @@ export function ChannelPointsHudSync() {
           // `runningKey` removing the channel above.
           await closeHud(pointsHudLabel(channel));
           if (!active) return;
-          delete lastPlacedRef.current[channel];
           delete missingSinceRef.current[channel];
           continue;
         }
@@ -190,19 +185,14 @@ export function ChannelPointsHudSync() {
           place.captionAvoid,
         );
         const hudRect = { ...chip, height: POINTS_HUD_CHIP_HEIGHT };
-        const prev = lastPlacedRef.current[channel];
-        const moved =
-          !prev || overlayRectMoved(prev, hudRect, POINTS_HUD_MOVE_SLOP);
         const hudReady = await ensureHud(
           channel,
           hudRect,
           showLogin,
           offset,
-          moved,
           () => active,
         );
         if (!hudReady || !active) return;
-        lastPlacedRef.current[channel] = hudRect;
         kept.push(channel);
       }
       wantedRef.current = kept;

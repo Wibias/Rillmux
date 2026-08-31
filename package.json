@@ -1,7 +1,7 @@
 {
   "name": "rillmux",
   "private": true,
-  "version": "0.5.7",
+  "version": "0.5.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "doctor": "npx --yes react-doctor@0.9.12 --yes --scope full --blocking warning",
     "ci": "node scripts/ci-local.mjs",
     "prepare": "node scripts/install-git-hooks.mjs",
     "tauri": "tauri",

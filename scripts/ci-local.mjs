@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Local mirror of the Windows CI jobs (frontend + rust).
+ * Local mirror of the CI jobs (frontend, React Doctor, rust).
  * Used by `npm run ci` and the pre-push git hook.
  */
 import { spawnSync } from "node:child_process";
@@ -25,8 +25,9 @@ function run(cmd, args, cwd = root) {
 
 run("npm", ["test"]);
 run("npm", ["run", "build"]);
+run("npm", ["run", "doctor"]);
 run("node", ["scripts/audit-gate.mjs"]);
 run("cargo", ["fmt", "--check"], tauri);
 run("cargo", ["clippy", "--", "-D", "warnings"], tauri);
 run("cargo", ["test"], tauri);
-console.log("\nci-local: all Windows CI checks passed.");
+console.log("\nci-local: all CI checks passed.");

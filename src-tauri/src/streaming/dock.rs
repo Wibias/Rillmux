@@ -108,10 +108,6 @@ fn apply_dock_layout_inner(raise_after_apply: bool) {
     if raise_after_apply {
         raise_dock_windows(&cfg.channels, cfg.reserve_chat);
     }
-    // Raising mpv buries an owned HUD under the player. Restack after.
-    if let Some(app) = DOCK_APP.get() {
-        restack_all_points_huds(app);
-    }
 }
 
 fn apply_dock_layout_cb() {

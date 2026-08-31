@@ -54,4 +54,11 @@ describe("monitor picker divider relocation", () => {
     expect(body).toContain("if raise_after_apply");
     expect(body).toContain("raise_dock_windows(&cfg.channels, cfg.reserve_chat);");
   });
+
+  test("does not restack Channel Points HUDs on the grip-thread divider drag", () => {
+    const source = readFileSync("src-tauri/src/streaming/dock.rs", "utf8");
+    const body = blockBody(source, "fn apply_dock_layout_inner(raise_after_apply: bool)");
+
+    expect(body).not.toContain("restack_all_points_huds");
+  });
 });

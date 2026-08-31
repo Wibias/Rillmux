@@ -22,6 +22,17 @@ describe("release build hygiene", () => {
     expect(source).toContain("cargo check --release");
   });
 
+  it("runs React Doctor as a CI gate on frontend changes", async () => {
+    const source = await readRepo(".github/workflows/ci.yml");
+    const pkg = await readRepo("package.json");
+
+    expect(pkg).toContain("react-doctor@0.9.12");
+    expect(pkg).toContain("--scope full");
+    expect(pkg).toContain("--blocking warning");
+    expect(source).toContain("run: npm run doctor");
+    expect(source).toContain("needs: [changes, frontend, rust, react-doctor]");
+  });
+
   it("keeps the actual Tauri release build warning-fatal", async () => {
     const source = await readRepo(".github/workflows/release.yml");
 

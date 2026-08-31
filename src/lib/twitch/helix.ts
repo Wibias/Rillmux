@@ -150,9 +150,10 @@ function streamsQueryPairs(opts: {
   if (opts.cursor) pairs.push(["after", opts.cursor]);
   const langs = [
     ...new Set(
-      (opts.languages ?? [])
-        .map((c) => c.trim().toLowerCase())
-        .filter(Boolean),
+      (opts.languages ?? []).flatMap((c) => {
+        const n = c.trim().toLowerCase();
+        return n ? [n] : [];
+      }),
     ),
   ].slice(0, 100);
   for (const lang of langs) {
@@ -229,7 +230,7 @@ export async function getTopGames(
     first: 25,
     after: cursor,
   });
-  const ids = page.data.map((game) => game.id).filter(Boolean);
+  const ids = page.data.flatMap((game) => (game.id ? [game.id] : []));
   if (!ids.length) return page;
   const streams = await getStreamsByGameIds(ids);
   const viewers = new Map<string, number>();
@@ -292,20 +293,26 @@ export async function getUsersByLogin(
 ): Promise<HelixPage<HelixUser>> {
   const unique = [
     ...new Set(
-      logins.map((login) => login.trim().toLowerCase()).filter(Boolean),
+      logins.flatMap((login) => {
+        const n = login.trim().toLowerCase();
+        return n ? [n] : [];
+      }),
     ),
   ];
   if (!unique.length) return { data: [] };
-  const data: HelixUser[] = [];
+  const batches: string[][] = [];
   for (let i = 0; i < unique.length; i += 100) {
-    const batch = unique.slice(i, i + 100);
-    const page = await helixFetchPairs<HelixPage<HelixUser>>(
-      "users",
-      batch.map((login) => ["login", login]),
-    );
-    data.push(...page.data);
+    batches.push(unique.slice(i, i + 100));
   }
-  return { data };
+  const pages = await Promise.all(
+    batches.map((batch) =>
+      helixFetchPairs<HelixPage<HelixUser>>(
+        "users",
+        batch.map((login) => ["login", login]),
+      ),
+    ),
+  );
+  return { data: pages.flatMap((page) => page.data) };
 }
 
 export async function getChannelFollowerCount(

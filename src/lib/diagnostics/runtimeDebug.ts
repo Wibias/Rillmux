@@ -49,8 +49,8 @@ function fieldValue(value: unknown): string | null {
 
 export function formatDebugFields(fields: Record<string, unknown>): string {
   return Object.entries(fields)
-    .filter(([key]) => !SENSITIVE_FIELD.test(key))
     .flatMap(([key, value]) => {
+      if (SENSITIVE_FIELD.test(key)) return [];
       if (typeof value === "string" && IDENTIFIER_FIELD.test(key)) {
         return [`${key}=${redactIdentifier(value)}`];
       }
@@ -82,11 +82,4 @@ export function debugRuntimeEvent(
     event,
     fields: formatDebugFields(fields),
   }).catch(() => undefined);
-}
-
-export function syncRuntimeDebugCategories(categories: DebugCategories): void {
-  if (!isTauri()) return;
-  void invoke("diagnostics_set_debug_categories", { categories }).catch(
-    () => undefined,
-  );
 }

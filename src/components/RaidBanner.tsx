@@ -58,15 +58,19 @@ function overlayUrl(raid: RaidOutgoingEvent): string {
 
 async function placeOverlayWindow(raid: RaidOutgoingEvent) {
   if (!isTauri()) return;
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const placed = await invoke<OverlayRect | null>("raid_overlay_place", {
-    fromChannel: raid.fromChannel,
-  }).catch(() => null);
+  const [{ WebviewWindow }, placed] = await Promise.all([
+    import("@tauri-apps/api/webviewWindow"),
+    invoke<OverlayRect | null>("raid_overlay_place", {
+      fromChannel: raid.fromChannel,
+    }).catch(() => null),
+  ]);
   let rect = placed;
   if (!rect) {
     const main = getCurrentWindow();
-    const pos = await main.outerPosition().catch(() => null);
-    const size = await main.outerSize().catch(() => null);
+    const [pos, size] = await Promise.all([
+      main.outerPosition().catch(() => null),
+      main.outerSize().catch(() => null),
+    ]);
     if (pos && size) {
       rect = raidOverlayRect(null, null, {
         x: pos.x,
@@ -169,7 +173,9 @@ export function RaidBanner() {
   const cooldownRef = useRef<Set<string>>(new Set());
   const followingRef = useRef(false);
   const queueRef = useRef(queue);
-  queueRef.current = queue;
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
   const followRaids = useSettingsStore((s) => s.settings.streaming.followRaids);
   const active = queue[0] ?? null;
 
@@ -247,7 +253,7 @@ export function RaidBanner() {
       return;
     }
     void placeOverlayWindow(active);
-  }, [active?.fromChannel, active?.toChannel, active?.toUserId, followRaids]);
+  }, [active, followRaids]);
 
   async function accept(raid: RaidOutgoingEvent) {
     if (followingRef.current) return;

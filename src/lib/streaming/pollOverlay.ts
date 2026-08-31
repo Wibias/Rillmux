@@ -125,6 +125,10 @@ const POLL_OVERLAY_WIDTH = 360;
 const POLL_OVERLAY_HEIGHT = 340;
 const POLL_OVERLAY_INSET = 12;
 
+export function isPollOverlay(search = window.location.search): boolean {
+  return new URLSearchParams(search).get("overlay") === "poll";
+}
+
 export function overlayRectMoved(
   a: OverlayRect,
   b: OverlayRect,

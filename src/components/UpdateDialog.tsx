@@ -32,46 +32,71 @@ function formatVersion(version: string): string {
   return version.replace(/^v/i, "");
 }
 
+function uniquePartKey(base: string, seen: Map<string, number>): string {
+  const n = seen.get(base) ?? 0;
+  seen.set(base, n + 1);
+  return n === 0 ? base : `${base}:${n}`;
+}
+
 function InlineText({ text }: { text: string }) {
   const parts = useMemo(() => {
     // Split **bold** and [label](url) spans; everything else is plain text.
-    const out: { kind: "text" | "bold" | "link"; value: string; href?: string }[] = [];
+    const out: {
+      kind: "text" | "bold" | "link";
+      value: string;
+      href?: string;
+      key: string;
+    }[] = [];
+    const seen = new Map<string, number>();
+    const push = (part: {
+      kind: "text" | "bold" | "link";
+      value: string;
+      href?: string;
+    }) => {
+      out.push({
+        ...part,
+        key: uniquePartKey(
+          `${part.kind}:${part.value}:${part.href ?? ""}`,
+          seen,
+        ),
+      });
+    };
     const re = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
       if (m.index > last) {
-        out.push({ kind: "text", value: text.slice(last, m.index) });
+        push({ kind: "text", value: text.slice(last, m.index) });
       }
       const token = m[0];
       if (token.startsWith("**") && token.endsWith("**")) {
-        out.push({ kind: "bold", value: token.slice(2, -2) });
+        push({ kind: "bold", value: token.slice(2, -2) });
       } else {
         const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
         if (link && isSafeUrl(link[2])) {
-          out.push({ kind: "link", value: link[1], href: link[2] });
+          push({ kind: "link", value: link[1], href: link[2] });
         } else {
-          out.push({ kind: "text", value: token });
+          push({ kind: "text", value: token });
         }
       }
       last = m.index + token.length;
     }
     if (last < text.length) {
-      out.push({ kind: "text", value: text.slice(last) });
+      push({ kind: "text", value: text.slice(last) });
     }
     return out;
   }, [text]);
 
   return (
     <>
-      {parts.map((part, i) => {
+      {parts.map((part) => {
         if (part.kind === "bold") {
-          return <strong key={i}>{part.value}</strong>;
+          return <strong key={part.key}>{part.value}</strong>;
         }
         if (part.kind === "link") {
           return (
             <a
-              key={i}
+              key={part.key}
               href={part.href}
               target="_blank"
               rel="noopener noreferrer"
@@ -87,7 +112,7 @@ function InlineText({ text }: { text: string }) {
             </a>
           );
         }
-        return <span key={i}>{part.value}</span>;
+        return <span key={part.key}>{part.value}</span>;
       })}
     </>
   );
@@ -96,6 +121,7 @@ function InlineText({ text }: { text: string }) {
 function RenderNotes({ blocks }: { blocks: ReturnType<typeof parseReleaseNotes> }) {
   const out: React.ReactNode[] = [];
   let bulletGroup: React.ReactNode[] = [];
+  const seen = new Map<string, number>();
   const flush = (keyBase: string) => {
     if (!bulletGroup.length) return;
     out.push(
@@ -106,36 +132,37 @@ function RenderNotes({ blocks }: { blocks: ReturnType<typeof parseReleaseNotes> 
     bulletGroup = [];
   };
 
-  blocks.forEach((block, i) => {
+  for (const block of blocks) {
+    const key = uniquePartKey(`${block.type}:${block.text}`, seen);
     if (block.type === "bullet") {
       bulletGroup.push(
-        <li key={i} className="update-dialog__bullet">
+        <li key={key} className="update-dialog__bullet">
           <InlineText text={block.text} />
         </li>,
       );
-      return;
+      continue;
     }
-    flush(String(i));
+    flush(key);
     if (block.type === "heading") {
       out.push(
-        <h3 key={i} className="update-dialog__heading">
+        <h3 key={key} className="update-dialog__heading">
           <InlineText text={block.text} />
         </h3>,
       );
     } else if (block.type === "subheading") {
       out.push(
-        <h4 key={i} className="update-dialog__subheading">
+        <h4 key={key} className="update-dialog__subheading">
           <InlineText text={block.text} />
         </h4>,
       );
     } else {
       out.push(
-        <p key={i} className="update-dialog__paragraph">
+        <p key={key} className="update-dialog__paragraph">
           <InlineText text={block.text} />
         </p>,
       );
     }
-  });
+  }
   flush("tail");
   return <div className="update-dialog__notes">{out}</div>;
 }
@@ -201,16 +228,22 @@ export function UpdateDialog({
   };
 
   return (
-    <div
+    <dialog
       className="update-dialog"
-      role="dialog"
-      aria-modal="true"
+      open
       aria-labelledby="update-dialog-title"
-      onMouseDown={(e) => {
-        // Close when the click started outside the panel (backdrop click).
-        if (e.target === e.currentTarget) close();
+      onCancel={(e) => {
+        e.preventDefault();
+        close();
       }}
     >
+      <button
+        type="button"
+        className="update-dialog__dismiss"
+        aria-label={t("cancel")}
+        tabIndex={-1}
+        onClick={close}
+      />
       <div className="update-dialog__panel">
         <header className="update-dialog__header">
           <div>
@@ -274,6 +307,6 @@ export function UpdateDialog({
           ) : null}
         </footer>
       </div>
-    </div>
+    </dialog>
   );
 }

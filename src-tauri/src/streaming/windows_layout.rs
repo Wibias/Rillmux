@@ -1094,6 +1094,11 @@ fn raise_dock_windows_inner(channels: &[String], reserve_chat: bool, foreground:
         crate::dock::restack_grips_above(anchor as isize);
     }
     raise_poll_overlay();
+    // HWND_TOP on mpv buries the Channel Points HUD/catalog. Restack after
+    // players and grips so a multistream raise still leaves the catalog clickable.
+    if let Some(app) = DOCK_APP.get() {
+        restack_all_points_huds(app);
+    }
 }
 
 #[cfg(not(windows))]

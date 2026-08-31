@@ -9,9 +9,20 @@ import {
 import "./UpdateDialog.css";
 import "./ChangelogDialog.css";
 
+function uniqueNoteKey(
+  block: NoteBlock,
+  seen: Map<string, number>,
+): string {
+  const base = `${block.type}:${block.text}`;
+  const n = seen.get(base) ?? 0;
+  seen.set(base, n + 1);
+  return n === 0 ? base : `${base}:${n}`;
+}
+
 function ChangelogNotes({ blocks }: { blocks: NoteBlock[] }) {
   const out: React.ReactNode[] = [];
   let bullets: React.ReactNode[] = [];
+  const seen = new Map<string, number>();
   const flush = (key: string) => {
     if (!bullets.length) return;
     out.push(
@@ -22,45 +33,46 @@ function ChangelogNotes({ blocks }: { blocks: NoteBlock[] }) {
     bullets = [];
   };
 
-  blocks.forEach((block, index) => {
+  for (const block of blocks) {
+    const key = uniqueNoteKey(block, seen);
     switch (block.type) {
       case "bullet":
         bullets.push(
-          <li key={index} className="changelog-dialog__bullet">
+          <li key={key} className="changelog-dialog__bullet">
             {block.text}
           </li>,
         );
-        return;
+        continue;
       case "heading":
-        flush(String(index));
+        flush(key);
         out.push(
-          <h4 key={index} className="changelog-dialog__heading">
+          <h4 key={key} className="changelog-dialog__heading">
             {block.text}
           </h4>,
         );
-        return;
+        continue;
       case "subheading":
-        flush(String(index));
+        flush(key);
         out.push(
-          <h5 key={index} className="changelog-dialog__subheading">
+          <h5 key={key} className="changelog-dialog__subheading">
             {block.text}
           </h5>,
         );
-        return;
+        continue;
       case "paragraph":
-        flush(String(index));
+        flush(key);
         out.push(
-          <p key={index} className="changelog-dialog__paragraph">
+          <p key={key} className="changelog-dialog__paragraph">
             {block.text}
           </p>,
         );
-        return;
+        continue;
       default: {
         const _never: never = block;
         return _never;
       }
     }
-  });
+  }
   flush("tail");
   return <>{out}</>;
 }
@@ -87,15 +99,22 @@ export function ChangelogDialog({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   return (
-    <div
+    <dialog
       className="update-dialog"
-      role="dialog"
-      aria-modal="true"
+      open
       aria-labelledby={titleId}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
       }}
     >
+      <button
+        type="button"
+        className="update-dialog__dismiss"
+        aria-label={t("common:close")}
+        tabIndex={-1}
+        onClick={onClose}
+      />
       <div className="update-dialog__panel changelog-dialog__panel">
         <header className="update-dialog__header changelog-dialog__header">
           <h2 id={titleId}>{t("routes:changelogTitle")}</h2>
@@ -114,6 +133,6 @@ export function ChangelogDialog({ onClose }: { onClose: () => void }) {
           </button>
         </footer>
       </div>
-    </div>
+    </dialog>
   );
 }

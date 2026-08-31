@@ -11,14 +11,36 @@ import { useTranslation } from "react-i18next";
 import { AuthBar } from "./AuthBar";
 import { NavAccount } from "./NavAccount";
 import { TitlebarControls } from "./TitlebarControls";
-import { HeartIcon, NAV_ICONS } from "./NavIcons";
+import {
+  AboutIcon,
+  CategoriesIcon,
+  HeartIcon,
+  MultistreamIcon,
+  SearchNavIcon,
+  SettingsIcon,
+  StreamsIcon,
+  TeamsIcon,
+  WatchingIcon,
+} from "./NavIcons";
 import { useFollowedLiveStreams } from "../lib/browse/useFollowedLive";
 import { invoke, isTauri } from "../lib/tauri";
 import "./AppShell.css";
 
 const ShellSubbarContext = createContext<HTMLDivElement | null>(null);
 
-export function ShellSubbarPortal({ children }: { children: ReactNode }) {
+const NAV_ICONS = {
+  followed: HeartIcon,
+  streams: StreamsIcon,
+  games: CategoriesIcon,
+  search: SearchNavIcon,
+  teams: TeamsIcon,
+  watching: WatchingIcon,
+  multistream: MultistreamIcon,
+  settings: SettingsIcon,
+  about: AboutIcon,
+} as const;
+
+function ShellSubbarPortal({ children }: { children: ReactNode }) {
   const host = useContext(ShellSubbarContext);
   if (!host) return null;
   return createPortal(children, host);

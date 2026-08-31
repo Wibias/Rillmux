@@ -35,6 +35,7 @@ jobs:
               - 'tsconfig.json'
               - 'tsconfig.node.json'
               - 'scripts/**'
+              - 'doctor.config.json'
               - '.github/workflows/ci.yml'
             rust:
               - 'src-tauri/**'
@@ -61,6 +62,18 @@ jobs:
           node scripts/assert-sentry-split.mjs
       - name: Dependency audit gate
         run: node scripts/audit-gate.mjs
+
+  react-doctor:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: React Doctor
+        run: npm run doctor
 
   rust:
     needs: changes
@@ -110,18 +123,18 @@ jobs:
         run: cargo audit
 
   ci:
-    needs: [changes, frontend, rust]
+    needs: [changes, frontend, rust, react-doctor]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail if a needed job failed
         run: |
           set -euo pipefail
-          echo "changes=${{ needs.changes.result }} frontend=${{ needs.frontend.result }} rust=${{ needs.rust.result }}"
+          echo "changes=${{ needs.changes.result }} frontend=${{ needs.frontend.result }} rust=${{ needs.rust.result }} react-doctor=${{ needs.react-doctor.result }}"
           if [ "${{ needs.changes.result }}" != "success" ]; then
             exit 1
           fi
-          for result in "${{ needs.frontend.result }}" "${{ needs.rust.result }}"; do
+          for result in "${{ needs.frontend.result }}" "${{ needs.rust.result }}" "${{ needs.react-doctor.result }}"; do
             case "$result" in
               success|skipped) ;;
               *) exit 1 ;;

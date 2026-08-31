@@ -4,6 +4,7 @@ import {
   POLL_OVERLAY_READY_MAX_ATTEMPTS,
   applyConfirmedPredictionVote,
   isClosedPredictionError,
+  isPollOverlay,
   mergeConfirmedPredictionVoteSnapshot,
   nextPollOverlayReadyAttempt,
   overlayRectMoved,
@@ -14,6 +15,13 @@ import {
   PREDICTION_LOCKED_DISMISS_MS,
   lockedPredictionDismissAfterMs,
 } from "./pollOverlay";
+
+describe("isPollOverlay", () => {
+  it("detects the poll overlay query string", () => {
+    expect(isPollOverlay("?overlay=poll&channel=xqc")).toBe(true);
+    expect(isPollOverlay("?overlay=points-hud")).toBe(false);
+  });
+});
 
 describe("pollOverlayRect", () => {
   it("sits at the bottom of owned chat, not the video host", () => {

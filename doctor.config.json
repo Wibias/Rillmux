@@ -1,0 +1,22 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "ignore": {
+    "overrides": [
+      {
+        // Twitch embed chat requires allow-scripts + allow-same-origin together.
+        // Dropping either breaks the iframe; a locked-down sandbox is not viable.
+        "files": ["src/components/EmbeddedChat.tsx"],
+        "rules": ["react-doctor/iframe-missing-sandbox"]
+      },
+      {
+        // Search fields are the primary control on these pages; HUD focuses the
+        // reward prompt after the user picks a redeem that needs input.
+        "files": [
+          "src/pages/BrowseExtraPages.tsx",
+          "src/components/ChannelPointsHud.tsx"
+        ],
+        "rules": ["react-doctor/no-autofocus"]
+      }
+    ]
+  }
+}

@@ -33,4 +33,41 @@ describe("Channel Points HUD liveness", () => {
     expect(cleanup).not.toContain("closeHud(");
     expect(cleanup).not.toContain("for (const channel of wantedRef.current)");
   });
+
+  test("does not shrink an existing HUD back to the chip over an open catalog", () => {
+    const source = readFileSync("src/components/ChannelPointsHudSync.tsx", "utf8");
+    const start = source.indexOf("async function ensureHud(");
+    const open = source.indexOf("{", start);
+    let depth = 0;
+    let end = open;
+    for (let i = open; i < source.length; i += 1) {
+      if (source[i] === "{") depth += 1;
+      if (source[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    const body = source.slice(open, end + 1);
+    const existingStart = body.indexOf("if (existing)");
+    const existingOpen = body.indexOf("{", existingStart);
+    let existingDepth = 0;
+    let existingEnd = existingOpen;
+    for (let i = existingOpen; i < body.length; i += 1) {
+      if (body[i] === "{") existingDepth += 1;
+      if (body[i] === "}") {
+        existingDepth -= 1;
+        if (existingDepth === 0) {
+          existingEnd = i;
+          break;
+        }
+      }
+    }
+    const existing = body.slice(existingStart, existingEnd + 1);
+
+    expect(existing).not.toContain("placeHud(");
+    expect(existing).not.toContain("forcePlace");
+  });
 });

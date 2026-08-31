@@ -7,6 +7,17 @@ import {
 } from "../lib/twitch/languages";
 import "./LanguageFilter.css";
 
+function setStreamLanguages(next: string[]) {
+  const { settings, setSettings } = useSettingsStore.getState();
+  setSettings({
+    streaming: { ...settings.streaming, streamLanguages: next },
+  });
+}
+
+function clearStreamLanguages() {
+  setStreamLanguages([]);
+}
+
 /**
  * Multi-select broadcast languages for browse stream lists.
  * Persists to `settings.streaming.streamLanguages` (empty = all).
@@ -36,22 +47,11 @@ export function LanguageFilter() {
     };
   }, [open]);
 
-  function setLanguages(next: string[]) {
-    const { settings, setSettings } = useSettingsStore.getState();
-    setSettings({
-      streaming: { ...settings.streaming, streamLanguages: next },
-    });
-  }
-
   function toggle(code: string) {
     const next = selected.includes(code)
       ? selected.filter((c) => c !== code)
       : [...selected, code];
-    setLanguages(next);
-  }
-
-  function clear() {
-    setLanguages([]);
+    setStreamLanguages(next);
   }
 
   const summary = summarizeLanguages(selected, t("languagesAll"));
@@ -74,7 +74,7 @@ export function LanguageFilter() {
             <button
               type="button"
               className="button-secondary language-filter__clear"
-              onClick={clear}
+              onClick={clearStreamLanguages}
               disabled={!selected.length}
             >
               {t("languagesClear")}

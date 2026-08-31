@@ -48,13 +48,6 @@ interface StreamListProps {
   usersByLogin?: Record<string, HelixUser>;
 }
 
-function isRowControl(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    Boolean(target.closest("a, button, .stream-menu"))
-  );
-}
-
 function ExpandedStreamDetail({
   stream,
   user,
@@ -190,15 +183,20 @@ export function StreamList({
               expanded ? "stream-list__row is-expanded" : "stream-list__row"
             }
           >
-            <div
-              className="stream-list__main"
-              onClick={(event) => {
-                if (isRowControl(event.target)) return;
-                setExpandedId((current) =>
-                  current === stream.id ? null : stream.id,
-                );
-              }}
-            >
+            <div className="stream-list__main">
+              <button
+                type="button"
+                className="stream-list__expand"
+                aria-expanded={expanded}
+                aria-label={t("routes:streamToggleDetail", {
+                  channel: stream.user_name,
+                })}
+                onClick={() =>
+                  setExpandedId((current) =>
+                    current === stream.id ? null : stream.id,
+                  )
+                }
+              />
               <span className="stream-list__idx muted">
                 {startIndex + index}
               </span>

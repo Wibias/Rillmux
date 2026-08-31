@@ -29,7 +29,9 @@ export function DesktopChrome() {
   const knownLive = useRef<Set<string>>(new Set());
   const primed = useRef(false);
   const closeToTrayRef = useRef(closeToTray);
-  closeToTrayRef.current = closeToTray;
+  useEffect(() => {
+    closeToTrayRef.current = closeToTray;
+  }, [closeToTray]);
 
   useEffect(() => {
     if (!isTauri() || !hydrated) return;
@@ -38,10 +40,17 @@ export function DesktopChrome() {
     const useTray = shouldCreateDesktopTray(import.meta.env.DEV);
 
     void (async () => {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const { TrayIcon } = await import("@tauri-apps/api/tray");
-      const { Menu } = await import("@tauri-apps/api/menu");
-      const { defaultWindowIcon } = await import("@tauri-apps/api/app");
+      const [
+        { getCurrentWindow },
+        { TrayIcon },
+        { Menu },
+        { defaultWindowIcon },
+      ] = await Promise.all([
+        import("@tauri-apps/api/window"),
+        import("@tauri-apps/api/tray"),
+        import("@tauri-apps/api/menu"),
+        import("@tauri-apps/api/app"),
+      ]);
 
       if (disposed) return;
 

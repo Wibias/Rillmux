@@ -194,6 +194,8 @@ export function SearchPage() {
           onChange={(e) => setQ(e.target.value)}
           placeholder={t("routes:searchPlaceholder")}
           aria-label={t("common:search")}
+          // Search is this page's primary control; focusing it is the landing action.
+          // react-doctor-disable-next-line react-doctor/no-autofocus
           autoFocus
         />
         <button type="submit" disabled={!loggedIn || !q.trim()}>
@@ -306,6 +308,8 @@ export function TeamsSearchPage() {
             onChange={(e) => setQ(e.target.value)}
             placeholder={t("routes:teamsPlaceholder")}
             aria-label={t("routes:teamsTitle")}
+            // Search is this page's primary control; focusing it is the landing action.
+            // react-doctor-disable-next-line react-doctor/no-autofocus
             autoFocus
           />
         </label>
@@ -519,8 +523,8 @@ export function TeamPage() {
     queryFn: () => getTeamByName(teamName),
   });
 
-  const members = teamQuery.data?.users ?? [];
-  const memberIds = members.map((m) => m.user_id);
+  const members = teamQuery.data?.users;
+  const memberIds = members?.map((m) => m.user_id) ?? [];
 
   const liveQuery = useQuery({
     queryKey: ["team-live", teamName, memberIds.join(",")],
@@ -539,9 +543,10 @@ export function TeamPage() {
 
   const liveStreams = useMemo(
     () =>
-      members
-        .map((m) => liveByLogin.get(m.user_login.toLowerCase()))
-        .filter((s): s is HelixStream => Boolean(s)),
+      (members ?? []).flatMap((m) => {
+        const stream = liveByLogin.get(m.user_login.toLowerCase());
+        return stream ? [stream] : [];
+      }),
     [members, liveByLogin],
   );
 
@@ -585,11 +590,11 @@ export function TeamPage() {
         </>
       ) : null}
 
-      {members.length ? (
+      {(members?.length ?? 0) > 0 ? (
         <>
           <h2>{t("routes:teamMembers")}</h2>
           <ul className="team-member-list">
-            {members.map((member) => {
+            {(members ?? []).map((member) => {
               const live = liveByLogin.get(member.user_login.toLowerCase());
               return (
                 <li key={member.user_id} className="team-member">

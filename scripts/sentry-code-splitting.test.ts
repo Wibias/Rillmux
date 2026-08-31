@@ -8,10 +8,12 @@ async function readRepo(path: string): Promise<string> {
 describe("Sentry code splitting", () => {
   it("keeps the Sentry SDK out of the initial frontend graph", async () => {
     const source = await readRepo("src/lib/sentry.tsx");
+    const capture = await readRepo("src/lib/sentryCapture.ts");
     const boundary = await readRepo("src/lib/sentry-sdk.ts");
 
     expect(source).not.toMatch(/from\s+["']@sentry\/react["']/);
-    expect(source).toContain('import("./sentry-sdk")');
+    expect(capture).not.toMatch(/from\s+["']@sentry\/react["']/);
+    expect(capture).toContain('import("./sentry-sdk")');
     expect(boundary).toContain('export * from "@sentry/react"');
   });
 
@@ -26,7 +28,7 @@ describe("Sentry code splitting", () => {
   it("does not load the SDK just to keep telemetry disabled", async () => {
     const source = await readRepo("src/lib/sentry.tsx");
 
-    expect(source).toContain("if (!sdkPromise) return;");
-    expect(source).toContain("loadSentrySdk");
+    expect(source).toContain("peekSentrySdk");
+    expect(source).toMatch(/if \(!sdkPromise\) return;/);
   });
 });

@@ -22,17 +22,14 @@ import { LaunchErrorBanner } from "./components/LaunchErrorBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { RaidBanner } from "./components/RaidBanner";
 import { DebugDiagnosticsBootstrap } from "./components/DebugDiagnosticsBootstrap";
-import {
-  ChannelPointsPollOverlay,
-  isPollOverlayWindow,
-} from "./components/ChannelPointsPollOverlay";
-import {
-  ChannelPointsHud,
-  isPointsHudOverlayWindow,
-} from "./components/ChannelPointsHud";
+import { ChannelPointsPollOverlay } from "./components/ChannelPointsPollOverlay";
+import { ChannelPointsHud } from "./components/ChannelPointsHud";
 import { ChannelPointsHudSync } from "./components/ChannelPointsHudSync";
+import { isPollOverlay } from "./lib/streaming/pollOverlay";
+import { isPointsHudOverlay } from "./lib/streaming/pointsHud";
 import { settingsTabFromPath } from "./lib/settings/tabs";
-import { AppErrorBoundary, SentryBootstrap } from "./lib/sentry";
+import { AppErrorBoundary } from "./lib/AppErrorBoundary";
+import { SentryBootstrap } from "./lib/sentry";
 import "./styles/global.css";
 
 const FollowedPage = lazy(() =>
@@ -158,7 +155,7 @@ export default function App() {
     );
   }
 
-  if (isPollOverlayWindow()) {
+  if (isPollOverlay()) {
     return (
       <ThemeProvider>
         <SettingsBootstrap>
@@ -168,7 +165,7 @@ export default function App() {
     );
   }
 
-  if (isPointsHudOverlayWindow()) {
+  if (isPointsHudOverlay()) {
     return (
       <ThemeProvider>
         <SettingsBootstrap>

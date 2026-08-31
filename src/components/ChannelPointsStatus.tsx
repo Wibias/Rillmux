@@ -45,9 +45,10 @@ export function ChannelPointsStatus({ compact = false }: { compact?: boolean }) 
     const refreshPoints = async (presence: ViewerPresenceStatus) => {
       const logins = [
         ...new Set(
-          presence.workers
-            .map((worker) => worker.channelLogin.trim().toLowerCase())
-            .filter(Boolean),
+          presence.workers.flatMap((worker) => {
+            const login = worker.channelLogin.trim().toLowerCase();
+            return login ? [login] : [];
+          }),
         ),
       ];
       if (!logins.length) {

@@ -11,10 +11,6 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    env:
-      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-      WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -38,7 +34,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Install frontend deps
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Frontend tests
         run: npm test
@@ -72,7 +68,11 @@ jobs:
         run: npm run streamlink:fetch
 
       - name: Import Windows Authenticode certificate
-        if: ${{ env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE_THUMBPRINT != '' }}
+        if: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_THUMBPRINT != '' }}
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"

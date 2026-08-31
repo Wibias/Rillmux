@@ -76,8 +76,8 @@ export function buildPresenceTargets(
     .map(({ session }) => session);
 
   return ordered
-    .filter((session) => session.running && session.ready)
     .flatMap((session) => {
+      if (!(session.running && session.ready)) return [];
       const source = metadata[session.id];
       if (
         !source?.channelLogin.trim() ||

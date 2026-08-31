@@ -444,8 +444,9 @@ export function hudSyncRunningKey(
   sessions: readonly { running: boolean; channel: string }[],
 ): string {
   return sessions
-    .filter((session) => session.running)
-    .map((session) => session.channel.toLowerCase())
+    .flatMap((session) =>
+      session.running ? [session.channel.toLowerCase()] : [],
+    )
     .join("|");
 }
 

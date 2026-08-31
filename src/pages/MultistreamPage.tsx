@@ -58,7 +58,7 @@ function streamLike(login: string, title = "", game = ""): HelixStream {
   };
 }
 
-export function MultistreamPage() {
+function useMultistreamPage() {
   const { t } = useTranslation(["multistream", "settings", "common", "routes"]);
   const session = useAuthStore((s) => s.session);
   const userId = session?.userId ?? null;
@@ -311,17 +311,6 @@ export function MultistreamPage() {
     );
   };
 
-  if (!multi) {
-    return (
-      <section className="page">
-        <PageSubbar
-          title={t("multistream:title")}
-          lede={t("multistream:lede")}
-        />
-        <p className="muted">{t("multistream:seamlessNote")}</p>
-      </section>
-    );
-  }
 
   const draggingChannel =
     dragIndex !== null ? slotChannels[dragIndex] : undefined;
@@ -336,24 +325,88 @@ export function MultistreamPage() {
     ? watchingStatusText(draggingPhase, draggingSession.status, t)
     : "";
 
+  if (!multi) return { kind: "seamless" as const, t };
+
+  return {
+    kind: "page" as const,
+    t,
+    sessions,
+    stopAll,
+    settings,
+    setSettings,
+    applyLayout,
+    runningCount,
+    cap,
+    layoutFull,
+    launchError,
+    slotChannels,
+    sessionByChannel,
+    slotUsers,
+    dragIndex,
+    overIndex,
+    dragStrideRef,
+    slotsRef,
+    ghostRef,
+    onSlotPointerDown,
+    onSlotPointerMove,
+    endSlotDrag,
+    activeChatChannel,
+    chatProvider,
+    setActiveChat,
+    toggleMute,
+    stopSession,
+    draggingChannel,
+    draggingUser,
+    draggingSession,
+    draggingPhase,
+    draggingStatus,
+    loggedIn,
+    query,
+    setQuery,
+    debounced,
+    followedLive,
+    liveRef,
+    isAdded,
+    addChannel,
+    followedResults,
+    otherResults,
+    search,
+    renderResult,
+  };
+}
+
+type MultistreamPageModel = Extract<
+  ReturnType<typeof useMultistreamPage>,
+  { kind: "page" }
+>;
+
+function MultistreamSeamlessNote({
+  t,
+}: {
+  t: ReturnType<typeof useMultistreamPage>["t"];
+}) {
   return (
     <section className="page">
       <PageSubbar
         title={t("multistream:title")}
         lede={t("multistream:lede")}
-        actions={
-          sessions.length ? (
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => void stopAll()}
-            >
-              {t("multistream:stopAll")}
-            </button>
-          ) : undefined
-        }
       />
+      <p className="muted">{t("multistream:seamlessNote")}</p>
+    </section>
+  );
+}
 
+function MultistreamLayoutControls({
+  t,
+  settings,
+  setSettings,
+  applyLayout,
+  runningCount,
+  cap,
+  layoutFull,
+  launchError,
+}: MultistreamPageModel) {
+  return (
       <div className="ms-section">
         <label className="ms-layout-row">
           <span>{t("multistream:layoutLabel")}</span>
@@ -411,7 +464,34 @@ export function MultistreamPage() {
         </p>
         {launchError ? <p className="muted">{launchError}</p> : null}
       </div>
+  );
+}
 
+function MultistreamSlotList({
+  t,
+  slotChannels,
+  sessionByChannel,
+  slotUsers,
+  dragIndex,
+  overIndex,
+  dragStrideRef,
+  slotsRef,
+  ghostRef,
+  onSlotPointerDown,
+  onSlotPointerMove,
+  endSlotDrag,
+  activeChatChannel,
+  chatProvider,
+  setActiveChat,
+  toggleMute,
+  stopSession,
+  draggingChannel,
+  draggingUser,
+  draggingSession,
+  draggingPhase,
+  draggingStatus,
+}: MultistreamPageModel) {
+  return (
       <div className="ms-section">
         <div className="ms-section__head">
           <h2>{t("multistream:currentStreams")}</h2>
@@ -590,7 +670,26 @@ export function MultistreamPage() {
           </p>
         ) : null}
       </div>
+  );
+}
 
+function MultistreamSearchPanel({
+  t,
+  loggedIn,
+  query,
+  setQuery,
+  debounced,
+  followedLive,
+  liveRef,
+  isAdded,
+  layoutFull,
+  addChannel,
+  followedResults,
+  otherResults,
+  search,
+  renderResult,
+}: MultistreamPageModel) {
+  return (
       <div className="ms-section">
         <div className="ms-section__head">
           <h2>{t("multistream:searchTitle")}</h2>
@@ -716,9 +815,37 @@ export function MultistreamPage() {
           </>
         )}
       </div>
+  );
+}
+
+export function MultistreamPage() {
+  const model = useMultistreamPage();
+  if (model.kind === "seamless") {
+    return <MultistreamSeamlessNote t={model.t} />;
+  }
+  return (
+    <section className="page">
+      <PageSubbar
+        title={model.t("multistream:title")}
+        lede={model.t("multistream:lede")}
+        actions={
+          model.sessions.length ? (
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => void model.stopAll()}
+            >
+              {model.t("multistream:stopAll")}
+            </button>
+          ) : undefined
+        }
+      />
+      <MultistreamLayoutControls {...model} />
+      <MultistreamSlotList {...model} />
+      <MultistreamSearchPanel {...model} />
       <p className="ms-footnote">
         <InfoIcon />
-        <span>{t("multistream:layoutHint")}</span>
+        <span>{model.t("multistream:layoutHint")}</span>
       </p>
     </section>
   );

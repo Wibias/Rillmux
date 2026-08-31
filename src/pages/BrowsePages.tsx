@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   useInfiniteQuery,
   useQuery,
-  useQueryClient,
 } from "@tanstack/react-query";
 import { DoctorPanel } from "../components/DoctorPanel";
 import { ChangelogDialog } from "../components/ChangelogDialog";
@@ -31,8 +30,6 @@ import {
   SearchIcon,
 } from "../components/FollowedIcons";
 import {
-  getFollowedStreams,
-  getTopGames,
   getTopStreams,
   getUsersByLogin,
   LIVE_STREAM_QUERY,
@@ -41,7 +38,6 @@ import { languagesQueryKey } from "../lib/twitch/languages";
 import { useSettingsStore } from "../lib/settings/store";
 import { isTauri } from "../lib/tauri";
 import { useFollowedLiveStreams } from "../lib/browse/useFollowedLive";
-import { followedStreamsQueryKey } from "../lib/notifications/followedLive";
 import {
   filterFollowedStreams,
   followedVisibleCount,
@@ -54,7 +50,7 @@ import {
 } from "../lib/browse/followedList";
 import "./FollowedPage.css";
 
-export function FollowedPage() {
+function useFollowedPageModel() {
   const { t } = useTranslation(["routes", "common"]);
   const session = useAuthStore((s) => s.session);
   const watchStream = useWatchingStore((s) => s.watchStream);
@@ -171,10 +167,6 @@ export function FollowedPage() {
     settings.gui.hideMatureFollowed,
   ]);
 
-  useEffect(() => {
-    if (page !== paged.page) setPage(paged.page);
-  }, [page, paged.page]);
-
   function patchGui(
     patch: Partial<{
       followedView: FollowedView;
@@ -204,6 +196,60 @@ export function FollowedPage() {
     return Array.from({ length: 9 }, (_, i) => start + i);
   })();
 
+  return {
+    t,
+    loggedIn,
+    search,
+    setSearch,
+    searchRef,
+    filtersRef,
+    filtersOpen,
+    setFiltersOpen,
+    settings,
+    patchGui,
+    refreshing,
+    query,
+    streams,
+    pinned,
+    pinsCollapsed,
+    setPinsCollapsed,
+    onWatch,
+    onTogglePin,
+    usersByLogin,
+    fitRef,
+    paged,
+    rest,
+    pageButtons,
+    setPage,
+  };
+}
+
+function FollowedPageView({
+  t,
+  loggedIn,
+  search,
+  setSearch,
+  searchRef,
+  filtersRef,
+  filtersOpen,
+  setFiltersOpen,
+  settings,
+  patchGui,
+  refreshing,
+  query,
+  streams,
+  pinned,
+  pinsCollapsed,
+  setPinsCollapsed,
+  onWatch,
+  onTogglePin,
+  usersByLogin,
+  fitRef,
+  paged,
+  rest,
+  pageButtons,
+  setPage,
+}: ReturnType<typeof useFollowedPageModel>) {
   return (
     <section className="page page--followed">
       <PageSubbar
@@ -414,6 +460,10 @@ export function FollowedPage() {
   );
 }
 
+export function FollowedPage() {
+  return <FollowedPageView {...useFollowedPageModel()} />;
+}
+
 export function StreamsPage() {
   const { t } = useTranslation(["routes", "common"]);
   const session = useAuthStore((s) => s.session);
@@ -437,8 +487,14 @@ export function StreamsPage() {
   const streams = query.data?.pages.flatMap((p) => p.data) ?? [];
   const refreshing = query.isFetching && !query.isFetchingNextPage;
   const userLogins = useMemo(
-    () => [...new Set(streams.map((stream) => stream.user_login.toLowerCase()))],
-    [streams],
+    () => [
+      ...new Set(
+        (query.data?.pages ?? []).flatMap((page) =>
+          page.data.map((stream) => stream.user_login.toLowerCase()),
+        ),
+      ),
+    ],
+    [query.data],
   );
   const usersQuery = useQuery({
     queryKey: ["top-stream-users", userLogins],
@@ -712,49 +768,4 @@ export function AboutPage() {
       ) : null}
     </section>
   );
-}
-
-export function AuthBootstrap({ children }: { children: React.ReactNode }) {
-  const refreshSession = useAuthStore((s) => s.refreshSession);
-  const session = useAuthStore((s) => s.session);
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    void refreshSession();
-  }, [refreshSession]);
-
-  useEffect(() => {
-    if (!session?.loggedIn) {
-      return;
-    }
-    void queryClient.prefetchInfiniteQuery({
-      queryKey: ["top-streams"],
-      initialPageParam: undefined as string | undefined,
-      queryFn: ({ pageParam }) => getTopStreams(pageParam),
-      getNextPageParam: (last) => last.pagination?.cursor,
-      staleTime: 20_000,
-      pages: 1,
-    });
-    void queryClient.prefetchInfiniteQuery({
-      queryKey: ["top-games"],
-      initialPageParam: undefined as string | undefined,
-      queryFn: ({ pageParam }) => getTopGames(pageParam),
-      getNextPageParam: (last) => last.pagination?.cursor,
-      staleTime: 60_000,
-      pages: 1,
-    });
-    if (session.userId) {
-      void queryClient.prefetchInfiniteQuery({
-        queryKey: followedStreamsQueryKey(session.userId),
-        initialPageParam: undefined as string | undefined,
-        queryFn: ({ pageParam }) =>
-          getFollowedStreams(session.userId!, pageParam),
-        getNextPageParam: (last) => last.pagination?.cursor,
-        staleTime: 20_000,
-        pages: 1,
-      });
-    }
-  }, [session?.loggedIn, session?.userId, queryClient]);
-
-  return children;
 }

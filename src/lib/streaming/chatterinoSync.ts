@@ -1,6 +1,13 @@
 /** Stable key so slot order does not kill and relaunch Chatterino. */
 export function chatterinoSyncKey(channels: string[]): string {
-  return [...new Set(channels.map((c) => c.trim().toLowerCase()).filter(Boolean))]
+  return [
+    ...new Set(
+      channels.flatMap((c) => {
+        const n = c.trim().toLowerCase();
+        return n ? [n] : [];
+      }),
+    ),
+  ]
     .sort()
     .join(",");
 }

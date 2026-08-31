@@ -6,6 +6,7 @@ import { useSettingsStore } from "../lib/settings/store";
 import {
   applyConfirmedPredictionVote,
   isClosedPredictionError,
+  isPollOverlay,
   mergeConfirmedPredictionVoteSnapshot,
   nextPollOverlayReadyAttempt,
   overlayRectMoved,
@@ -88,10 +89,6 @@ function overlayEventId(snapshot: ChannelPointsSnapshot | null): string | null {
   return null;
 }
 
-export function isPollOverlayWindow() {
-  return new URLSearchParams(window.location.search).get("overlay") === "poll";
-}
-
 function pollChannelFromSearch() {
   return new URLSearchParams(window.location.search).get("channel")?.trim() ?? null;
 }
@@ -107,8 +104,10 @@ async function measureEmbeddedChat(): Promise<OverlayRect | null> {
   const box = el.getBoundingClientRect();
   if (box.width < 80 || box.height < 80) return null;
   const win = getCurrentWindow();
-  const pos = await win.innerPosition().catch(() => null);
-  const scale = await win.scaleFactor().catch(() => 1);
+  const [pos, scale] = await Promise.all([
+    win.innerPosition().catch(() => null),
+    win.scaleFactor().catch(() => 1),
+  ]);
   if (!pos) return null;
   return {
     x: pos.x + box.left * scale,
@@ -151,8 +150,11 @@ async function placeOverlayWindow(channel: string) {
       await closeOverlayWindow();
       return;
     }
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
+    const [{ WebviewWindow }, { LogicalPosition, LogicalSize }] =
+      await Promise.all([
+        import("@tauri-apps/api/webviewWindow"),
+        import("@tauri-apps/api/dpi"),
+      ]);
     const scale = await getCurrentWindow().scaleFactor().catch(() => 1);
     const x = Math.round(rect.x / scale);
     const y = Math.round(rect.y / scale);
@@ -212,9 +214,9 @@ async function closeOverlayWindow() {
   await overlay?.close().catch(() => undefined);
 }
 
-export function ChannelPointsPollOverlay() {
+function useChannelPointsPollOverlay() {
   const { t } = useTranslation("common");
-  const overlayWindow = isPollOverlayWindow();
+  const overlayWindow = isPollOverlay();
   const settingsEnabled = useSettingsStore(
     (state) =>
       state.settings.streaming.channelPoints &&
@@ -223,9 +225,9 @@ export function ChannelPointsPollOverlay() {
   const enabled = overlayWindow || settingsEnabled;
   const runningChannel = useWatchingStore((state) => {
     const preferred = state.activeChatChannel?.toLowerCase();
-    const running = state.sessions
-      .filter((session) => session.running)
-      .map((session) => session.channel.toLowerCase());
+    const running = state.sessions.flatMap((session) =>
+      session.running ? [session.channel.toLowerCase()] : [],
+    );
     if (preferred && running.includes(preferred)) return preferred;
     return running[0] ?? null;
   });
@@ -619,102 +621,165 @@ export function ChannelPointsPollOverlay() {
     }
   }
 
-  if (!channel) return null;
-  if (overlayWindow && !showOverlay) return null;
-  if (!showOverlay) return null;
+  return {
+    channel,
+    overlayWindow,
+    showOverlay,
+    showPrediction,
+    showPoll,
+    prediction,
+    poll,
+    predictionOpen,
+    remainingPrediction,
+    maxStake,
+    clampedStake,
+    setStake,
+    votingId,
+    error,
+    vote,
+    votePrediction,
+    dismiss,
+    t,
+  };
+}
 
-  const cardClass = overlayWindow
-    ? "poll-overlay poll-overlay--window"
-    : "poll-overlay";
-
-  if (showPrediction && prediction && !showPoll) {
-    const locked = !predictionOpen;
-    const alreadyPredicted = Boolean(prediction.predictedOutcomeId);
-    return (
-      <aside className={cardClass} role="dialog" aria-label={prediction.title}>
-        <header className="poll-overlay__head">
-          <div>
-            <strong>{t("pollPredictionTitle", { channel })}</strong>
-            <p className="poll-overlay__title">{prediction.title}</p>
-          </div>
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => void dismiss()}
-          >
-            {t("pollVoteDismiss")}
-          </button>
-        </header>
-        <p className="muted">
-          {locked
-            ? t("pollPredictionLocked")
-            : remainingPrediction != null
-              ? t("pollVoteRemaining", { seconds: remainingPrediction })
-              : t("pollPredictionStake")}
-        </p>
-        {alreadyPredicted ? (
-          <p className="poll-overlay__confirmation" role="status">
-            <span aria-hidden="true">✓</span> {t("pollPredictionPlaced")}
-          </p>
-        ) : null}
-        {locked || alreadyPredicted ? null : (
-          <label className="poll-overlay__stake">
-            <span>{t("pollPredictionStake")}</span>
-            <input
-              type="number"
-              min={MIN_PREDICTION_POINTS}
-              max={maxStake}
-              step={10}
-              value={clampedStake}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (!Number.isFinite(next)) return;
-                setStake(next);
-              }}
-            />
-          </label>
-        )}
-        <ul className="poll-overlay__choices">
-          {prediction.outcomes.map((outcome) => {
-            const voted = prediction.predictedOutcomeId === outcome.id;
-            return (
-              <li key={outcome.id}>
-                <button
-                  type="button"
-                  className={
-                    voted ? "poll-overlay__choice is-voted" : "poll-overlay__choice"
-                  }
-                  disabled={locked || alreadyPredicted || votingId !== null}
-                  onClick={() => void votePrediction(outcome.id)}
-                >
-                  <span>{outcome.title}</span>
-                  <span className="muted">
-                    {voted
-                      ? t("pollPredicted", {
-                          points: prediction.predictedPoints ?? clampedStake,
-                        })
-                      : `${outcome.points} · ${outcome.users}`}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        {error ? <p className="authbar__error">{error}</p> : null}
-      </aside>
-    );
-  }
-
-  if (!showPoll || !poll) return null;
-
+function ChannelPointsPredictionCard({
+  channel,
+  cardClass,
+  prediction,
+  predictionOpen,
+  remainingPrediction,
+  maxStake,
+  clampedStake,
+  setStake,
+  votingId,
+  error,
+  votePrediction,
+  dismiss,
+  t,
+}: {
+  channel: string;
+  cardClass: string;
+  prediction: ChannelPointsPrediction;
+  predictionOpen: boolean;
+  remainingPrediction: number | null;
+  maxStake: number;
+  clampedStake: number;
+  setStake: (value: number) => void;
+  votingId: string | null;
+  error: string | null;
+  votePrediction: (outcomeId: string) => Promise<void>;
+  dismiss: () => Promise<void>;
+  t: ReturnType<typeof useTranslation>["t"];
+}) {
+  const locked = !predictionOpen;
+  const alreadyPredicted = Boolean(prediction.predictedOutcomeId);
   return (
-    <aside className={cardClass} role="dialog" aria-label={poll.title}>
+    <dialog className={cardClass} open aria-label={prediction.title}>
+      <header className="poll-overlay__head">
+        <div>
+          <strong>{t("pollPredictionTitle", { channel })}</strong>
+          <p className="poll-overlay__title">{prediction.title}</p>
+        </div>
+        <button
+          type="button"
+          className="button-secondary"
+          onClick={() => void dismiss()}
+        >
+          {t("pollVoteDismiss")}
+        </button>
+      </header>
+      <p className="muted">
+        {locked
+          ? t("pollPredictionLocked")
+          : remainingPrediction != null
+            ? t("pollVoteRemaining", { seconds: remainingPrediction })
+            : t("pollPredictionStake")}
+      </p>
+      {alreadyPredicted ? (
+        <p className="poll-overlay__confirmation" role="status">
+          <span aria-hidden="true">✓</span> {t("pollPredictionPlaced")}
+        </p>
+      ) : null}
+      {locked || alreadyPredicted ? null : (
+        <label className="poll-overlay__stake">
+          <span>{t("pollPredictionStake")}</span>
+          <input
+            type="number"
+            min={MIN_PREDICTION_POINTS}
+            max={maxStake}
+            step={10}
+            value={clampedStake}
+            onChange={(event) => {
+              const next = event.currentTarget.valueAsNumber;
+              if (!Number.isFinite(next)) return;
+              setStake(next);
+            }}
+          />
+        </label>
+      )}
+      <ul className="poll-overlay__choices">
+        {prediction.outcomes.map((outcome) => {
+          const voted = prediction.predictedOutcomeId === outcome.id;
+          return (
+            <li key={outcome.id}>
+              <button
+                type="button"
+                className={
+                  voted ? "poll-overlay__choice is-voted" : "poll-overlay__choice"
+                }
+                disabled={locked || alreadyPredicted || votingId !== null}
+                onClick={() => void votePrediction(outcome.id)}
+              >
+                <span>{outcome.title}</span>
+                <span className="muted">
+                  {voted
+                    ? t("pollPredicted", {
+                        points: prediction.predictedPoints ?? clampedStake,
+                      })
+                    : `${outcome.points} · ${outcome.users}`}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {error ? <p className="authbar__error">{error}</p> : null}
+    </dialog>
+  );
+}
+
+function ChannelPointsPollCard({
+  channel,
+  cardClass,
+  poll,
+  votingId,
+  error,
+  vote,
+  dismiss,
+  t,
+}: {
+  channel: string;
+  cardClass: string;
+  poll: ChannelPointsPoll;
+  votingId: string | null;
+  error: string | null;
+  vote: (choiceId: string) => Promise<void>;
+  dismiss: () => Promise<void>;
+  t: ReturnType<typeof useTranslation>["t"];
+}) {
+  return (
+    <dialog className={cardClass} open aria-label={poll.title}>
       <header className="poll-overlay__head">
         <div>
           <strong>{t("pollVoteTitle", { channel })}</strong>
           <p className="poll-overlay__title">{poll.title}</p>
         </div>
-        <button type="button" className="button-secondary" onClick={() => void dismiss()}>
+        <button
+          type="button"
+          className="button-secondary"
+          onClick={() => void dismiss()}
+        >
           {t("pollVoteDismiss")}
         </button>
       </header>
@@ -731,18 +796,68 @@ export function ChannelPointsPollOverlay() {
             <li key={choice.id}>
               <button
                 type="button"
-                className={voted ? "poll-overlay__choice is-voted" : "poll-overlay__choice"}
+                className={
+                  voted ? "poll-overlay__choice is-voted" : "poll-overlay__choice"
+                }
                 disabled={Boolean(poll.votedChoiceId) || votingId !== null}
                 onClick={() => void vote(choice.id)}
               >
                 <span>{choice.title}</span>
-                <span className="muted">{voted ? t("pollVoted") : choice.votes}</span>
+                <span className="muted">
+                  {voted ? t("pollVoted") : choice.votes}
+                </span>
               </button>
             </li>
           );
         })}
       </ul>
       {error ? <p className="authbar__error">{error}</p> : null}
-    </aside>
+    </dialog>
+  );
+}
+
+export function ChannelPointsPollOverlay() {
+  const model = useChannelPointsPollOverlay();
+  if (!model.channel) return null;
+  if (model.overlayWindow && !model.showOverlay) return null;
+  if (!model.showOverlay) return null;
+
+  const cardClass = model.overlayWindow
+    ? "poll-overlay poll-overlay--window"
+    : "poll-overlay";
+
+  if (model.showPrediction && model.prediction && !model.showPoll) {
+    return (
+      <ChannelPointsPredictionCard
+        channel={model.channel}
+        cardClass={cardClass}
+        prediction={model.prediction}
+        predictionOpen={model.predictionOpen}
+        remainingPrediction={model.remainingPrediction}
+        maxStake={model.maxStake}
+        clampedStake={model.clampedStake}
+        setStake={model.setStake}
+        votingId={model.votingId}
+        error={model.error}
+        votePrediction={model.votePrediction}
+        dismiss={model.dismiss}
+        t={model.t}
+      />
+    );
+  }
+
+  if (!model.showPoll || !model.poll) return null;
+
+  return (
+    <ChannelPointsPollCard
+      channel={model.channel}
+      cardClass={cardClass}
+      poll={model.poll}
+      votingId={model.votingId}
+      error={model.error}
+      vote={model.vote}
+      dismiss={model.dismiss}
+      t={model.t}
+    />
   );
 }

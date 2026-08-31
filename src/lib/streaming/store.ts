@@ -5,7 +5,7 @@ import type { HelixStream } from "../twitch/helix";
 import { getChannelStreams, getUsersByLogin } from "../twitch/helix";
 import { useSettingsStore } from "../settings/store";
 import { resolveChannelLaunch } from "../settings/types";
-import { captureAppError } from "../sentry";
+import { captureAppError } from "../sentryCapture";
 import { debugRuntimeEvent } from "../diagnostics/runtimeDebug";
 import {
   DEFAULT_MULTISTREAM_LAYOUT,
@@ -191,11 +191,11 @@ function currentLayout(): MultistreamLayout {
 }
 
 function runningChannels(): string[] {
-  return useWatchingStore
-    .getState()
-    .sessions.filter((session) => session.running)
-    .map((session) => session.channel.toLowerCase())
-    .filter(Boolean);
+  return useWatchingStore.getState().sessions.flatMap((session) => {
+    if (!session.running) return [];
+    const channel = session.channel.toLowerCase();
+    return channel ? [channel] : [];
+  });
 }
 
 /** Only channels owned by the coordinated native layout. */
@@ -220,13 +220,20 @@ function syncSlotsFromSessions(sessions: StreamSession[]) {
     useWatchingStore.setState({ slotChannels: [] });
     return;
   }
-  const running = sessions
-    .filter((session) => session.running)
-    .map((session) => session.channel.toLowerCase())
-    .filter(Boolean);
+  const running = [
+    ...new Set(
+      sessions.flatMap((session) => {
+        if (!session.running) return [];
+        const channel = session.channel.toLowerCase();
+        return channel ? [channel] : [];
+      }),
+    ),
+  ];
   const prev = useWatchingStore.getState().slotChannels;
-  const kept = prev.filter((channel) => running.includes(channel));
-  const added = running.filter((channel) => !kept.includes(channel));
+  const runningSet = new Set(running);
+  const kept = prev.filter((channel) => runningSet.has(channel));
+  const keptSet = new Set(kept);
+  const added = running.filter((channel) => !keptSet.has(channel));
   useWatchingStore.setState({ slotChannels: [...kept, ...added] });
 }
 
@@ -440,27 +447,29 @@ export async function bindStreamingListeners(): Promise<() => void> {
     return () => undefined;
   }
   listenersBound = true;
-  const unStatus = await listen<StreamStatusEvent>("stream-status", (event) => {
-    useWatchingStore.getState().applyStatus(event.payload);
-  });
-  const unChanged = await listen("stream-sessions-changed", () => {
-    void useWatchingStore.getState().refresh().then(() => {
-      afterSessionsChanged();
-    });
-  });
-  const unFraction = await listen<number>("dock-chat-fraction", (event) => {
-    const fraction = event.payload;
-    if (typeof fraction !== "number" || Number.isNaN(fraction)) return;
-    const settings = useSettingsStore.getState().settings;
-    const clamped = Math.min(0.45, Math.max(0.12, fraction));
-    if (Math.abs(settings.streaming.chatWidthFraction - clamped) < 0.001) return;
-    useSettingsStore.getState().setSettings({
-      streaming: {
-        ...settings.streaming,
-        chatWidthFraction: clamped,
-      },
-    });
-  });
+  const [unStatus, unChanged, unFraction] = await Promise.all([
+    listen<StreamStatusEvent>("stream-status", (event) => {
+      useWatchingStore.getState().applyStatus(event.payload);
+    }),
+    listen("stream-sessions-changed", () => {
+      void useWatchingStore.getState().refresh().then(() => {
+        afterSessionsChanged();
+      });
+    }),
+    listen<number>("dock-chat-fraction", (event) => {
+      const fraction = event.payload;
+      if (typeof fraction !== "number" || Number.isNaN(fraction)) return;
+      const settings = useSettingsStore.getState().settings;
+      const clamped = Math.min(0.45, Math.max(0.12, fraction));
+      if (Math.abs(settings.streaming.chatWidthFraction - clamped) < 0.001) return;
+      useSettingsStore.getState().setSettings({
+        streaming: {
+          ...settings.streaming,
+          chatWidthFraction: clamped,
+        },
+      });
+    }),
+  ]);
   syncEventSub();
   syncViewerPresence();
   return () => {
@@ -935,9 +944,10 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
 
   reorderSlots: (channels) => {
     const current = new Set(get().slotChannels);
-    const next = channels
-      .map((channel) => channel.toLowerCase())
-      .filter((channel) => current.has(channel));
+    const next = channels.flatMap((channel) => {
+      const login = channel.toLowerCase();
+      return current.has(login) ? [login] : [];
+    });
     if (next.length !== current.size) return;
     set({ slotChannels: next });
     scheduleLayoutAfterReady();

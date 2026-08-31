@@ -40,6 +40,16 @@ describe("release build hygiene", () => {
     expect(buildStep).toContain("RUSTFLAGS: -D warnings");
   });
 
+  it("does not reference secrets in workflow if conditions", async () => {
+    const source = await readRepo(".github/workflows/release.yml");
+
+    expect(source).toContain("name: Release");
+    expect(source).not.toMatch(/if:.*secrets\./);
+    expect(source).toContain(
+      "Authenticode secrets not configured; building unsigned installers",
+    );
+  });
+
   it("publishes only updater JSON that Tauri actually produces", async () => {
     const source = await readRepo(".github/workflows/release.yml");
 

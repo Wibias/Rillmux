@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.9] — 2026-09-02
+
+### Fixed
+
+- `tauri:dev` no longer offers GitHub production updates (a debug build reports the workspace version, often 0.5.6, and could launch the 0.5.8 installer)
+- Dismissing an update keeps that version quiet across restarts instead of asking again on every launch; a newer release can still appear
+
 ## [0.5.8] — 2026-09-01
 
 ### Changed
@@ -347,7 +354,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.8...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.9...HEAD
+[0.5.9]: https://github.com/Wibias/Rillmux/compare/v0.5.8...v0.5.9
 [0.5.8]: https://github.com/Wibias/Rillmux/compare/v0.5.7...v0.5.8
 [0.5.7]: https://github.com/Wibias/Rillmux/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/Wibias/Rillmux/compare/v0.5.5...v0.5.6

@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { isTauri } from "../lib/tauri";
+import {
+  readSkippedUpdateVersion,
+  shouldPromptAppUpdate,
+  writeSkippedUpdateVersion,
+} from "../lib/updater/prompt";
 import { UpdateDialog } from "./UpdateDialog";
 
 export interface UpdateHandle {
+  currentVersion?: string;
   version: string;
   body?: string;
   downloadAndInstall: (
@@ -15,8 +21,8 @@ export interface UpdateHandle {
 
 /**
  * Check shortly after app start and once per hour while the app stays open.
- * Dismissing one version keeps that version quiet until the next app start;
- * a newer release discovered by a later hourly check can still be shown.
+ * Dismissing a version keeps it quiet across restarts; a newer release can
+ * still appear.
  */
 export function UpdateBanner() {
   const [update, setUpdate] = useState<UpdateHandle | null>(null);
@@ -25,6 +31,10 @@ export function UpdateBanner() {
 
   useEffect(() => {
     if (!isTauri()) return;
+    if (!shouldPromptAppUpdate({ viteDev: import.meta.env.DEV })) return;
+
+    const skippedStorage = () =>
+      typeof localStorage === "undefined" ? null : localStorage;
 
     const runCheck = async () => {
       if (checkingRef.current) return;
@@ -32,7 +42,18 @@ export function UpdateBanner() {
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
         const next = (await check()) as UpdateHandle | null;
-        if (next && next.version !== dismissedVersionRef.current) {
+        const skipped =
+          dismissedVersionRef.current ??
+          readSkippedUpdateVersion(skippedStorage());
+        if (
+          next &&
+          shouldPromptAppUpdate({
+            viteDev: import.meta.env.DEV,
+            currentVersion: next.currentVersion,
+            availableVersion: next.version,
+            skippedVersion: skipped,
+          })
+        ) {
           setUpdate(next);
         }
       } catch {
@@ -61,6 +82,10 @@ export function UpdateBanner() {
       update={update}
       onCancel={() => {
         dismissedVersionRef.current = update.version;
+        writeSkippedUpdateVersion(
+          typeof localStorage === "undefined" ? null : localStorage,
+          update.version,
+        );
         setUpdate(null);
       }}
     />

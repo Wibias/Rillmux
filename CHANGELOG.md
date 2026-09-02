@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `tauri:dev` no longer offers GitHub production updates (a debug build reports the workspace version, often 0.5.6, and could launch the 0.5.8 installer)
+- Dismissing an update keeps that version quiet across restarts instead of asking again on every launch; a newer release can still appear
+
 ### Planned
 
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI

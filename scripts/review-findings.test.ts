@@ -36,6 +36,8 @@ describe("full-review regression gates", () => {
     const source = read("src/components/UpdateBanner.tsx");
     expect(source).toContain("60 * 60 * 1000");
     expect(source).toContain("setInterval");
+    expect(source).toContain("shouldPromptAppUpdate");
+    expect(source).toContain("import.meta.env.DEV");
   });
 
   test("disabled Channel Points HUD does not poll website auth", () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { isTauri } from "../lib/tauri";
+import { shouldPromptAppUpdate } from "../lib/updater/prompt";
 import { useWatchingStore } from "../lib/streaming/store";
 import { useSettingsStore } from "../lib/settings/store";
 import {
@@ -132,6 +133,10 @@ export function useUpdaterCheck() {
       setError("Desktop app required");
       return;
     }
+    if (!shouldPromptAppUpdate({ viteDev: import.meta.env.DEV })) {
+      setStatus("none");
+      return;
+    }
     setStatus("checking");
     setError(null);
     try {
@@ -139,7 +144,14 @@ export function useUpdaterCheck() {
         "@tauri-apps/plugin-updater"
       );
       const update = await checkUpdate();
-      if (update) {
+      if (
+        update &&
+        shouldPromptAppUpdate({
+          viteDev: import.meta.env.DEV,
+          currentVersion: update.currentVersion,
+          availableVersion: update.version,
+        })
+      ) {
         setVersion(update.version);
         setStatus("available");
       } else {
@@ -153,6 +165,7 @@ export function useUpdaterCheck() {
 
   const install = async () => {
     if (!isTauri()) return;
+    if (!shouldPromptAppUpdate({ viteDev: import.meta.env.DEV })) return;
     setStatus("checking");
     try {
       const { check: checkUpdate } = await import(
@@ -160,7 +173,14 @@ export function useUpdaterCheck() {
       );
       const { relaunch } = await import("@tauri-apps/plugin-process");
       const update = await checkUpdate();
-      if (!update) {
+      if (
+        !update ||
+        !shouldPromptAppUpdate({
+          viteDev: import.meta.env.DEV,
+          currentVersion: update.currentVersion,
+          availableVersion: update.version,
+        })
+      ) {
         setStatus("none");
         return;
       }

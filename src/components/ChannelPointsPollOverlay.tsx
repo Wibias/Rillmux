@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -9,13 +9,14 @@ import {
   isPollOverlay,
   mergeConfirmedPredictionVoteSnapshot,
   nextPollOverlayReadyAttempt,
+  overlayLiveEventId,
   overlayRectMoved,
   pollOverlayRect,
+  pollOverlaySessionView,
   POLL_FALLBACK_REFRESH_MS,
   POLL_OVERLAY_READY_RETRY_MS,
   pollOverlayShouldPollGql,
   predictionAcceptsVotes,
-  predictionOverlayVisible,
   predictionRemainingSeconds,
   lockedPredictionDismissAfterMs,
   type ConfirmedPredictionVote,
@@ -77,17 +78,6 @@ interface PollOverlayPredictionVoteConfirmed {
 const OVERLAY_LABEL = "poll-overlay";
 const MIN_PREDICTION_POINTS = 10;
 const MAX_PREDICTION_POINTS = 250_000;
-
-function overlayEventId(snapshot: ChannelPointsSnapshot | null): string | null {
-  if (snapshot?.poll?.status === "ACTIVE") return snapshot.poll.id;
-  if (
-    snapshot?.prediction &&
-    predictionOverlayVisible(snapshot.prediction.status)
-  ) {
-    return snapshot.prediction.id;
-  }
-  return null;
-}
 
 function pollChannelFromSearch() {
   return new URLSearchParams(window.location.search).get("channel")?.trim() ?? null;
@@ -214,6 +204,147 @@ async function closeOverlayWindow() {
   await overlay?.close().catch(() => undefined);
 }
 
+type OverlaySnapshotSet = Dispatch<SetStateAction<ChannelPointsSnapshot | null>>;
+
+async function votePollChoice(args: {
+  poll: ChannelPointsPoll | undefined;
+  channel: string | null;
+  votingId: string | null;
+  choiceId: string;
+  setVotingId: (id: string | null) => void;
+  setSnapshot: OverlaySnapshotSet;
+  setError: (error: string | null) => void;
+}) {
+  const { poll, channel, votingId, choiceId } = args;
+  if (!poll || !channel || poll.votedChoiceId || votingId) return;
+  args.setVotingId(choiceId);
+  try {
+    const next = await invoke<ChannelPointsSnapshot>("channel_points_vote_poll", {
+      channelLogin: channel,
+      pollId: poll.id,
+      choiceId,
+      cost: poll.cost,
+    });
+    args.setSnapshot(next);
+    args.setError(null);
+  } catch (reason) {
+    args.setError(reason instanceof Error ? reason.message : String(reason));
+  } finally {
+    args.setVotingId(null);
+  }
+}
+
+async function votePredictionOutcome(args: {
+  prediction: ChannelPointsPrediction | undefined;
+  channel: string | null;
+  votingId: string | null;
+  outcomeId: string;
+  clampedStake: number;
+  overlayWindow: boolean;
+  setVotingId: (id: string | null) => void;
+  setSnapshot: OverlaySnapshotSet;
+  setError: (error: string | null) => void;
+  dismissed: MutableRefObject<Set<string>>;
+  confirmedPredictionVote: MutableRefObject<ConfirmedPredictionVote | null>;
+}) {
+  const { prediction, channel, votingId, outcomeId, clampedStake, overlayWindow } =
+    args;
+  if (!prediction || !channel || votingId) return;
+  if (!predictionAcceptsVotes(prediction)) return;
+  if (
+    prediction.predictedOutcomeId ||
+    args.confirmedPredictionVote.current?.eventId === prediction.id
+  ) {
+    return;
+  }
+  args.setVotingId(outcomeId);
+  try {
+    const next = await invoke<ChannelPointsSnapshot>(
+      "channel_points_vote_prediction",
+      {
+        channelLogin: channel,
+        eventId: prediction.id,
+        outcomeId,
+        points: clampedStake,
+      },
+    );
+    const confirmed: ConfirmedPredictionVote = {
+      eventId: prediction.id,
+      outcomeId,
+      points: clampedStake,
+    };
+    args.confirmedPredictionVote.current = confirmed;
+    const merged = mergeConfirmedPredictionVoteSnapshot(
+      next,
+      prediction,
+      confirmed,
+    );
+    args.setSnapshot(merged);
+    args.setError(null);
+    if (isTauri()) {
+      if (overlayWindow) {
+        void emit("poll-overlay-vote-confirmed", {
+          channel,
+          snapshot: merged,
+          confirmed,
+        } satisfies PollOverlayPredictionVoteConfirmed);
+      } else {
+        lastHostSnapshot = merged;
+        void emit("poll-overlay-state", merged);
+      }
+    }
+  } catch (reason) {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    if (isClosedPredictionError(message)) {
+      args.dismissed.current.add(prediction.id);
+      args.setSnapshot((current) =>
+        current?.prediction?.id === prediction.id
+          ? { ...current, prediction: null }
+          : current,
+      );
+      args.setError(null);
+      if (overlayWindow && isTauri()) {
+        await emit("poll-overlay-dismiss", { pollId: prediction.id });
+        await getCurrentWindow().close().catch(() => undefined);
+      }
+      return;
+    }
+    args.setError(message);
+  } finally {
+    args.setVotingId(null);
+  }
+}
+
+async function dismissPollOverlay(args: {
+  snapshot: ChannelPointsSnapshot | null;
+  overlayWindow: boolean;
+  setSnapshot: OverlaySnapshotSet;
+  dismissed: MutableRefObject<Set<string>>;
+  confirmedPredictionVote: MutableRefObject<ConfirmedPredictionVote | null>;
+}) {
+  const eventId = overlayLiveEventId(
+    args.snapshot?.poll,
+    args.snapshot?.prediction,
+  );
+  if (!eventId) return;
+  args.dismissed.current.add(eventId);
+  if (args.confirmedPredictionVote.current?.eventId === eventId) {
+    args.confirmedPredictionVote.current = null;
+  }
+  args.setSnapshot((current) => {
+    if (!current) return current;
+    if (current.poll?.id === eventId) return { ...current, poll: null };
+    if (current.prediction?.id === eventId) {
+      return { ...current, prediction: null };
+    }
+    return current;
+  });
+  if (args.overlayWindow && isTauri()) {
+    await emit("poll-overlay-dismiss", { pollId: eventId });
+    await getCurrentWindow().close().catch(() => undefined);
+  }
+}
+
 function useChannelPointsPollOverlay() {
   const { t } = useTranslation("common");
   const overlayWindow = isPollOverlay();
@@ -262,7 +393,7 @@ function useChannelPointsPollOverlay() {
       lastHostSnapshot = merged;
       setSnapshot(merged);
       setError(null);
-      const eventId = overlayEventId(merged);
+      const eventId = overlayLiveEventId(merged.poll, merged.prediction);
       if (!overlayWindow && eventId && !dismissed.current.has(eventId)) {
         void placeOverlayWindow(channel);
         void emit("poll-overlay-state", merged);
@@ -452,17 +583,13 @@ function useChannelPointsPollOverlay() {
 
   const poll = snapshot?.poll;
   const prediction = snapshot?.prediction;
-  const showPoll =
-    Boolean(enabled && channel && poll && poll.status === "ACTIVE") &&
-    !(poll && dismissed.current.has(poll.id));
-  const showPrediction =
-    Boolean(
-      enabled &&
-        channel &&
-        prediction &&
-        predictionOverlayVisible(prediction.status),
-    ) && !(prediction && dismissed.current.has(prediction.id));
-  const showOverlay = showPoll || showPrediction;
+  const { showPoll, showPrediction, showOverlay } = pollOverlaySessionView({
+    enabled,
+    channel,
+    poll,
+    prediction,
+    dismissed: dismissed.current,
+  });
   const remainingPrediction = prediction
     ? predictionRemainingSeconds(prediction)
     : null;
@@ -516,111 +643,6 @@ function useChannelPointsPollOverlay() {
     void placeOverlayWindow(channel);
   }, [channel, overlayWindow, showOverlay, poll?.id, prediction?.id]);
 
-  async function vote(choiceId: string) {
-    if (!poll || !channel || poll.votedChoiceId || votingId) return;
-    setVotingId(choiceId);
-    try {
-      const next = await invoke<ChannelPointsSnapshot>("channel_points_vote_poll", {
-        channelLogin: channel,
-        pollId: poll.id,
-        choiceId,
-        cost: poll.cost,
-      });
-      setSnapshot(next);
-      setError(null);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setVotingId(null);
-    }
-  }
-
-  async function votePrediction(outcomeId: string) {
-    if (!prediction || !channel || votingId) return;
-    if (!predictionAcceptsVotes(prediction)) return;
-    if (
-      prediction.predictedOutcomeId ||
-      confirmedPredictionVote.current?.eventId === prediction.id
-    ) {
-      return;
-    }
-    setVotingId(outcomeId);
-    try {
-      const next = await invoke<ChannelPointsSnapshot>(
-        "channel_points_vote_prediction",
-        {
-          channelLogin: channel,
-          eventId: prediction.id,
-          outcomeId,
-          points: clampedStake,
-        },
-      );
-      const confirmed: ConfirmedPredictionVote = {
-        eventId: prediction.id,
-        outcomeId,
-        points: clampedStake,
-      };
-      confirmedPredictionVote.current = confirmed;
-      const merged = mergeConfirmedPredictionVoteSnapshot(
-        next,
-        prediction,
-        confirmed,
-      );
-      setSnapshot(merged);
-      setError(null);
-      if (isTauri()) {
-        if (overlayWindow) {
-          void emit("poll-overlay-vote-confirmed", {
-            channel,
-            snapshot: merged,
-            confirmed,
-          } satisfies PollOverlayPredictionVoteConfirmed);
-        } else {
-          lastHostSnapshot = merged;
-          void emit("poll-overlay-state", merged);
-        }
-      }
-    } catch (reason) {
-      const message = reason instanceof Error ? reason.message : String(reason);
-      if (isClosedPredictionError(message)) {
-        dismissed.current.add(prediction.id);
-        setSnapshot((current) =>
-          current?.prediction?.id === prediction.id
-            ? { ...current, prediction: null }
-            : current,
-        );
-        setError(null);
-        if (overlayWindow && isTauri()) {
-          await emit("poll-overlay-dismiss", { pollId: prediction.id });
-          await getCurrentWindow().close().catch(() => undefined);
-        }
-        return;
-      }
-      setError(message);
-    } finally {
-      setVotingId(null);
-    }
-  }
-
-  async function dismiss() {
-    const eventId = overlayEventId(snapshot);
-    if (!eventId) return;
-    dismissed.current.add(eventId);
-    if (confirmedPredictionVote.current?.eventId === eventId) {
-      confirmedPredictionVote.current = null;
-    }
-    setSnapshot((current) => {
-      if (!current) return current;
-      if (current.poll?.id === eventId) return { ...current, poll: null };
-      if (current.prediction?.id === eventId) return { ...current, prediction: null };
-      return current;
-    });
-    if (overlayWindow && isTauri()) {
-      await emit("poll-overlay-dismiss", { pollId: eventId });
-      await getCurrentWindow().close().catch(() => undefined);
-    }
-  }
-
   return {
     channel,
     overlayWindow,
@@ -636,9 +658,38 @@ function useChannelPointsPollOverlay() {
     setStake,
     votingId,
     error,
-    vote,
-    votePrediction,
-    dismiss,
+    vote: (choiceId: string) =>
+      votePollChoice({
+        poll,
+        channel,
+        votingId,
+        choiceId,
+        setVotingId,
+        setSnapshot,
+        setError,
+      }),
+    votePrediction: (outcomeId: string) =>
+      votePredictionOutcome({
+        prediction,
+        channel,
+        votingId,
+        outcomeId,
+        clampedStake,
+        overlayWindow,
+        setVotingId,
+        setSnapshot,
+        setError,
+        dismissed,
+        confirmedPredictionVote,
+      }),
+    dismiss: () =>
+      dismissPollOverlay({
+        snapshot,
+        overlayWindow,
+        setSnapshot,
+        dismissed,
+        confirmedPredictionVote,
+      }),
     t,
   };
 }

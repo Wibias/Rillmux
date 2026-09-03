@@ -6,6 +6,7 @@ import {
   POINTS_HUD_CHIP_HEIGHT,
   POINTS_HUD_CHIP_MIN_WIDTH,
   chipRectForPlayer,
+  hudKeepOnPlayerMiss,
   hudSyncRunningKey,
   pointsHudLabel,
   pointsHudOverlayUrl,
@@ -17,7 +18,6 @@ import { useWatchingStore } from "../lib/streaming/store";
 import { invoke, isTauri } from "../lib/tauri";
 
 const MAX_HUD_WINDOWS = 8;
-const PLAYER_MISS_GRACE_MS = 8_000;
 
 async function closeHud(label: string) {
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -154,6 +154,12 @@ export function ChannelPointsHudSync() {
           { channelLogin: channel },
         ).catch(() => null);
         if (!active) return;
+        if (place?.hidden) {
+          delete missingSinceRef.current[channel];
+          await closeHud(pointsHudLabel(channel));
+          if (!active) return;
+          continue;
+        }
         if (!place?.player) {
           const existingHud = openSet.has(channel);
           if (!existingHud) continue;
@@ -161,7 +167,7 @@ export function ChannelPointsHudSync() {
           const now = Date.now();
           const missingSince = missingSinceRef.current[channel] ?? now;
           missingSinceRef.current[channel] = missingSince;
-          if (now - missingSince < PLAYER_MISS_GRACE_MS) {
+          if (hudKeepOnPlayerMiss("missing", now - missingSince)) {
             kept.push(channel);
             continue;
           }

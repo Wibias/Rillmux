@@ -7,9 +7,12 @@ import {
   isPollOverlay,
   mergeConfirmedPredictionVoteSnapshot,
   nextPollOverlayReadyAttempt,
+  overlayLiveEventId,
   overlayRectMoved,
   pollOverlayRect,
+  pollOverlaySessionView,
   pollOverlayShouldPollGql,
+  pollOverlayVisible,
   predictionAcceptsVotes,
   predictionOverlayVisible,
   PREDICTION_LOCKED_DISMISS_MS,
@@ -55,6 +58,53 @@ describe("poll overlay GQL", () => {
     expect(POLL_FALLBACK_REFRESH_MS).toBeLessThanOrEqual(15_000);
     expect(pollOverlayShouldPollGql(false)).toBe(true);
     expect(pollOverlayShouldPollGql(true)).toBe(false);
+  });
+});
+
+describe("poll overlay visibility", () => {
+  it("does not show a closed or expired poll on first stream load", () => {
+    expect(pollOverlayVisible("ACTIVE")).toBe(true);
+    expect(pollOverlayVisible("ACTIVE", 12)).toBe(true);
+    expect(pollOverlayVisible("ACTIVE", 0)).toBe(false);
+    expect(pollOverlayVisible("COMPLETED")).toBe(false);
+    expect(pollOverlayVisible("COMPLETED", 30)).toBe(false);
+    expect(pollOverlayVisible("")).toBe(false);
+  });
+
+  it("opens the overlay only for a live, undismissed poll or prediction", () => {
+    const poll = { id: "poll-1", status: "ACTIVE", remainingSeconds: 12 };
+    const prediction = { id: "pred-1", status: "ACTIVE" };
+    expect(overlayLiveEventId(poll, null)).toBe("poll-1");
+    expect(overlayLiveEventId({ ...poll, status: "COMPLETED" }, prediction)).toBe(
+      "pred-1",
+    );
+    expect(
+      pollOverlaySessionView({
+        enabled: true,
+        channel: "forsen",
+        poll: { ...poll, remainingSeconds: 0 },
+        prediction: null,
+        dismissed: new Set(),
+      }),
+    ).toEqual({ showPoll: false, showPrediction: false, showOverlay: false });
+    expect(
+      pollOverlaySessionView({
+        enabled: true,
+        channel: "forsen",
+        poll,
+        prediction: null,
+        dismissed: new Set(["poll-1"]),
+      }).showPoll,
+    ).toBe(false);
+    expect(
+      pollOverlaySessionView({
+        enabled: true,
+        channel: "forsen",
+        poll,
+        prediction,
+        dismissed: new Set(),
+      }),
+    ).toEqual({ showPoll: true, showPrediction: true, showOverlay: true });
   });
 });
 

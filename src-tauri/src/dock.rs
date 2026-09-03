@@ -34,6 +34,87 @@ impl Rect {
     }
 }
 
+pub const DIVIDER_REST_THICK: i32 = 2;
+pub const DIVIDER_HOVER_THICK: i32 = 8;
+pub const MONITOR_SWITCH_WIDTH: i32 = 56;
+pub const MONITOR_SWITCH_HEIGHT: i32 = 28;
+pub const MONITOR_SWITCH_CAPTION_GAP: i32 = 8;
+/// Matches the frameless Rillmux chrome (`body` / `.shell__titlebar` / `#tbo-controls`).
+pub const TITLE_BAR_HEIGHT_CSS: i32 = 38;
+
+pub fn divider_thickness(hover: bool) -> i32 {
+    if hover {
+        DIVIDER_HOVER_THICK
+    } else {
+        DIVIDER_REST_THICK
+    }
+}
+
+pub fn vertical_divider_rect(seam_x: i32, top: i32, bottom: i32, thick: i32) -> Rect {
+    let half = thick / 2;
+    Rect {
+        left: seam_x - half,
+        top,
+        right: seam_x - half + thick,
+        bottom,
+    }
+}
+
+pub fn horizontal_divider_rect(seam_y: i32, left: i32, right: i32, thick: i32) -> Rect {
+    let half = thick / 2;
+    Rect {
+        left,
+        top: seam_y - half,
+        right,
+        bottom: seam_y - half + thick,
+    }
+}
+
+#[cfg(test)]
+pub fn rects_overlap(a: Rect, b: Rect) -> bool {
+    a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+/// Keep slot order; drop closed channels; append any newly running ones.
+pub fn remaining_dock_channels(previous: &[String], running: &[String]) -> Vec<String> {
+    let running_set: std::collections::HashSet<String> =
+        running.iter().map(|c| c.to_ascii_lowercase()).collect();
+    let mut out: Vec<String> = previous
+        .iter()
+        .map(|c| c.to_ascii_lowercase())
+        .filter(|c| running_set.contains(c))
+        .collect();
+    let have: std::collections::HashSet<String> = out.iter().cloned().collect();
+    for channel in running {
+        let normalized = channel.to_ascii_lowercase();
+        if running_set.contains(&normalized) && !have.contains(&normalized) {
+            out.push(normalized);
+        }
+    }
+    out
+}
+
+/// ◀ ▶ monitor switch on the video|chat seam, always below the title-bar row.
+/// Caption buttons sit at the window top-right; the chrome strip is full width,
+/// so the handle must clear `caption` even when the buttons do not overlap the seam.
+pub fn monitor_switch_rect(video: Rect, chat: Option<Rect>, caption: Option<Rect>) -> Rect {
+    const W: i32 = MONITOR_SWITCH_WIDTH;
+    const H: i32 = MONITOR_SWITCH_HEIGHT;
+    const GAP: i32 = MONITOR_SWITCH_CAPTION_GAP;
+    let seam_x = chat.map(|c| c.left).unwrap_or(video.right);
+    let title_bottom = caption
+        .map(|cap| cap.bottom)
+        .unwrap_or(video.top + TITLE_BAR_HEIGHT_CSS);
+    let min_top = video.top.max(title_bottom) + GAP;
+    let top = min_top.min((video.bottom - H).max(video.top));
+    Rect {
+        left: seam_x - W / 2,
+        top,
+        right: seam_x + W / 2,
+        bottom: top + H,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DockConfig {
     pub linked: bool,
@@ -204,6 +285,24 @@ pub fn sync_session(channels: &[String], layout: &str, reserve_chat: bool, linke
     ensure_grip_thread();
     #[cfg(windows)]
     post_cmd(DockCmd::Sync);
+}
+
+/// Drop closed streams from the dock snapshot and retile the rest in place.
+pub fn drop_closed_channels(running: &[String]) {
+    let cfg = snapshot();
+    let next = remaining_dock_channels(&cfg.channels, running);
+    if next.is_empty() {
+        clear_session();
+        return;
+    }
+    if next == cfg.channels {
+        #[cfg(windows)]
+        run_apply();
+        return;
+    }
+    sync_session(&next, &cfg.layout, cfg.reserve_chat, cfg.linked);
+    #[cfg(windows)]
+    run_apply();
 }
 
 pub fn clear_session() {
@@ -787,6 +886,7 @@ fn grip_thread_main() {
             -> *mut core::ffi::c_void;
         fn EndPaint(hwnd: *mut core::ffi::c_void, ps: *const PaintStruct) -> i32;
         fn GetClientRect(hwnd: *mut core::ffi::c_void, rect: *mut Rect) -> i32;
+        fn GetWindowRect(hwnd: *mut core::ffi::c_void, rect: *mut Rect) -> i32;
         fn CreateSolidBrush(color: u32) -> *mut core::ffi::c_void;
         fn DeleteObject(obj: *mut core::ffi::c_void) -> i32;
         fn SetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32, value: isize) -> isize;
@@ -944,9 +1044,6 @@ fn grip_thread_main() {
     const ALPHA_REST: u8 = 38;
     const ALPHA_HOVER: u8 = 140;
     const ALPHA_IDENTIFY: u8 = 210;
-    const BASE_DIVIDER_THICK: i32 = 8;
-    const DIVIDER_WIDTH_PERCENT: i32 = 80;
-    const DIVIDER_THICK: i32 = (BASE_DIVIDER_THICK * DIVIDER_WIDTH_PERCENT + 50) / 100;
 
     #[derive(Clone, Copy)]
     enum GripKind {
@@ -977,6 +1074,85 @@ fn grip_thread_main() {
 
     static DRAG: OnceLock<Mutex<Option<DragState>>> = OnceLock::new();
     static MOVER_HOVER: AtomicBool = AtomicBool::new(false);
+    static DIVIDER_HOVER: OnceLock<Mutex<Option<isize>>> = OnceLock::new();
+    fn divider_hover() -> &'static Mutex<Option<isize>> {
+        DIVIDER_HOVER.get_or_init(|| Mutex::new(None))
+    }
+    fn kind_from_code(n: isize) -> GripKind {
+        match n {
+            1 => GripKind::Chat,
+            2 => GripKind::Main,
+            10 => GripKind::Move,
+            n if (100..200).contains(&n) => GripKind::Col((n - 100) as usize),
+            n if (200..300).contains(&n) => GripKind::Row((n - 200) as usize),
+            n if (300..400).contains(&n) => GripKind::Stack((n - 300) as usize),
+            n if (1000..1100).contains(&n) => GripKind::Identify((n - 1000) as usize),
+            _ => GripKind::Chat,
+        }
+    }
+    fn divider_kind(kind: GripKind) -> bool {
+        matches!(
+            kind,
+            GripKind::Chat
+                | GripKind::Col(_)
+                | GripKind::Row(_)
+                | GripKind::Main
+                | GripKind::Stack(_)
+        )
+    }
+    fn divider_is_vertical(kind: GripKind) -> bool {
+        let side = snapshot().main_side;
+        match kind {
+            GripKind::Chat | GripKind::Col(_) => true,
+            GripKind::Row(_) => false,
+            GripKind::Main => side != "top" && side != "bottom",
+            GripKind::Stack(_) => side == "top" || side == "bottom",
+            _ => true,
+        }
+    }
+    unsafe fn resize_divider_hwnd(hwnd: *mut core::ffi::c_void, kind: GripKind, hover: bool) {
+        if hwnd.is_null() {
+            return;
+        }
+        let mut rc = Rect::default();
+        if GetWindowRect(hwnd, &mut rc) == 0 {
+            return;
+        }
+        let thick = divider_thickness(hover);
+        let next = if divider_is_vertical(kind) {
+            let seam = rc.left + rc.width() / 2;
+            vertical_divider_rect(seam, rc.top, rc.bottom, thick)
+        } else {
+            let seam = rc.top + rc.height() / 2;
+            horizontal_divider_rect(seam, rc.left, rc.right, thick)
+        };
+        place_grip(hwnd, next);
+    }
+    fn divider_is_hovered(hwnd: *mut core::ffi::c_void) -> bool {
+        divider_hover()
+            .lock()
+            .map(|g| *g == Some(hwnd as isize))
+            .unwrap_or(false)
+    }
+    unsafe fn place_divider_grip(hwnd: *mut core::ffi::c_void, rest: Rect) {
+        if hwnd.is_null() {
+            return;
+        }
+        let kind = kind_from_code(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if divider_kind(kind) && divider_is_hovered(hwnd) {
+            let thick = divider_thickness(true);
+            let next = if divider_is_vertical(kind) {
+                let seam = rest.left + rest.width() / 2;
+                vertical_divider_rect(seam, rest.top, rest.bottom, thick)
+            } else {
+                let seam = rest.top + rest.height() / 2;
+                horizontal_divider_rect(seam, rest.left, rest.right, thick)
+            };
+            place_grip(hwnd, next);
+        } else {
+            place_grip(hwnd, rest);
+        }
+    }
     static PICKER_OPEN: AtomicBool = AtomicBool::new(false);
     fn drag() -> &'static Mutex<Option<DragState>> {
         DRAG.get_or_init(|| Mutex::new(None))
@@ -988,17 +1164,7 @@ fn grip_thread_main() {
         wparam: usize,
         lparam: isize,
     ) -> isize {
-        let kind_raw = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-        let kind = match kind_raw {
-            1 => GripKind::Chat,
-            2 => GripKind::Main,
-            10 => GripKind::Move,
-            n if (100..200).contains(&n) => GripKind::Col((n - 100) as usize),
-            n if (200..300).contains(&n) => GripKind::Row((n - 200) as usize),
-            n if (300..400).contains(&n) => GripKind::Stack((n - 300) as usize),
-            n if (1000..1100).contains(&n) => GripKind::Identify((n - 1000) as usize),
-            _ => GripKind::Chat,
-        };
+        let kind = kind_from_code(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         match msg {
             WM_PAINT => {
                 let mut ps = std::mem::zeroed::<PaintStruct>();
@@ -1110,10 +1276,46 @@ fn grip_thread_main() {
                 TrackMouseEvent(&mut tme);
                 0
             }
+            WM_MOUSEMOVE
+                if divider_kind(kind) && drag().lock().map(|g| g.is_none()).unwrap_or(true) =>
+            {
+                let mut hover = divider_hover().lock().unwrap_or_else(|e| e.into_inner());
+                let hwnd_key = hwnd as isize;
+                if *hover != Some(hwnd_key) {
+                    if let Some(prev) = *hover {
+                        if prev != hwnd_key {
+                            let prev_hwnd = prev as *mut core::ffi::c_void;
+                            let prev_kind =
+                                kind_from_code(GetWindowLongPtrW(prev_hwnd, GWLP_USERDATA));
+                            resize_divider_hwnd(prev_hwnd, prev_kind, false);
+                        }
+                    }
+                    *hover = Some(hwnd_key);
+                    drop(hover);
+                    resize_divider_hwnd(hwnd, kind, true);
+                }
+                let mut tme = TrackMouseEvent {
+                    cb_size: std::mem::size_of::<TrackMouseEvent>() as u32,
+                    dw_flags: TME_LEAVE,
+                    hwnd,
+                    hover_time: 0,
+                };
+                TrackMouseEvent(&mut tme);
+                0
+            }
             WM_MOUSELEAVE if matches!(kind, GripKind::Move) => {
                 MOVER_HOVER.store(false, Ordering::Relaxed);
                 SetLayeredWindowAttributes(hwnd, 0, ALPHA_REST, LWA_ALPHA);
                 InvalidateRect(hwnd, std::ptr::null(), 1);
+                0
+            }
+            WM_MOUSELEAVE if divider_kind(kind) => {
+                let mut hover = divider_hover().lock().unwrap_or_else(|e| e.into_inner());
+                if *hover == Some(hwnd as isize) {
+                    *hover = None;
+                }
+                drop(hover);
+                resize_divider_hwnd(hwnd, kind, false);
                 0
             }
             WM_LBUTTONDOWN => {
@@ -1452,20 +1654,25 @@ fn grip_thread_main() {
         hwnd
     }
 
-    fn mover_rect(video: Rect, chat_opt: Option<Rect>) -> Rect {
-        // Compact handle centered on the video|chat seam. Keep it small so it
-        // does not swallow a stream tile's close control in multistream layouts.
-        const W: i32 = 56;
-        const H: i32 = 28;
-        let seam_x = chat_opt.map(|c| c.left).unwrap_or(video.right);
-        let cx = seam_x;
-        let cy = video.top + video.height() / 2;
-        Rect {
-            left: cx - W / 2,
-            top: cy - H / 2,
-            right: cx + W / 2,
-            bottom: cy + H / 2,
+    fn title_bar_height_px() -> i32 {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetDpiForSystem() -> u32;
         }
+        let dpi = unsafe { GetDpiForSystem() }.max(96) as f64;
+        ((TITLE_BAR_HEIGHT_CSS as f64 * dpi) / 96.0).round() as i32
+    }
+
+    fn mover_rect(video: Rect, chat_opt: Option<Rect>) -> Rect {
+        // Full-width chrome strip, not only the 138px min/max/close cluster.
+        let right = chat_opt.map(|c| c.right).unwrap_or(video.right);
+        let caption = Rect {
+            left: video.left,
+            top: video.top,
+            right,
+            bottom: video.top + title_bar_height_px(),
+        };
+        monitor_switch_rect(video, chat_opt, Some(caption))
     }
 
     unsafe fn place_grip(hwnd: *mut core::ffi::c_void, r: Rect) {
@@ -1479,8 +1686,8 @@ fn grip_thread_main() {
             std::ptr::null_mut(),
             r.left,
             r.top,
-            r.width().max(4),
-            r.height().max(4),
+            r.width().max(DIVIDER_REST_THICK),
+            r.height().max(DIVIDER_REST_THICK),
             SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
         );
     }
@@ -1566,7 +1773,7 @@ fn grip_thread_main() {
     }
 
     fn tile_grip_plan(video: Rect, cfg: &DockConfig, layout: &str) -> Vec<(isize, Rect)> {
-        const THICK: i32 = DIVIDER_THICK;
+        const THICK: i32 = DIVIDER_REST_THICK;
         let mut out = Vec::new();
         if layout == "3plus1" || layout == "2plus1" {
             let stack_n = if layout == "2plus1" { 2 } else { 3 };
@@ -1697,7 +1904,7 @@ fn grip_thread_main() {
                 }
                 let code = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
                 if let Some((_, r)) = plan.iter().find(|(c, _)| *c == code) {
-                    place_grip(hwnd, *r);
+                    place_divider_grip(hwnd, *r);
                 }
             }
         }
@@ -1775,7 +1982,7 @@ fn grip_thread_main() {
         let Some((video, chat_opt)) = chat_video_split(cfg.reserve_chat) else {
             return Ok(());
         };
-        const THICK: i32 = DIVIDER_THICK;
+        const THICK: i32 = DIVIDER_REST_THICK;
         if cfg.reserve_chat {
             if let Some(chat) = chat_opt {
                 let seam = Rect {
@@ -1784,7 +1991,7 @@ fn grip_thread_main() {
                     right: chat.left + THICK / 2,
                     bottom: video.bottom,
                 };
-                unsafe { place_grip(g.chat, seam) };
+                unsafe { place_divider_grip(g.chat, seam) };
             }
         } else if !g.chat.is_null() {
             unsafe {
@@ -1938,7 +2145,7 @@ fn grip_thread_main() {
         let Ok(g) = grips().lock() else {
             return;
         };
-        const THICK: i32 = DIVIDER_THICK;
+        const THICK: i32 = DIVIDER_REST_THICK;
         unsafe {
             if let Some(chat) = chat_opt {
                 if !g.chat.is_null() {
@@ -1992,7 +2199,7 @@ fn grip_thread_main() {
             let Some((video, chat_opt)) = chat_video_split(cfg.reserve_chat) else {
                 return;
             };
-            const THICK: i32 = DIVIDER_THICK;
+            const THICK: i32 = DIVIDER_REST_THICK;
             if cfg.reserve_chat {
                 if let Some(chat) = chat_opt {
                     place_grip(
@@ -2054,6 +2261,8 @@ fn grip_thread_main() {
 
 #[cfg(test)]
 mod leftover_grip_tests {
+    use super::*;
+
     #[test]
     fn empty_session_destroys_leftover_grips() {
         let source = include_str!("dock.rs");
@@ -2062,5 +2271,85 @@ mod leftover_grip_tests {
         assert!(source.contains("destroy_grip(g.mover)"));
         assert!(source.contains("for h in g.identifies.drain(..)"));
         assert!(source.contains("g.chat = std::ptr::null_mut()"));
+    }
+
+    #[test]
+    fn remaining_dock_channels_drops_closed_streams_and_keeps_order() {
+        let previous = vec!["forsen".into(), "xqc".into(), "lirik".into()];
+        let running = vec!["lirik".into(), "forsen".into()];
+        assert_eq!(
+            remaining_dock_channels(&previous, &running),
+            vec!["forsen".to_string(), "lirik".to_string()]
+        );
+        assert!(remaining_dock_channels(&previous, &[]).is_empty());
+    }
+
+    #[test]
+    fn divider_is_hairline_until_hover() {
+        assert_eq!(divider_thickness(false), 2);
+        assert_eq!(divider_thickness(true), 8);
+        let rest = vertical_divider_rect(100, 0, 800, divider_thickness(false));
+        assert_eq!(rest.width(), 2);
+        let hover = vertical_divider_rect(100, 0, 800, divider_thickness(true));
+        assert_eq!(hover.width(), 8);
+        assert_eq!(rest.left + rest.width() / 2, hover.left + hover.width() / 2);
+    }
+
+    #[test]
+    fn monitor_switch_sits_below_caption_buttons() {
+        let video = Rect {
+            left: 0,
+            top: 0,
+            right: 1540,
+            bottom: 1080,
+        };
+        let chat = Rect {
+            left: 1540,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let caption = Rect {
+            left: 1540 - 138,
+            top: 0,
+            right: 1540,
+            bottom: 38,
+        };
+        let handle = monitor_switch_rect(video, Some(chat), Some(caption));
+        assert!(!rects_overlap(handle, caption));
+        assert!(handle.top >= caption.bottom);
+        assert_eq!(handle.left + handle.width() / 2, chat.left);
+    }
+
+    #[test]
+    fn monitor_switch_clears_the_title_bar_even_when_buttons_are_far_right() {
+        let video = Rect {
+            left: 0,
+            top: 0,
+            right: 1540,
+            bottom: 1080,
+        };
+        let chat = Rect {
+            left: 1540,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let title_bar = Rect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 38,
+        };
+        let buttons = Rect {
+            left: 1920 - 138,
+            top: 0,
+            right: 1920,
+            bottom: 38,
+        };
+        let handle = monitor_switch_rect(video, Some(chat), Some(title_bar));
+        assert!(!rects_overlap(handle, title_bar));
+        assert!(!rects_overlap(handle, buttons));
+        assert!(handle.top >= title_bar.bottom + MONITOR_SWITCH_CAPTION_GAP);
     }
 }

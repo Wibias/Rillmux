@@ -15,6 +15,19 @@ export const POINTS_HUD_MIN_PLAYER_HEIGHT = 120;
 /** Ignore HWND/DWM jitter so the overlay does not chase 1–8px player-rect noise. */
 export const POINTS_HUD_MOVE_SLOP = 12;
 export const POINTS_HUD_OFFSET_EVENT = "channel-points-hud-offset";
+export const PLAYER_MISS_GRACE_MS = 8_000;
+
+export type HudHostState = "visible" | "hidden" | "missing";
+
+export function hudKeepOnPlayerMiss(
+  host: HudHostState,
+  elapsedMs: number,
+  graceMs = PLAYER_MISS_GRACE_MS,
+): boolean {
+  if (host === "visible") return true;
+  if (host === "hidden") return false;
+  return elapsedMs < graceMs;
+}
 
 export type HudOffset = { x: number; y: number } | null;
 
@@ -166,6 +179,7 @@ export function hudHostRect(
 export type ChannelPointsHudPlace = {
   player: OverlayRect;
   captionAvoid: OverlayRect | null;
+  hidden?: boolean;
 };
 
 export function overlayRectsOverlap(a: OverlayRect, b: OverlayRect): boolean {

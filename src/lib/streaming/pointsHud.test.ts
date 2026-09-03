@@ -23,7 +23,9 @@ import {
   hudOffsetFromSearch,
   hudOffsetFromUnknown,
   hudOffsetsEqual,
+  hudKeepOnPlayerMiss,
   hudSyncRunningKey,
+  PLAYER_MISS_GRACE_MS,
   rewardUnavailableReason,
   sortCustomRewards,
 } from "./pointsHud";
@@ -60,6 +62,17 @@ describe("points HUD URL", () => {
     expect(
       hudOffsetFromSearch("?overlay=points-hud&channel=forsen&ox=0.25&oy=0.4"),
     ).toEqual({ found: true, offset: { x: 0.25, y: 0.4 } });
+  });
+});
+
+describe("hudKeepOnPlayerMiss", () => {
+  it("hides immediately when the player is minimized, not after the retile grace", () => {
+    expect(hudKeepOnPlayerMiss("hidden", 0)).toBe(false);
+    expect(hudKeepOnPlayerMiss("hidden", PLAYER_MISS_GRACE_MS - 1)).toBe(false);
+    expect(hudKeepOnPlayerMiss("missing", 0)).toBe(true);
+    expect(hudKeepOnPlayerMiss("missing", PLAYER_MISS_GRACE_MS - 1)).toBe(true);
+    expect(hudKeepOnPlayerMiss("missing", PLAYER_MISS_GRACE_MS)).toBe(false);
+    expect(hudKeepOnPlayerMiss("visible", PLAYER_MISS_GRACE_MS)).toBe(true);
   });
 });
 

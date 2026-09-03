@@ -80,6 +80,15 @@ export function pollOverlayShouldPollGql(overlayWindow: boolean): boolean {
   return !overlayWindow;
 }
 
+export function pollOverlayVisible(
+  status: string,
+  remainingSeconds?: number | null,
+): boolean {
+  if (status !== "ACTIVE") return false;
+  if (remainingSeconds === 0) return false;
+  return true;
+}
+
 /** Locked overlay stays up briefly, then auto-dismisses. */
 export const PREDICTION_LOCKED_DISMISS_MS = 5_000;
 
@@ -105,6 +114,60 @@ export function predictionAcceptsVotes(
 /** Active betting window, plus a short locked recap before the overlay closes. */
 export function predictionOverlayVisible(status: string): boolean {
   return status === "ACTIVE" || status === "LOCKED";
+}
+
+type OverlayPollRef = {
+  id: string;
+  status: string;
+  remainingSeconds?: number | null;
+};
+
+type OverlayPredictionRef = {
+  id: string;
+  status: string;
+};
+
+export function overlayLiveEventId(
+  poll?: OverlayPollRef | null,
+  prediction?: OverlayPredictionRef | null,
+): string | null {
+  if (poll && pollOverlayVisible(poll.status, poll.remainingSeconds)) {
+    return poll.id;
+  }
+  if (prediction && predictionOverlayVisible(prediction.status)) {
+    return prediction.id;
+  }
+  return null;
+}
+
+export function pollOverlaySessionView(args: {
+  enabled: boolean;
+  channel: string | null;
+  poll?: OverlayPollRef | null;
+  prediction?: OverlayPredictionRef | null;
+  dismissed: ReadonlySet<string>;
+}): { showPoll: boolean; showPrediction: boolean; showOverlay: boolean } {
+  const poll = args.poll;
+  const prediction = args.prediction;
+  const showPoll = Boolean(
+    args.enabled &&
+      args.channel &&
+      poll &&
+      pollOverlayVisible(poll.status, poll.remainingSeconds) &&
+      !args.dismissed.has(poll.id),
+  );
+  const showPrediction = Boolean(
+    args.enabled &&
+      args.channel &&
+      prediction &&
+      predictionOverlayVisible(prediction.status) &&
+      !args.dismissed.has(prediction.id),
+  );
+  return {
+    showPoll,
+    showPrediction,
+    showOverlay: showPoll || showPrediction,
+  };
 }
 
 /** Host waits this long after LOCKED, then dismisses. */

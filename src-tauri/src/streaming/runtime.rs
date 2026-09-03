@@ -819,6 +819,14 @@ pub fn prune_dead_sessions(state: &StreamingState) -> Result<bool, StreamError> 
         drop(map);
         close_owned_chatterino();
         crate::dock::clear_session();
+    } else {
+        let remaining: Vec<String> = map
+            .values()
+            .map(|session| session.info.channel.to_ascii_lowercase())
+            .collect();
+        drop(map);
+        crate::dock::drop_closed_channels(&remaining);
+        relaunch_dock_chatterino(&remaining);
     }
     Ok(true)
 }
@@ -963,16 +971,37 @@ pub fn stop_stream(state: &StreamingState, id: &str) -> Result<(), StreamError> 
         close_fast_player(&mut session.player, true);
         close_player_windows_for_channel(&channel);
     }
-    let empty = state
+    let remaining: Vec<String> = state
         .inner
         .lock()
-        .map(|map| map.is_empty())
-        .unwrap_or(false);
-    if empty {
+        .ok()
+        .map(|map| {
+            map.values()
+                .map(|session| session.info.channel.to_ascii_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
+    if remaining.is_empty() {
         close_owned_chatterino();
         crate::dock::clear_session();
+    } else {
+        crate::dock::drop_closed_channels(&remaining);
+        relaunch_dock_chatterino(&remaining);
     }
     Ok(())
+}
+
+/// Restart owned Chatterino onto the remaining `--channels=` split. Apply only
+/// retiles mpv; leftover tabs stay until this relaunch. Off the caller thread
+/// because RestartOwned waits for the previous Qt process to exit.
+fn relaunch_dock_chatterino(remaining: &[String]) {
+    if remaining.is_empty() || !crate::dock::snapshot().reserve_chat {
+        return;
+    }
+    let channels = remaining.to_vec();
+    thread::spawn(move || {
+        let _ = launch_chatterino_for_channels(&channels);
+    });
 }
 
 pub fn stop_all(state: &StreamingState) -> Result<(), StreamError> {

@@ -34,6 +34,17 @@ describe("Channel Points HUD liveness", () => {
     expect(cleanup).not.toContain("for (const channel of wantedRef.current)");
   });
 
+  test("hides a minimized-player HUD immediately instead of waiting out the miss grace", () => {
+    const sync = readFileSync("src/components/ChannelPointsHudSync.tsx", "utf8");
+    expect(sync).toContain("hudKeepOnPlayerMiss");
+    expect(sync).toContain("place?.hidden");
+    expect(sync).toContain('hudKeepOnPlayerMiss("missing"');
+    const hud = readFileSync("src/components/ChannelPointsHud.tsx", "utf8");
+    expect(hud).toContain("if (next?.hidden)");
+    expect(hud).toContain("setHostHidden(true)");
+    expect(hud).toContain("if (!overlay || hostHidden) return");
+  });
+
   test("does not shrink an existing HUD back to the chip over an open catalog", () => {
     const source = readFileSync("src/components/ChannelPointsHudSync.tsx", "utf8");
     const start = source.indexOf("async function ensureHud(");

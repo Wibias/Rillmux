@@ -110,6 +110,7 @@ const POINTS_HUD_CAPTION_WIDTH_CSS: f64 = 138.0;
 pub struct ChannelPointsHudPlace {
     pub player: OverlayRect,
     pub caption_avoid: Option<OverlayRect>,
+    pub hidden: bool,
 }
 
 /// Top-right min/max/close strip. `host` is the webview inner rect — `#tbo-controls`
@@ -478,6 +479,11 @@ fn restack_hud_hwnd(app: &AppHandle, win: &tauri::WebviewWindow, label: &str) {
         if IsWindow(player) == 0 {
             return;
         }
+        if is_hwnd_iconic(player) {
+            const SW_HIDE: i32 = 0;
+            let _ = ShowWindow(hud_ptr, SW_HIDE);
+            return;
+        }
         let style = GetWindowLongPtrW(hud_ptr, GWL_EXSTYLE);
         if style & WS_EX_TOPMOST != 0 {
             SetWindowLongPtrW(hud_ptr, GWL_EXSTYLE, style & !WS_EX_TOPMOST);
@@ -623,15 +629,45 @@ fn hud_host_hwnd_has_monitor(hwnd: *mut core::ffi::c_void) -> bool {
 #[cfg(windows)]
 pub fn channel_points_hud_host(channel_login: &str) -> Option<OverlayRect> {
     let hwnd = find_player_window(channel_login)?;
+    if is_hwnd_iconic(hwnd) {
+        return None;
+    }
     if !hud_host_is_hwnd_visible(hwnd) || !hud_host_hwnd_has_monitor(hwnd) {
         return None;
     }
-    let iconic = is_hwnd_iconic(hwnd);
-    channel_points_hud_player_rect(overlay_rect_from_hwnd(hwnd), iconic)
+    channel_points_hud_player_rect(overlay_rect_from_hwnd(hwnd), false)
+}
+
+#[cfg(windows)]
+pub fn channel_points_hud_placement(channel_login: &str) -> Option<ChannelPointsHudPlace> {
+    let hwnd = find_player_window(channel_login)?;
+    if is_hwnd_iconic(hwnd) {
+        return Some(ChannelPointsHudPlace {
+            player: OverlayRect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+            caption_avoid: None,
+            hidden: true,
+        });
+    }
+    let player = channel_points_hud_host(channel_login)?;
+    Some(ChannelPointsHudPlace {
+        player,
+        caption_avoid: player_caption_avoid(channel_login, player),
+        hidden: false,
+    })
 }
 
 #[cfg(not(windows))]
 pub fn channel_points_hud_host(_channel_login: &str) -> Option<OverlayRect> {
+    None
+}
+
+#[cfg(not(windows))]
+pub fn channel_points_hud_placement(_channel_login: &str) -> Option<ChannelPointsHudPlace> {
     None
 }
 

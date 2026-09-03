@@ -104,6 +104,7 @@ function useChannelPointsHudModel() {
   );
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [geometryConcealed, setGeometryConcealed] = useState(false);
+  const [hostHidden, setHostHidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inputFor, setInputFor] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
@@ -164,7 +165,7 @@ function useChannelPointsHudModel() {
     overlay && panel ? chipOriginInOverlay(overlay, panel) : { x: 0, y: 0 };
 
   useEffect(() => {
-    if (!overlay) return;
+    if (!overlay || hostHidden) return;
     if (
       !geometryConcealed &&
       lastOverlayRef.current &&
@@ -197,7 +198,7 @@ function useChannelPointsHudModel() {
     return () => {
       if (frame != null) window.cancelAnimationFrame(frame);
     };
-  }, [overlay, geometryConcealed]);
+  }, [overlay, geometryConcealed, hostHidden]);
 
   const interactive = chip != null;
   useEffect(() => {
@@ -225,7 +226,12 @@ function useChannelPointsHudModel() {
       // Player HWNDs can disappear briefly while a multi-stream layout is being
       // rebuilt. Keep the last valid geometry and catalog state until the owner
       // decides the running session is genuinely gone.
+      if (next?.hidden) {
+        setHostHidden(true);
+        return;
+      }
       if (!next?.player) return;
+      setHostHidden(false);
       setHost(next.player);
       setCaptionAvoid(next.captionAvoid ?? null);
     };
@@ -463,6 +469,7 @@ function useChannelPointsHudModel() {
     snapshot,
     catalogOpen,
     geometryConcealed,
+    hostHidden,
     error,
     inputFor,
     inputText,
@@ -493,6 +500,7 @@ function ChannelPointsHudView({
   snapshot,
   catalogOpen,
   geometryConcealed,
+  hostHidden,
   error,
   inputFor,
   inputText,
@@ -520,7 +528,7 @@ function ChannelPointsHudView({
       style={{
         width: cssPx(overlay.width, scale),
         height: cssPx(overlay.height, scale),
-        visibility: geometryConcealed ? "hidden" : "visible",
+        visibility: geometryConcealed || hostHidden ? "hidden" : "visible",
       }}
     >
       <button

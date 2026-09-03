@@ -539,7 +539,7 @@ fn parse_poll_value(poll: &Value) -> Option<ChannelPointsPoll> {
     let status = poll
         .get("status")
         .and_then(Value::as_str)
-        .unwrap_or("ACTIVE")
+        .unwrap_or("")
         .to_ascii_uppercase();
     if status != "ACTIVE" && status != "COMPLETED" {
         return None;
@@ -627,6 +627,16 @@ fn parse_poll_value(poll: &Value) -> Option<ChannelPointsPoll> {
     })
 }
 
+fn live_poll(poll: ChannelPointsPoll) -> Option<ChannelPointsPoll> {
+    if poll.status != "ACTIVE" {
+        return None;
+    }
+    if poll.remaining_seconds == Some(0) {
+        return None;
+    }
+    Some(poll)
+}
+
 fn parse_active_poll(channel: &Value) -> Option<ChannelPointsPoll> {
     [
         "/activePoll",
@@ -644,7 +654,8 @@ fn parse_active_poll(channel: &Value) -> Option<ChannelPointsPoll> {
     .find_map(|path| channel.pointer(path))
     .or_else(|| channel.get("activePoll"))
     .and_then(parse_poll_value)
-    .or_else(|| parse_poll_value(channel))
+    .and_then(live_poll)
+    .or_else(|| parse_poll_value(channel).and_then(live_poll))
 }
 
 fn parse_viewable_poll_body(body: &Value) -> Option<ChannelPointsPoll> {
@@ -748,7 +759,7 @@ pub(crate) fn cached_poll(channel_id: &str) -> Option<ChannelPointsPoll> {
         .ok()?
         .get(channel_id)
         .cloned()
-        .filter(|poll| poll.status == "ACTIVE")
+        .and_then(live_poll)
 }
 
 pub(crate) fn cached_prediction(channel_id: &str) -> Option<ChannelPointsPrediction> {
@@ -952,7 +963,7 @@ fn parse_helix_polls(body: &Value) -> Option<ChannelPointsPoll> {
                     obj.insert("cost".into(), cost);
                 }
             }
-            parse_poll_value(&mapped)
+            parse_poll_value(&mapped).and_then(live_poll)
         })
 }
 
@@ -2003,6 +2014,50 @@ mod tests {
         assert_eq!(poll.id, "poll-6");
         assert_eq!(poll.cost, 25);
         assert_eq!(poll.choices[0].title, "Yes");
+    }
+
+    #[test]
+    fn ignores_completed_or_expired_polls_on_stream_load() {
+        let completed = json!({
+            "data": [{
+                "id": "poll-done",
+                "title": "Closed",
+                "status": "COMPLETED",
+                "channel_points_voting_enabled": true,
+                "choices": [{ "id": "a", "title": "Yes", "votes": 1 }]
+            }]
+        });
+        assert!(parse_helix_polls(&completed).is_none());
+
+        let expired = json!({
+            "data": {
+                "channel": {
+                    "viewerPoll": {
+                        "id": "poll-expired",
+                        "title": "Ended",
+                        "status": "ACTIVE",
+                        "remainingSeconds": 0,
+                        "channelPointsVotingEnabled": true,
+                        "choices": [{ "id": "a", "title": "Yes", "votes": 1 }]
+                    }
+                }
+            }
+        });
+        assert!(parse_viewable_poll_body(&expired).is_none());
+
+        let untitled_status = json!({
+            "data": {
+                "channel": {
+                    "viewerPoll": {
+                        "id": "poll-nostatus",
+                        "title": "Stale",
+                        "channelPointsVotingEnabled": true,
+                        "choices": [{ "id": "a", "title": "Yes", "votes": 1 }]
+                    }
+                }
+            }
+        });
+        assert!(parse_viewable_poll_body(&untitled_status).is_none());
     }
 
     #[test]

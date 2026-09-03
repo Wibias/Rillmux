@@ -250,6 +250,9 @@ fn start_dock_visibility_watchdog() {
                 DOCK_GROUP_MINIMIZED.store(true, Ordering::SeqCst);
                 crate::dock::hide_grips();
                 minimize_dock_group(&hwnds);
+                if let Some(app) = DOCK_APP.get() {
+                    restack_all_points_huds(app);
+                }
                 group_minimized = true;
                 sleep_ms = dock_watchdog_interval_ms(true, true);
                 continue;

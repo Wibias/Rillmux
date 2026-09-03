@@ -707,8 +707,8 @@ fn channel_points_hud_place(
 ) -> Option<ChannelPointsHudPlace> {
     let channel = channel_login.trim().to_ascii_lowercase();
     streaming::restack_hud_above_player(&app, &format!("points-hud-{channel}"));
-    let player = streaming::channel_points_hud_host(&channel_login);
-    let host_found = player.is_some();
+    let place = streaming::channel_points_hud_placement(&channel_login);
+    let host_found = place.as_ref().is_some_and(|next| !next.hidden);
     if hud_host_debug_changed(&channel, host_found) {
         diagnostics::log_event(
             diagnostics::DebugCategory::Windows,
@@ -721,11 +721,7 @@ fn channel_points_hud_place(
             &format!("channel={channel} host_found={host_found}"),
         );
     }
-    let player = player?;
-    Some(ChannelPointsHudPlace {
-        player,
-        caption_avoid: streaming::player_caption_avoid(&channel_login, player),
-    })
+    place
 }
 
 #[tauri::command]

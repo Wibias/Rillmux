@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.10] — 2026-09-03
+
+### Changed
+
+- Dock dividers are a hairline at rest and thicken only while hovered, like the Windows splitter
+
+### Fixed
+
+- Closed or expired Channel Points polls no longer flash on first stream load
+- The Channel Points HUD hides when that stream is minimized instead of staying on the desktop
+- Closing one stream in a multistream layout retires leftover docked chat and retile the remaining streams
+- The monitor-switch handle sits below the title bar so min/max/close stay clickable
+
 ## [0.5.9] — 2026-09-02
 
 ### Fixed
@@ -354,7 +367,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.9...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.10...HEAD
+[0.5.10]: https://github.com/Wibias/Rillmux/compare/v0.5.9...v0.5.10
 [0.5.9]: https://github.com/Wibias/Rillmux/compare/v0.5.8...v0.5.9
 [0.5.8]: https://github.com/Wibias/Rillmux/compare/v0.5.7...v0.5.8
 [0.5.7]: https://github.com/Wibias/Rillmux/compare/v0.5.6...v0.5.7

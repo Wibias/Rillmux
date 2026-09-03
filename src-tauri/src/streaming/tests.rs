@@ -16,6 +16,15 @@ mod tests {
             chatterino_launch_plan(true, "t:forsen", "t:forsen;t:xqc"),
             ChatterinoLaunchPlan::RestartOwned
         );
+        assert_eq!(
+            chatterino_launch_plan(true, "t:forsen;t:xqc", "t:forsen"),
+            ChatterinoLaunchPlan::RestartOwned
+        );
+        let runtime = include_str!("runtime.rs");
+        assert!(
+            runtime.contains("relaunch_dock_chatterino(&remaining)"),
+            "closing one multistream must restart owned Chatterino onto the remaining split"
+        );
         // A Chatterino window the user already had open is not "owned".
         assert_eq!(
             chatterino_launch_plan(false, "", "t:forsen"),
@@ -364,6 +373,20 @@ mod tests {
                 width: 800,
                 height: 450,
             })
+        );
+        let overlays = include_str!("overlays.rs");
+        assert!(
+            overlays.contains("if is_hwnd_iconic(player)"),
+            "HUD restack must hide the chip when the player is minimized"
+        );
+        assert!(
+            overlays.contains("hidden: true"),
+            "minimized players must be reported as hidden so the frontend skips the miss grace"
+        );
+        let dock = include_str!("dock.rs");
+        assert!(
+            dock.contains("restack_all_points_huds(app)"),
+            "minimizing a stream must restack/hide Channel Points HUDs with the dock group"
         );
     }
 

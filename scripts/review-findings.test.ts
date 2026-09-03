@@ -78,13 +78,16 @@ describe("full-review regression gates", () => {
     );
   });
 
-  test("dock divider geometry targets 80 percent of the previous width", () => {
+  test("dock divider is a hairline at rest and thickens only while hovered", () => {
     const source = read("src-tauri/src/dock.rs");
-    expect(source).toContain("const BASE_DIVIDER_THICK: i32 = 8;");
-    expect(source).toContain("const DIVIDER_WIDTH_PERCENT: i32 = 80;");
-    expect(source).toContain("const DIVIDER_THICK: i32 =");
-    expect(source.match(/const THICK: i32 = DIVIDER_THICK;/g)?.length).toBe(4);
-    expect(source).not.toContain("THICK / 2 + 1");
+    expect(source).toContain("pub const DIVIDER_REST_THICK: i32 = 2;");
+    expect(source).toContain("pub const DIVIDER_HOVER_THICK: i32 = 8;");
+    expect(source).toContain("fn divider_thickness(hover: bool)");
+    expect(source).toContain("resize_divider_hwnd");
+    expect(source).toContain("WM_MOUSELEAVE if divider_kind(kind)");
+    expect(source).toContain("r.width().max(DIVIDER_REST_THICK)");
+    expect(source).not.toContain("const BASE_DIVIDER_THICK: i32 = 8;");
+    expect(source).not.toContain("const DIVIDER_WIDTH_PERCENT: i32 = 80;");
   });
 
   test("diagnostics bounds the always-on log", () => {

@@ -19,14 +19,30 @@
  * so a remount's replacement listener is never unlistened by a stale retry.
  * Unrelated unlisten errors are not retried.
  */
+import { debugRuntimeEvent } from "../diagnostics/runtimeDebug";
+
 export type ScheduleRetry = (retry: () => void) => () => void;
 
 export type SafeUnlistenOptions = {
   scheduleRetry?: ScheduleRetry;
   maxAttempts?: number;
+  onExhausted?: () => void;
 };
 
 export const SAFE_UNLISTEN_MAX_ATTEMPTS = 8;
+
+export function reportSafeUnlistenExhausted(): void {
+  debugRuntimeEvent("windows", "tauri-unlisten.exhausted", {});
+}
+
+export function withUnlistenDiagnostics(
+  options?: SafeUnlistenOptions,
+): SafeUnlistenOptions {
+  return {
+    ...options,
+    onExhausted: options?.onExhausted ?? reportSafeUnlistenExhausted,
+  };
+}
 
 export function isEarlyUnlistenError(error: unknown): boolean {
   const message =
@@ -57,6 +73,7 @@ export function createSafeUnlisten(
 ): () => void {
   const scheduleRetry = options?.scheduleRetry ?? defaultScheduleRetry;
   const maxAttempts = options?.maxAttempts ?? SAFE_UNLISTEN_MAX_ATTEMPTS;
+  const onExhausted = options?.onExhausted;
   let started = false;
   let done = false;
   let attempts = 0;
@@ -80,6 +97,7 @@ export function createSafeUnlisten(
     if (!isEarlyUnlistenError(error)) {
       throw error;
     }
+    onExhausted?.();
   }
 
   function attempt() {

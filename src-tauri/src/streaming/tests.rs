@@ -302,6 +302,42 @@ mod tests {
     }
 
     #[test]
+    fn win32_msg_matches_documented_native_abi() {
+        use std::mem::{align_of, offset_of, size_of};
+
+        assert_eq!(size_of::<Win32Point>(), 8);
+        assert_eq!(align_of::<Win32Point>(), 4);
+        assert_eq!(offset_of!(Win32Point, x), 0);
+        assert_eq!(offset_of!(Win32Point, y), 4);
+
+        #[cfg(target_pointer_width = "64")]
+        {
+            assert_eq!(size_of::<Win32Msg>(), 48);
+            assert_eq!(align_of::<Win32Msg>(), 8);
+            assert_eq!(offset_of!(Win32Msg, hwnd), 0);
+            assert_eq!(offset_of!(Win32Msg, message), 8);
+            assert_eq!(offset_of!(Win32Msg, wparam), 16);
+            assert_eq!(offset_of!(Win32Msg, lparam), 24);
+            assert_eq!(offset_of!(Win32Msg, time), 32);
+            assert_eq!(offset_of!(Win32Msg, pt), 36);
+            assert_eq!(offset_of!(Win32Msg, l_private), 44);
+        }
+
+        #[cfg(target_pointer_width = "32")]
+        {
+            assert_eq!(size_of::<Win32Msg>(), 32);
+            assert_eq!(align_of::<Win32Msg>(), 4);
+            assert_eq!(offset_of!(Win32Msg, hwnd), 0);
+            assert_eq!(offset_of!(Win32Msg, message), 4);
+            assert_eq!(offset_of!(Win32Msg, wparam), 8);
+            assert_eq!(offset_of!(Win32Msg, lparam), 12);
+            assert_eq!(offset_of!(Win32Msg, time), 16);
+            assert_eq!(offset_of!(Win32Msg, pt), 20);
+            assert_eq!(offset_of!(Win32Msg, l_private), 28);
+        }
+    }
+
+    #[test]
     fn hud_stacks_just_above_the_player_not_the_desktop() {
         // 0 = HWND_TOP (player is already front-most among peers).
         assert_eq!(hud_z_insert_after(10, 0), Some(0));

@@ -877,21 +877,11 @@ fn start_player_layout_watch(app: AppHandle) {
                 flags: u32,
             ) -> *mut core::ffi::c_void;
             fn GetMessageW(
-                msg: *mut WinMsg,
+                msg: *mut Win32Msg,
                 hwnd: *mut core::ffi::c_void,
                 min: u32,
                 max: u32,
             ) -> i32;
-        }
-        #[repr(C)]
-        struct WinMsg {
-            hwnd: *mut core::ffi::c_void,
-            message: u32,
-            wparam: usize,
-            lparam: isize,
-            time: u32,
-            x: i32,
-            y: i32,
         }
         let flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
         unsafe {
@@ -925,7 +915,7 @@ fn start_player_layout_watch(app: AppHandle) {
             if !player_layout_watch_should_pump(location_ok, movesize_ok) {
                 return;
             }
-            let mut msg = core::mem::MaybeUninit::<WinMsg>::zeroed();
+            let mut msg = core::mem::MaybeUninit::<Win32Msg>::zeroed();
             while GetMessageW(msg.as_mut_ptr(), core::ptr::null_mut(), 0, 0) > 0 {}
         }
     });

@@ -1,5 +1,6 @@
 import {
   createSafeUnlisten,
+  withUnlistenDiagnostics,
   type SafeUnlistenOptions,
 } from "./safeUnlisten";
 
@@ -35,7 +36,10 @@ export function createOwnedListenerSet(options?: SafeUnlistenOptions) {
           .then(() => register())
           .then(
             (unlisten) => {
-              const stop = createSafeUnlisten(unlisten, options);
+              const stop = createSafeUnlisten(
+                unlisten,
+                withUnlistenDiagnostics(options),
+              );
               if (failed) {
                 stop();
                 return;

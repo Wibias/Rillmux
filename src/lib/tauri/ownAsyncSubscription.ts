@@ -1,6 +1,7 @@
 import { listen, type EventCallback } from "@tauri-apps/api/event";
 import {
   createSafeUnlisten,
+  withUnlistenDiagnostics,
   type SafeUnlistenOptions,
 } from "./safeUnlisten";
 
@@ -17,7 +18,7 @@ export function ownAsyncSubscription(
 
   void register().then(
     (fn) => {
-      const stop = createSafeUnlisten(fn, options);
+      const stop = createSafeUnlisten(fn, withUnlistenDiagnostics(options));
       if (cancelled) {
         stop();
         unlistened = true;

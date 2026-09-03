@@ -41,10 +41,9 @@ describe("full-review regression gates", () => {
   });
 
   test("disabled Channel Points HUD does not poll website auth", () => {
-    const source = read("src/components/ChannelPointsHudSync.tsx");
-    const syncBody = source.slice(source.indexOf("const sync = async"));
-    const disabledGuard = syncBody.indexOf("if (!hudEnabled)");
-    const authRead = syncBody.indexOf("getTwitchWebsiteAuthStatus");
+    const source = read("src/lib/streaming/hudSyncPass.ts");
+    const disabledGuard = source.indexOf("if (!deps.hudEnabled)");
+    const authRead = source.indexOf("deps.getWebsiteStatus");
     expect(disabledGuard).toBeGreaterThanOrEqual(0);
     expect(authRead).toBeGreaterThan(disabledGuard);
   });
@@ -53,11 +52,12 @@ describe("full-review regression gates", () => {
     const source = read("src/components/ChannelPointsHudSync.tsx");
     expect(source).toContain("isActive: () => boolean");
     expect(source).toContain("if (!isActive()) return false;");
-    const syncBody = source.slice(source.indexOf("const sync = async"));
-    const authRead = syncBody.indexOf("getTwitchWebsiteAuthStatus");
-    const activeCheck = syncBody.indexOf("if (!active) return;", authRead);
-    expect(activeCheck).toBeGreaterThan(authRead);
-    expect(syncBody).toContain("if (!hudReady || !active) return;");
+    const pass = read("src/lib/streaming/hudSyncPass.ts");
+    const authRead = pass.indexOf("await deps.getWebsiteStatus()");
+    const currentCheck = pass.indexOf("if (!deps.isCurrent())", authRead);
+    expect(authRead).toBeGreaterThan(0);
+    expect(currentCheck).toBeGreaterThan(authRead);
+    expect(pass).toContain("if (!hudReady || !deps.isCurrent())");
   });
 
   test("Channel Points HUD geometry uses one native placement path", () => {

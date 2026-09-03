@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 function effectCleanup(source: string): string {
-  const timer = source.indexOf("const timer = window.setInterval(() => void sync(), 1000)");
+  const timer = source.indexOf(
+    "const timer = window.setInterval(() => kick.kick(), 1000)",
+  );
   if (timer < 0) throw new Error("missing HUD sync timer");
   const start = source.indexOf("return () => {", timer);
   if (start < 0) throw new Error("missing HUD sync cleanup");
@@ -35,12 +37,12 @@ describe("Channel Points HUD liveness", () => {
   });
 
   test("hides a minimized-player HUD immediately instead of waiting out the miss grace", () => {
-    const sync = readFileSync("src/components/ChannelPointsHudSync.tsx", "utf8");
-    expect(sync).toContain("hudKeepOnPlayerMiss");
-    expect(sync).toContain("place?.hidden");
-    expect(sync).toContain('hudKeepOnPlayerMiss("missing"');
+    const pass = readFileSync("src/lib/streaming/hudSyncPass.ts", "utf8");
+    expect(pass).toContain("hudKeepOnPlayerMiss");
+    expect(pass).toContain("nextPlace?.hidden");
+    expect(pass).toContain('hudKeepOnPlayerMiss("missing"');
     const hud = readFileSync("src/components/ChannelPointsHud.tsx", "utf8");
-    expect(hud).toContain("if (next?.hidden)");
+    expect(hud).toContain("if (next.hidden)");
     expect(hud).toContain("setHostHidden(true)");
     expect(hud).toContain("if (!overlay || hostHidden) return");
   });

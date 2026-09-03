@@ -10,6 +10,7 @@ import {
   shouldNotifyFollowedLive,
 } from "../lib/notifications/followedLive";
 import { MAIN_TRAY_ID, shouldCreateDesktopTray } from "../lib/desktop/tray";
+import { createDesktopTraySession } from "../lib/desktop/trayBootstrap";
 
 /**
  * Desktop-only chrome: tray icon, close-to-tray, followed-live notifications.
@@ -35,95 +36,88 @@ export function DesktopChrome() {
 
   useEffect(() => {
     if (!isTauri() || !hydrated) return;
-    let unlistenClose: (() => void) | undefined;
-    let disposed = false;
     const useTray = shouldCreateDesktopTray(import.meta.env.DEV);
-
-    void (async () => {
-      const [
-        { getCurrentWindow },
-        { TrayIcon },
-        { Menu },
-        { defaultWindowIcon },
-      ] = await Promise.all([
-        import("@tauri-apps/api/window"),
-        import("@tauri-apps/api/tray"),
-        import("@tauri-apps/api/menu"),
-        import("@tauri-apps/api/app"),
-      ]);
-
-      if (disposed) return;
-
-      const win = getCurrentWindow();
-      const showWindow = async () => {
-        await win.show();
-        await win.unminimize();
-        await win.setFocus();
-      };
-
-      // Drop a leftover icon from Vite HMR or a previous failed teardown.
-      const leftover = await TrayIcon.getById(MAIN_TRAY_ID).catch(() => null);
-      await leftover?.close().catch(() => undefined);
-
-      if (useTray) {
-        const menu = await Menu.new({
-          items: [
-            {
-              id: "show",
-              text: t("common:appNameShort"),
-              action: () => {
-                void showWindow();
-              },
-            },
-            {
-              id: "quit",
-              text: t("common:quit"),
-              action: () => {
-                void invoke("app_quit");
-              },
-            },
-          ],
-        });
-
-        const icon = await defaultWindowIcon();
-        await TrayIcon.new({
-          id: MAIN_TRAY_ID,
-          icon: icon ?? undefined,
-          tooltip: t("common:appName"),
-          menu,
-          menuOnLeftClick: false,
-          action: (event) => {
-            if (
-              event.type === "Click" &&
-              event.button === "Left" &&
-              event.buttonState === "Up"
-            ) {
-              void showWindow();
-            }
+    const session = createDesktopTraySession({
+      shouldCreateTray: useTray,
+      closeToTray: () => closeToTrayRef.current,
+      hideWindow: async () => {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().hide();
+      },
+      async loadApis() {
+        const [
+          { getCurrentWindow },
+          { TrayIcon },
+          { Menu },
+          { defaultWindowIcon },
+        ] = await Promise.all([
+          import("@tauri-apps/api/window"),
+          import("@tauri-apps/api/tray"),
+          import("@tauri-apps/api/menu"),
+          import("@tauri-apps/api/app"),
+        ]);
+        const win = getCurrentWindow();
+        const showWindow = async () => {
+          await win.show();
+          await win.unminimize();
+          await win.setFocus();
+        };
+        let menu: Awaited<ReturnType<typeof Menu.new>> | undefined;
+        return {
+          async closeLeftover() {
+            const leftover = await TrayIcon.getById(MAIN_TRAY_ID).catch(
+              () => null,
+            );
+            await leftover?.close().catch(() => undefined);
           },
-        }).catch(() => undefined);
-      }
-
-      // Close-to-tray needs a live icon. In tauri:dev, X must quit so the
-      // console kill / HMR path does not hide a headless process.
-      unlistenClose = await win.onCloseRequested(async (event) => {
-        if (useTray && closeToTrayRef.current) {
-          event.preventDefault();
-          await win.hide();
-        }
-      });
-    })();
-
-    return () => {
-      disposed = true;
-      unlistenClose?.();
-      void import("@tauri-apps/api/tray")
-        .then(async ({ TrayIcon }) => {
-          const tray = await TrayIcon.getById(MAIN_TRAY_ID);
-          await tray?.close();
-        })
-        .catch(() => undefined);
-    };
+          async createMenu() {
+            menu = await Menu.new({
+              items: [
+                {
+                  id: "show",
+                  text: t("common:appNameShort"),
+                  action: () => {
+                    void showWindow();
+                  },
+                },
+                {
+                  id: "quit",
+                  text: t("common:quit"),
+                  action: () => {
+                    void invoke("app_quit");
+                  },
+                },
+              ],
+            });
+          },
+          async createTray() {
+            const icon = await defaultWindowIcon();
+            await TrayIcon.new({
+              id: MAIN_TRAY_ID,
+              icon: icon ?? undefined,
+              tooltip: t("common:appName"),
+              menu,
+              menuOnLeftClick: false,
+              action: (event) => {
+                if (
+                  event.type === "Click" &&
+                  event.button === "Left" &&
+                  event.buttonState === "Up"
+                ) {
+                  void showWindow();
+                }
+              },
+            }).catch(() => undefined);
+          },
+          async closeTray() {
+            const tray = await TrayIcon.getById(MAIN_TRAY_ID).catch(() => null);
+            await tray?.close().catch(() => undefined);
+          },
+          onCloseRequested: (handler) => win.onCloseRequested(handler),
+        };
+      },
+    });
+    return session.start();
   }, [hydrated, t]);
 
   useEffect(() => {

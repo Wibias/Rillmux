@@ -5,6 +5,7 @@ fn eventsub_uses_server_reconnect_url_and_keepalive_timeout() {
     assert!(source.contains("keepalive_timeout_seconds"));
     assert!(source.contains("connect_eventsub"));
     assert!(source.contains("keepalive_deadline"));
+    assert!(source.contains("timeout(CONNECT_TIMEOUT, connect_async(url))"));
     assert!(!source.contains("drop and let supervisor reconnect to the default URL"));
 }
 

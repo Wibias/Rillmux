@@ -15,6 +15,15 @@ export const POINTS_HUD_MIN_PLAYER_HEIGHT = 120;
 /** Ignore HWND/DWM jitter so the overlay does not chase 1–8px player-rect noise. */
 export const POINTS_HUD_MOVE_SLOP = 12;
 export const POINTS_HUD_OFFSET_EVENT = "channel-points-hud-offset";
+export const PLAYER_LAYOUT_CHANGED_EVENT = "player-layout-changed";
+
+export function playerLayoutChangedTargetsChannel(
+  payloadChannel: string | undefined | null,
+  channel: string,
+): boolean {
+  const moved = payloadChannel?.trim().toLowerCase();
+  return Boolean(moved) && moved === channel.trim().toLowerCase();
+}
 export const PLAYER_MISS_GRACE_MS = 8_000;
 
 export type HudHostState = "visible" | "hidden" | "missing";

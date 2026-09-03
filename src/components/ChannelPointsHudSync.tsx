@@ -1,12 +1,8 @@
 import { useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getTwitchWebsiteAuthStatus } from "../lib/auth/website";
+import { getTwitchWebsiteAuthStatus, TWITCH_WEB_AUTH_CHANGED_EVENT } from "../lib/auth/website";
 import { useSettingsStore } from "../lib/settings/store";
 import {
-  POINTS_HUD_CHIP_HEIGHT,
-  POINTS_HUD_CHIP_MIN_WIDTH,
-  chipRectForPlayer,
-  hudKeepOnPlayerMiss,
   hudSyncRunningKey,
   pointsHudLabel,
   pointsHudOverlayUrl,
@@ -14,10 +10,11 @@ import {
   type HudOffset,
   type OverlayRect,
 } from "../lib/streaming/pointsHud";
+import { runChannelPointsHudSyncPass } from "../lib/streaming/hudSyncPass";
 import { useWatchingStore } from "../lib/streaming/store";
 import { invoke, isTauri } from "../lib/tauri";
-
-const MAX_HUD_WINDOWS = 8;
+import { listenWhileMounted } from "../lib/tauri/ownAsyncSubscription";
+import { createSerializedKick } from "../lib/tauri/serializedKick";
 
 async function closeHud(label: string) {
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -104,111 +101,40 @@ export function ChannelPointsHudSync() {
 
   useEffect(() => {
     if (!isTauri()) return;
-    let active = true;
-
-    const closeWantedHuds = async () => {
-      const channels = wantedRef.current;
-      wantedRef.current = [];
-      missingSinceRef.current = {};
-      await Promise.all(
-        channels.map((channel) => closeHud(pointsHudLabel(channel))),
-      );
-    };
-
-    const sync = async () => {
-      if (!active) return;
-      if (!hudEnabled) {
-        await closeWantedHuds();
-        return;
-      }
-      const website = await getTwitchWebsiteAuthStatus().catch(() => undefined);
-      if (!active) return;
-      // A transient status lookup failure is not proof that auth disappeared.
-      // Preserve already-running HUDs and retry on the next synchronization tick.
-      if (website === undefined) return;
-      if (!website.configured) {
-        await closeWantedHuds();
-        return;
-      }
-      const wanted = [
-        ...new Set(runningKey.split("|").filter(Boolean)),
-      ].slice(0, MAX_HUD_WINDOWS);
-      const wantedSet = new Set(wanted);
-      const openSet = new Set(wantedRef.current);
-      const showLogin = wanted.length > 1;
-      await Promise.all(
-        wantedRef.current.flatMap((channel) => {
-          if (wantedSet.has(channel)) return [];
-          return [
-            closeHud(pointsHudLabel(channel)).then(() => {
-              delete missingSinceRef.current[channel];
-            }),
-          ];
-        }),
-      );
-      if (!active) return;
-      const kept: string[] = [];
-      for (const channel of wanted) {
-        const place = await invoke<ChannelPointsHudPlace | null>(
-          "channel_points_hud_place",
-          { channelLogin: channel },
-        ).catch(() => null);
-        if (!active) return;
-        if (place?.hidden) {
-          delete missingSinceRef.current[channel];
-          await closeHud(pointsHudLabel(channel));
-          if (!active) return;
-          continue;
-        }
-        if (!place?.player) {
-          const existingHud = openSet.has(channel);
-          if (!existingHud) continue;
-
-          const now = Date.now();
-          const missingSince = missingSinceRef.current[channel] ?? now;
-          missingSinceRef.current[channel] = missingSince;
-          if (hudKeepOnPlayerMiss("missing", now - missingSince)) {
-            kept.push(channel);
-            continue;
-          }
-
-          // A running session can briefly lose its discoverable HWND while the
-          // native layout is rebuilding. Only retire an existing HUD after a
-          // bounded grace period; normal stream stops are handled immediately by
-          // `runningKey` removing the channel above.
-          await closeHud(pointsHudLabel(channel));
-          if (!active) return;
-          delete missingSinceRef.current[channel];
-          continue;
-        }
-        delete missingSinceRef.current[channel];
-        const offset =
-          useSettingsStore.getState().settings.streaming.channelPointsHudOffset;
-        const chip = chipRectForPlayer(
-          place.player,
-          offset,
-          POINTS_HUD_CHIP_MIN_WIDTH,
-          place.captionAvoid,
-        );
-        const hudRect = { ...chip, height: POINTS_HUD_CHIP_HEIGHT };
-        const hudReady = await ensureHud(
-          channel,
-          hudRect,
-          showLogin,
-          offset,
-          () => active,
-        );
-        if (!hudReady || !active) return;
-        kept.push(channel);
-      }
-      wantedRef.current = kept;
-    };
-
-    void sync();
-    const timer = window.setInterval(() => void sync(), 1000);
+    const kick = createSerializedKick(async (isCurrent) => {
+      const result = await runChannelPointsHudSyncPass({
+        isCurrent,
+        hudEnabled,
+        runningKey,
+        wanted: wantedRef.current,
+        missingSince: missingSinceRef.current,
+        now: () => Date.now(),
+        getWebsiteStatus: () =>
+          getTwitchWebsiteAuthStatus().catch(() => undefined),
+        place: (channel) =>
+          invoke<ChannelPointsHudPlace | null>("channel_points_hud_place", {
+            channelLogin: channel,
+          }).catch(() => null),
+        ensureHud: (channel, rect, showLogin, offset) =>
+          ensureHud(channel, rect, showLogin, offset, isCurrent),
+        closeHud: (channel) => closeHud(pointsHudLabel(channel)),
+        getOffset: () =>
+          useSettingsStore.getState().settings.streaming.channelPointsHudOffset,
+      });
+      if (!isCurrent()) return;
+      wantedRef.current = result.wanted;
+      missingSinceRef.current = result.missingSince;
+    });
+    kick.kick();
+    const timer = window.setInterval(() => kick.kick(), 1000);
+    const stopAuth = listenWhileMounted(TWITCH_WEB_AUTH_CHANGED_EVENT, () => {
+      kick.invalidate();
+      kick.kick();
+    });
     return () => {
-      active = false;
+      kick.dispose();
       window.clearInterval(timer);
+      stopAuth();
     };
   }, [hudEnabled, runningKey]);
 

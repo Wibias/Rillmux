@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../lib/settings/store";
 import {
   describeViewerPresenceStatus,
@@ -8,6 +7,8 @@ import {
   type ViewerPresenceStatus,
 } from "../lib/streaming/presence";
 import { invoke, isTauri } from "../lib/tauri";
+import { listenWhileMounted } from "../lib/tauri/ownAsyncSubscription";
+import { createSerializedKick } from "../lib/tauri/serializedKick";
 
 interface ChannelPointsSnapshot {
   channelLogin: string;
@@ -110,43 +111,36 @@ export function ChannelPointsStatus({ compact = false }: { compact?: boolean }) 
       }
     };
 
-    const refresh = async () => {
+    const refreshKick = createSerializedKick(async (isCurrent) => {
       try {
         const next = await invoke<ViewerPresenceStatus>("viewer_presence_status");
-        if (active) {
-          setStatus(next);
-          setError(null);
-        }
+        if (!isCurrent()) return;
+        setStatus(next);
+        setError(null);
         await refreshPoints(next);
       } catch (reason) {
-        if (active) {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        }
+        if (!isCurrent()) return;
+        setError(reason instanceof Error ? reason.message : String(reason));
       }
-    };
-
-    void refresh();
-    let unlistenPresence: (() => void) | undefined;
-    let unlistenPubsub: (() => void) | undefined;
-    void listen("viewer-presence-changed", () => {
-      void refresh();
-    }).then((fn) => {
-      unlistenPresence = fn;
     });
-    void listen("channel-points-pubsub", () => {
-      void refresh();
-    }).then((fn) => {
-      unlistenPubsub = fn;
+
+    refreshKick.kick();
+    const unlistenPresence = listenWhileMounted("viewer-presence-changed", () => {
+      refreshKick.kick();
+    });
+    const unlistenPubsub = listenWhileMounted("channel-points-pubsub", () => {
+      refreshKick.kick();
     });
     const timer = window.setInterval(
-      () => void refresh(),
+      () => refreshKick.kick(),
       PRESENCE_STATUS_FALLBACK_MS,
     );
     return () => {
       active = false;
+      refreshKick.dispose();
       window.clearInterval(timer);
-      unlistenPresence?.();
-      unlistenPubsub?.();
+      unlistenPresence();
+      unlistenPubsub();
     };
   }, [enabled]);
 

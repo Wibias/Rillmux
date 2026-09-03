@@ -27,7 +27,7 @@ use streaming::{
     ChannelPointsHudPlace, LaunchRequest, OverlayRect, SharedStreaming, StreamSession,
     StreamingState,
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_window_controls::{TitleBarColors, WindowControlsExt};
 
 #[tauri::command]
@@ -78,20 +78,26 @@ fn twitch_web_auth_status() -> Result<twitch_web_auth::TwitchWebAuthStatus, Stri
 
 #[tauri::command]
 async fn twitch_web_auth_save(
+    app: AppHandle,
     token: String,
 ) -> Result<twitch_web_auth::TwitchWebAuthStatus, String> {
-    twitch_web_auth::save(&token)
+    let status = twitch_web_auth::save(&token)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit(twitch_web_auth::STATUS_CHANGED_EVENT, &status);
+    Ok(status)
 }
 
 #[tauri::command]
 fn twitch_web_auth_clear(
+    app: AppHandle,
     presence: tauri::State<'_, viewer_presence::SharedViewerPresence>,
 ) -> Result<twitch_web_auth::TwitchWebAuthStatus, String> {
     channel_points_realtime::clear();
     viewer_presence::cancel_all(presence.inner());
-    twitch_web_auth::clear().map_err(|e| e.to_string())
+    let status = twitch_web_auth::clear().map_err(|e| e.to_string())?;
+    let _ = app.emit(twitch_web_auth::STATUS_CHANGED_EVENT, &status);
+    Ok(status)
 }
 
 #[tauri::command]
@@ -1033,6 +1039,7 @@ pub fn run() {
                 let _ = enable_main_title_bar_overlay(&window);
             }
             streaming::init_dock(app.handle().clone());
+            streaming::init_player_layout_watch(app.handle().clone());
             eventsub::init(app.handle().clone());
             channel_points_realtime::init(app.handle().clone());
             viewer_presence::init(app.handle().clone());

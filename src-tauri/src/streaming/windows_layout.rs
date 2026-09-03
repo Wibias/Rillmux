@@ -636,6 +636,92 @@ fn player_window_title_matches(title: &str, channel: &str) -> bool {
         || lower.starts_with(&legacy_mpv_window_title(channel))
 }
 
+pub(crate) fn player_channel_for_title(title: &str, channels: &[String]) -> Option<String> {
+    channels
+        .iter()
+        .find(|channel| player_window_title_matches(title, channel))
+        .cloned()
+}
+
+pub(crate) fn player_layout_emit_due(
+    last: Option<Instant>,
+    now: Instant,
+    min_gap: Duration,
+    force: bool,
+) -> bool {
+    force || last.is_none_or(|prev| now.saturating_duration_since(prev) >= min_gap)
+}
+
+pub(crate) const EVENT_SYSTEM_MOVESIZEEND: u32 = 0x000B;
+pub(crate) const EVENT_OBJECT_LOCATIONCHANGE: u32 = 0x800B;
+pub(crate) const OBJID_WINDOW: i32 = 0;
+pub(crate) const CHILDID_SELF: i32 = 0;
+
+/// Win32 `POINT`. Field sizes follow `LONG`.
+#[repr(C)]
+#[allow(dead_code)]
+struct Win32Point {
+    x: i32,
+    y: i32,
+}
+
+/// Win32 `MSG` (`tagMSG`), including trailing `DWORD lPrivate`.
+/// Do not omit `l_private` and rely on tail padding: 32-bit `MSG` is 32 bytes.
+#[repr(C)]
+#[allow(dead_code)]
+struct Win32Msg {
+    hwnd: *mut core::ffi::c_void,
+    message: u32,
+    wparam: usize,
+    lparam: isize,
+    time: u32,
+    pt: Win32Point,
+    l_private: u32,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(core::mem::size_of::<Win32Point>() == 8);
+    assert!(core::mem::align_of::<Win32Point>() == 4);
+    assert!(core::mem::size_of::<Win32Msg>() == 48);
+    assert!(core::mem::align_of::<Win32Msg>() == 8);
+    assert!(core::mem::offset_of!(Win32Msg, hwnd) == 0);
+    assert!(core::mem::offset_of!(Win32Msg, message) == 8);
+    assert!(core::mem::offset_of!(Win32Msg, wparam) == 16);
+    assert!(core::mem::offset_of!(Win32Msg, lparam) == 24);
+    assert!(core::mem::offset_of!(Win32Msg, time) == 32);
+    assert!(core::mem::offset_of!(Win32Msg, pt) == 36);
+    assert!(core::mem::offset_of!(Win32Msg, l_private) == 44);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(core::mem::size_of::<Win32Point>() == 8);
+    assert!(core::mem::align_of::<Win32Point>() == 4);
+    assert!(core::mem::size_of::<Win32Msg>() == 32);
+    assert!(core::mem::align_of::<Win32Msg>() == 4);
+    assert!(core::mem::offset_of!(Win32Msg, hwnd) == 0);
+    assert!(core::mem::offset_of!(Win32Msg, message) == 4);
+    assert!(core::mem::offset_of!(Win32Msg, wparam) == 8);
+    assert!(core::mem::offset_of!(Win32Msg, lparam) == 12);
+    assert!(core::mem::offset_of!(Win32Msg, time) == 16);
+    assert!(core::mem::offset_of!(Win32Msg, pt) == 20);
+    assert!(core::mem::offset_of!(Win32Msg, l_private) == 28);
+};
+
+/// Top-level window geometry only. `EVENT_OBJECT_LOCATIONCHANGE` also fires for
+/// caret/cursor/client objects; those must not touch session state.
+pub(crate) fn player_layout_event_relevant(event: u32, id_object: i32, id_child: i32) -> bool {
+    if id_child != CHILDID_SELF || id_object != OBJID_WINDOW {
+        return false;
+    }
+    event == EVENT_SYSTEM_MOVESIZEEND || event == EVENT_OBJECT_LOCATIONCHANGE
+}
+
+pub(crate) fn player_layout_watch_should_pump(location_hook: bool, movesize_hook: bool) -> bool {
+    location_hook || movesize_hook
+}
+
 #[cfg(windows)]
 fn find_player_window(channel: &str) -> Option<*mut core::ffi::c_void> {
     find_window_by_title(&format!("{}-", sanitize_player_channel(channel)), false)

@@ -213,6 +213,131 @@ mod tests {
     }
 
     #[test]
+    fn player_layout_title_maps_to_the_matching_session_channel() {
+        let channels = vec!["forsen".into(), "xqc".into()];
+        assert_eq!(
+            player_channel_for_title("forsen-just_chatting", &channels),
+            Some("forsen".into())
+        );
+        assert_eq!(
+            player_channel_for_title("rillmux-xqc", &channels),
+            Some("xqc".into())
+        );
+        assert_eq!(
+            player_channel_for_title("stgui-forsen", &channels),
+            Some("forsen".into())
+        );
+        assert_eq!(player_channel_for_title("Notepad", &channels), None);
+    }
+
+    #[test]
+    fn player_layout_emit_is_forced_or_spaced_by_the_minimum_gap() {
+        let start = Instant::now();
+        assert!(player_layout_emit_due(
+            None,
+            start,
+            Duration::from_millis(16),
+            false
+        ));
+        assert!(!player_layout_emit_due(
+            Some(start),
+            start + Duration::from_millis(5),
+            Duration::from_millis(16),
+            false
+        ));
+        assert!(player_layout_emit_due(
+            Some(start),
+            start + Duration::from_millis(5),
+            Duration::from_millis(16),
+            true
+        ));
+        assert!(player_layout_emit_due(
+            Some(start),
+            start + Duration::from_millis(16),
+            Duration::from_millis(16),
+            false
+        ));
+        assert_eq!(PLAYER_LAYOUT_CHANGED_EVENT, "player-layout-changed");
+    }
+
+    #[test]
+    fn player_layout_win_events_ignore_caret_and_child_objects() {
+        const LOCATION: u32 = 0x800B;
+        const MOVESIZEEND: u32 = 0x000B;
+        const OBJID_WINDOW: i32 = 0;
+        const OBJID_CARET: i32 = -8;
+        const OBJID_CLIENT: i32 = -4;
+        const CHILDID_SELF: i32 = 0;
+
+        assert!(player_layout_event_relevant(
+            LOCATION,
+            OBJID_WINDOW,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_event_relevant(
+            LOCATION,
+            OBJID_CARET,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_event_relevant(
+            LOCATION,
+            OBJID_CLIENT,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_event_relevant(LOCATION, OBJID_WINDOW, 1));
+        assert!(player_layout_event_relevant(
+            MOVESIZEEND,
+            OBJID_WINDOW,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_event_relevant(
+            MOVESIZEEND,
+            OBJID_CARET,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_watch_should_pump(false, false));
+        assert!(player_layout_watch_should_pump(true, false));
+        assert!(player_layout_watch_should_pump(false, true));
+        assert!(player_layout_watch_should_pump(true, true));
+    }
+
+    #[test]
+    fn win32_msg_matches_documented_native_abi() {
+        use std::mem::{align_of, offset_of, size_of};
+
+        assert_eq!(size_of::<Win32Point>(), 8);
+        assert_eq!(align_of::<Win32Point>(), 4);
+        assert_eq!(offset_of!(Win32Point, x), 0);
+        assert_eq!(offset_of!(Win32Point, y), 4);
+
+        #[cfg(target_pointer_width = "64")]
+        {
+            assert_eq!(size_of::<Win32Msg>(), 48);
+            assert_eq!(align_of::<Win32Msg>(), 8);
+            assert_eq!(offset_of!(Win32Msg, hwnd), 0);
+            assert_eq!(offset_of!(Win32Msg, message), 8);
+            assert_eq!(offset_of!(Win32Msg, wparam), 16);
+            assert_eq!(offset_of!(Win32Msg, lparam), 24);
+            assert_eq!(offset_of!(Win32Msg, time), 32);
+            assert_eq!(offset_of!(Win32Msg, pt), 36);
+            assert_eq!(offset_of!(Win32Msg, l_private), 44);
+        }
+
+        #[cfg(target_pointer_width = "32")]
+        {
+            assert_eq!(size_of::<Win32Msg>(), 32);
+            assert_eq!(align_of::<Win32Msg>(), 4);
+            assert_eq!(offset_of!(Win32Msg, hwnd), 0);
+            assert_eq!(offset_of!(Win32Msg, message), 4);
+            assert_eq!(offset_of!(Win32Msg, wparam), 8);
+            assert_eq!(offset_of!(Win32Msg, lparam), 12);
+            assert_eq!(offset_of!(Win32Msg, time), 16);
+            assert_eq!(offset_of!(Win32Msg, pt), 20);
+            assert_eq!(offset_of!(Win32Msg, l_private), 28);
+        }
+    }
+
+    #[test]
     fn hud_stacks_just_above_the_player_not_the_desktop() {
         // 0 = HWND_TOP (player is already front-most among peers).
         assert_eq!(hud_z_insert_after(10, 0), Some(0));

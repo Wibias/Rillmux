@@ -21,6 +21,7 @@ use crate::http::shared_client;
 const WS_URL: &str = "wss://eventsub.wss.twitch.tv/ws";
 const HELIX_EVENTSUB: &str = "https://api.twitch.tv/helix/eventsub/subscriptions";
 const WELCOME_TIMEOUT: Duration = Duration::from_secs(15);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
 const KEEPALIVE_GRACE: Duration = Duration::from_secs(2);
 
 type EventSubSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -171,6 +172,16 @@ async fn run_supervisor(app: AppHandle) {
     }
 }
 
+fn map_eventsub_connect_result<T, E: std::fmt::Display>(
+    result: Result<Result<T, E>, tokio::time::error::Elapsed>,
+) -> Result<T, String> {
+    match result {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(format!("ws connect: {error}")),
+        Err(_) => Err("EventSub connection timed out".into()),
+    }
+}
+
 async fn connect_eventsub(url: &str) -> Result<EventSubSocket, String> {
     let parsed = url::Url::parse(url).map_err(|error| format!("ws url: {error}"))?;
     if parsed.scheme() != "wss" || parsed.host_str() != Some("eventsub.wss.twitch.tv") {
@@ -180,9 +191,9 @@ async fn connect_eventsub(url: &str) -> Result<EventSubSocket, String> {
         "eventsub.connect.attempt",
         &format!("handoff={}", url != WS_URL),
     );
-    let (socket, _) = connect_async(url)
-        .await
-        .map_err(|error| format!("ws connect: {error}"))?;
+    let (socket, _) = map_eventsub_connect_result(
+        tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url)).await,
+    )?;
     debug_raid("eventsub.connect.ok", &format!("handoff={}", url != WS_URL));
     Ok(socket)
 }
@@ -821,5 +832,26 @@ mod tests {
             "welcome"
         );
         assert_eq!(eventsub_error_class("ws read: connection closed"), "socket");
+        assert_eq!(
+            eventsub_error_class("EventSub connection timed out"),
+            "connect"
+        );
+    }
+
+    #[tokio::test]
+    async fn eventsub_connect_timeout_is_retryable() {
+        assert_eq!(CONNECT_TIMEOUT, Duration::from_secs(12));
+        let result = tokio::time::timeout(
+            Duration::from_millis(10),
+            std::future::pending::<Result<(), &'static str>>(),
+        )
+        .await;
+        let error = map_eventsub_connect_result(result).unwrap_err();
+        assert_eq!(error, "EventSub connection timed out");
+        let class = eventsub_error_class(&error);
+        assert!(
+            class == "connect" || class == "timeout",
+            "timeout must remain a supervisor-retry class, got {class}"
+        );
     }
 }

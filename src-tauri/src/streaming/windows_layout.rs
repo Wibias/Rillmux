@@ -652,6 +652,24 @@ pub(crate) fn player_layout_emit_due(
     force || last.is_none_or(|prev| now.saturating_duration_since(prev) >= min_gap)
 }
 
+pub(crate) const EVENT_SYSTEM_MOVESIZEEND: u32 = 0x000B;
+pub(crate) const EVENT_OBJECT_LOCATIONCHANGE: u32 = 0x800B;
+pub(crate) const OBJID_WINDOW: i32 = 0;
+pub(crate) const CHILDID_SELF: i32 = 0;
+
+/// Top-level window geometry only. `EVENT_OBJECT_LOCATIONCHANGE` also fires for
+/// caret/cursor/client objects; those must not touch session state.
+pub(crate) fn player_layout_event_relevant(event: u32, id_object: i32, id_child: i32) -> bool {
+    if id_child != CHILDID_SELF || id_object != OBJID_WINDOW {
+        return false;
+    }
+    event == EVENT_SYSTEM_MOVESIZEEND || event == EVENT_OBJECT_LOCATIONCHANGE
+}
+
+pub(crate) fn player_layout_watch_should_pump(location_hook: bool, movesize_hook: bool) -> bool {
+    location_hook || movesize_hook
+}
+
 #[cfg(windows)]
 fn find_player_window(channel: &str) -> Option<*mut core::ffi::c_void> {
     find_window_by_title(&format!("{}-", sanitize_player_channel(channel)), false)

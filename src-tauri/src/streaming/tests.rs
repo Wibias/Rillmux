@@ -261,6 +261,47 @@ mod tests {
     }
 
     #[test]
+    fn player_layout_win_events_ignore_caret_and_child_objects() {
+        const LOCATION: u32 = 0x800B;
+        const MOVESIZEEND: u32 = 0x000B;
+        const OBJID_WINDOW: i32 = 0;
+        const OBJID_CARET: i32 = -8;
+        const OBJID_CLIENT: i32 = -4;
+        const CHILDID_SELF: i32 = 0;
+
+        assert!(player_layout_event_relevant(
+            LOCATION,
+            OBJID_WINDOW,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_event_relevant(
+            LOCATION,
+            OBJID_CARET,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_event_relevant(
+            LOCATION,
+            OBJID_CLIENT,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_event_relevant(LOCATION, OBJID_WINDOW, 1));
+        assert!(player_layout_event_relevant(
+            MOVESIZEEND,
+            OBJID_WINDOW,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_event_relevant(
+            MOVESIZEEND,
+            OBJID_CARET,
+            CHILDID_SELF
+        ));
+        assert!(!player_layout_watch_should_pump(false, false));
+        assert!(player_layout_watch_should_pump(true, false));
+        assert!(player_layout_watch_should_pump(false, true));
+        assert!(player_layout_watch_should_pump(true, true));
+    }
+
+    #[test]
     fn hud_stacks_just_above_the_player_not_the_desktop() {
         // 0 = HWND_TOP (player is already front-most among peers).
         assert_eq!(hud_z_insert_after(10, 0), Some(0));

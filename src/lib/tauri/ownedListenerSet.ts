@@ -1,6 +1,11 @@
-export type ListenerRegister = () => Promise<() => void>;
+import {
+  createSafeUnlisten,
+  type SafeUnlistenOptions,
+} from "./safeUnlisten";
 
-export function createOwnedListenerSet() {
+export type ListenerRegister = () => Promise<() => void | Promise<void>>;
+
+export function createOwnedListenerSet(options?: SafeUnlistenOptions) {
   let owners = 0;
   let unlistens: Array<() => void> | null = null;
   let inflight: Promise<void> | null = null;
@@ -12,14 +17,14 @@ export function createOwnedListenerSet() {
     }
 
     const owned: Array<() => void> = [];
-    let failure: unknown;
+    let failed = false;
 
     await new Promise<void>((resolve, reject) => {
       let remaining = registers.length;
 
       const fail = (reason: unknown) => {
-        if (failure !== undefined) return;
-        failure = reason;
+        if (failed) return;
+        failed = true;
         for (const unlisten of owned) unlisten();
         owned.length = 0;
         reject(reason);
@@ -30,11 +35,12 @@ export function createOwnedListenerSet() {
           .then(() => register())
           .then(
             (unlisten) => {
-              if (failure !== undefined) {
-                unlisten();
+              const stop = createSafeUnlisten(unlisten, options);
+              if (failed) {
+                stop();
                 return;
               }
-              owned.push(unlisten);
+              owned.push(stop);
               remaining -= 1;
               if (remaining === 0) {
                 unlistens = owned.slice();

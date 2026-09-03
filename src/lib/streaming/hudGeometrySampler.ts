@@ -161,7 +161,7 @@ export function createHudGeometryPoller(deps: HudGeometryPollerDeps) {
       void sample();
     },
     nudge() {
-      epoch += 1;
+      if (!active) return;
       stableTicks = 0;
       interval = HUD_GEOMETRY_FAST_MS;
       dirty = true;

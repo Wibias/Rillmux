@@ -855,8 +855,6 @@ fn start_player_layout_watch(app: AppHandle) {
     }
     let _ = PLAYER_LAYOUT_APP.set(app);
     thread::spawn(|| {
-        const EVENT_SYSTEM_MOVESIZEEND: u32 = 0x000B;
-        const EVENT_OBJECT_LOCATIONCHANGE: u32 = 0x800B;
         const WINEVENT_OUTOFCONTEXT: u32 = 0x0000;
         const WINEVENT_SKIPOWNPROCESS: u32 = 0x0002;
         #[link(name = "user32")]
@@ -897,7 +895,7 @@ fn start_player_layout_watch(app: AppHandle) {
         }
         let flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
         unsafe {
-            let _location = SetWinEventHook(
+            let location = SetWinEventHook(
                 EVENT_OBJECT_LOCATIONCHANGE,
                 EVENT_OBJECT_LOCATIONCHANGE,
                 core::ptr::null_mut(),
@@ -906,7 +904,7 @@ fn start_player_layout_watch(app: AppHandle) {
                 0,
                 flags,
             );
-            let _movesize = SetWinEventHook(
+            let movesize = SetWinEventHook(
                 EVENT_SYSTEM_MOVESIZEEND,
                 EVENT_SYSTEM_MOVESIZEEND,
                 core::ptr::null_mut(),
@@ -915,6 +913,18 @@ fn start_player_layout_watch(app: AppHandle) {
                 0,
                 flags,
             );
+            let location_ok = !location.is_null();
+            let movesize_ok = !movesize.is_null();
+            if !location_ok || !movesize_ok {
+                crate::diagnostics::log_event(
+                    crate::diagnostics::DebugCategory::Windows,
+                    "player-layout.hook",
+                    &format!("location={location_ok} movesize={movesize_ok}"),
+                );
+            }
+            if !player_layout_watch_should_pump(location_ok, movesize_ok) {
+                return;
+            }
             let mut msg = core::mem::MaybeUninit::<WinMsg>::zeroed();
             while GetMessageW(msg.as_mut_ptr(), core::ptr::null_mut(), 0, 0) > 0 {}
         }
@@ -929,13 +939,15 @@ unsafe extern "system" fn on_player_layout_win_event(
     _hook: *mut core::ffi::c_void,
     event: u32,
     hwnd: *mut core::ffi::c_void,
-    _id_object: i32,
-    _id_child: i32,
+    id_object: i32,
+    id_child: i32,
     _thread: u32,
     _time: u32,
 ) {
-    const EVENT_SYSTEM_MOVESIZEEND: u32 = 0x000B;
     if hwnd.is_null() {
+        return;
+    }
+    if !player_layout_event_relevant(event, id_object, id_child) {
         return;
     }
     let Some(app) = PLAYER_LAYOUT_APP.get() else {

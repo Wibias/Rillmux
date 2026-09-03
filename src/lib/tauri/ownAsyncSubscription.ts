@@ -1,8 +1,15 @@
 import { listen, type EventCallback } from "@tauri-apps/api/event";
+import {
+  createSafeUnlisten,
+  type SafeUnlistenOptions,
+} from "./safeUnlisten";
+
+export type OwnedUnlisten = () => void | Promise<void>;
 
 /** Owns an async-registered cleanup so dispose-before-resolve still unlistens. */
 export function ownAsyncSubscription(
-  register: () => Promise<() => void>,
+  register: () => Promise<OwnedUnlisten>,
+  options?: SafeUnlistenOptions,
 ): () => void {
   let cancelled = false;
   let unlisten: (() => void) | undefined;
@@ -10,12 +17,13 @@ export function ownAsyncSubscription(
 
   void register().then(
     (fn) => {
+      const stop = createSafeUnlisten(fn, options);
       if (cancelled) {
-        fn();
+        stop();
         unlistened = true;
         return;
       }
-      unlisten = fn;
+      unlisten = stop;
     },
     () => undefined,
   );

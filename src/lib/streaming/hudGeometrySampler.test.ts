@@ -101,21 +101,12 @@ describe("createHudGeometryPoller", () => {
     expect(delays[delays.length - 1]).toBe(HUD_GEOMETRY_FAST_MS);
   });
 
-  it("does not let a stale sample overwrite newer geometry", async () => {
+  it("does not let a disposed sample overwrite later geometry", async () => {
     const commits: OverlayRect[] = [];
     const first = deferred<ChannelPointsHudPlace>();
-    const second: ChannelPointsHudPlace = {
-      player: { ...player, x: 400 },
-      captionAvoid: null,
-    };
-    let calls = 0;
     const scheduled: Array<() => void> = [];
     const poller = createHudGeometryPoller({
-      place: () => {
-        calls += 1;
-        if (calls === 1) return first.promise;
-        return Promise.resolve(second);
-      },
+      place: () => first.promise,
       scale: async () => 1,
       schedule(fn) {
         scheduled.push(fn);
@@ -128,11 +119,10 @@ describe("createHudGeometryPoller", () => {
     });
     poller.start();
     await flush();
-    poller.nudge();
-    await flush();
+    poller.dispose();
     first.resolve(visible);
     await flush();
-    expect(commits).toEqual([second.player]);
+    expect(commits).toEqual([]);
   });
 
   it("skips React commits when sampled geometry did not change", async () => {
@@ -226,6 +216,101 @@ describe("createHudGeometryPoller", () => {
     expect(maxInflight).toBe(1);
   });
 
+  it("keeps committing geometry when nudges arrive faster than slow placement IPC", async () => {
+    const inflightSamples: number[] = [];
+    let maxInflight = 0;
+    let placeCalls = 0;
+    const commits: OverlayRect[] = [];
+    const pending: Array<(value: ChannelPointsHudPlace) => void> = [];
+    const poller = createHudGeometryPoller({
+      place: () => {
+        placeCalls += 1;
+        inflightSamples.push(1);
+        maxInflight = Math.max(maxInflight, inflightSamples.length);
+        return new Promise<ChannelPointsHudPlace>((resolve) => {
+          pending.push((value) => {
+            inflightSamples.pop();
+            resolve(value);
+          });
+        });
+      },
+      scale: async () => 1,
+      schedule() {
+        return 1;
+      },
+      cancel() {},
+      onCommit(next) {
+        if (next.player) commits.push(next.player);
+      },
+    });
+    poller.start();
+    await flush();
+    expect(placeCalls).toBe(1);
+
+    poller.nudge();
+    poller.nudge();
+    poller.nudge();
+    await flush();
+    expect(placeCalls).toBe(1);
+    expect(maxInflight).toBe(1);
+
+    pending.shift()?.({
+      player: { ...player, x: 120 },
+      captionAvoid: null,
+    });
+    await flush();
+    expect(commits.length).toBeGreaterThan(0);
+    expect(placeCalls).toBe(2);
+
+    poller.nudge();
+    poller.nudge();
+    await flush();
+    expect(placeCalls).toBe(2);
+    pending.shift()?.({
+      player: { ...player, x: 180 },
+      captionAvoid: null,
+    });
+    await flush();
+    expect(commits.length).toBeGreaterThanOrEqual(2);
+    expect(placeCalls).toBeLessThanOrEqual(3);
+    expect(maxInflight).toBe(1);
+    expect(pending.length).toBeLessThanOrEqual(1);
+  });
+
+  it("does not commit or queue more placement after dispose during coalesced nudges", async () => {
+    let placeCalls = 0;
+    const commits: OverlayRect[] = [];
+    const pending: Array<(value: ChannelPointsHudPlace) => void> = [];
+    const poller = createHudGeometryPoller({
+      place: () => {
+        placeCalls += 1;
+        return new Promise<ChannelPointsHudPlace>((resolve) => {
+          pending.push(resolve);
+        });
+      },
+      scale: async () => 1,
+      schedule() {
+        return 1;
+      },
+      cancel() {},
+      onCommit(next) {
+        if (next.player) commits.push(next.player);
+      },
+    });
+    poller.start();
+    await flush();
+    poller.nudge();
+    poller.nudge();
+    poller.dispose();
+    pending.shift()?.({
+      player: { ...player, x: 140 },
+      captionAvoid: null,
+    });
+    await flush();
+    expect(commits).toEqual([]);
+    expect(placeCalls).toBe(1);
+  });
+
   it("does not schedule more work after dispose during an in-flight sample", async () => {
     const first = deferred<ChannelPointsHudPlace>();
     const delays: number[] = [];
@@ -295,6 +380,16 @@ describe("createHudGeometryPoller", () => {
     expect(afterIdleEight).toBeLessThan(beforeEightPlacePerSecond);
     expect(afterIdleEight).toBe(4);
     expect(beforeEightPlacePerSecond).toBe(32);
+
+    const hostSyncPlaceHz = 1;
+    const beforeHostOne = hostSyncPlaceHz;
+    const beforeHostEight = 8 * hostSyncPlaceHz;
+    const afterHostOne = hostSyncPlaceHz;
+    const afterHostEight = 8 * hostSyncPlaceHz;
+    expect(beforeOnePlacePerSecond + beforeHostOne).toBe(5);
+    expect(beforeEightPlacePerSecond + beforeHostEight).toBe(40);
+    expect(afterIdleOne + afterHostOne).toBe(1.5);
+    expect(afterIdleEight + afterHostEight).toBe(12);
   });
 });
 

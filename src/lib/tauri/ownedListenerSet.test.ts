@@ -4,7 +4,7 @@ import { createOwnedListenerSet } from "./ownedListenerSet";
 
 function controllableRegister() {
   let resolveRegister: ((unlisten: () => void) => void) | undefined;
-  let rejectRegister: ((error: Error) => void) | undefined;
+  let rejectRegister: ((error: unknown) => void) | undefined;
   let unlistened = 0;
   const registered = new Promise<() => void>((resolve, reject) => {
     resolveRegister = resolve;
@@ -18,7 +18,7 @@ function controllableRegister() {
         unlistened += 1;
       });
     },
-    fail(error: Error) {
+    fail(error?: unknown) {
       rejectRegister?.(error);
     },
   };
@@ -151,6 +151,67 @@ describe("createOwnedListenerSet", () => {
     first.fail(new Error("listen failed"));
     await expect(bound).rejects.toThrow("listen failed");
     expect(second.unlistened()).toBe(1);
+    expect(set.bound).toBe(false);
+  });
+
+  it("unlistens a late success when a sibling rejects with undefined", async () => {
+    const late = controllableRegister();
+    const failing = controllableRegister();
+    const set = createOwnedListenerSet();
+    const bound = set.bind([late.register, failing.register]);
+    failing.fail(undefined);
+    await expect(bound).rejects.toBeUndefined();
+    expect(late.unlistened()).toBe(0);
+    late.complete();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(late.unlistened()).toBe(1);
+    expect(set.bound).toBe(false);
+
+    const retry = controllableRegister();
+    const second = set.bind([retry.register]);
+    retry.complete();
+    const dispose = await second;
+    expect(set.bound).toBe(true);
+    dispose();
+    expect(retry.unlistened()).toBe(1);
+  });
+
+  it("retries sibling rollback until an early Tauri unlisten succeeds", async () => {
+    const queued: Array<() => void> = [];
+    let ready = false;
+    let backend = 0;
+    const first = {
+      register: async () => () => {
+        if (!ready) {
+          throw new TypeError(
+            "undefined is not an object (evaluating 'listeners[eventId].handlerId')",
+          );
+        }
+        backend += 1;
+      },
+    };
+    const second = controllableRegister();
+    const set = createOwnedListenerSet({
+      scheduleRetry(retry) {
+        queued.push(retry);
+        return () => {
+          const index = queued.indexOf(retry);
+          if (index >= 0) queued.splice(index, 1);
+        };
+      },
+    });
+    const bound = set.bind([first.register, second.register]);
+    second.fail(new Error("listen failed"));
+    await expect(bound).rejects.toThrow("listen failed");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(backend).toBe(0);
+    ready = true;
+    const jobs = queued.splice(0);
+    for (const job of jobs) job();
+    await Promise.resolve();
+    expect(backend).toBe(1);
     expect(set.bound).toBe(false);
   });
 

@@ -51,3 +51,31 @@ fn other_shared_http_entry_points_recover_transport_failures() {
     );
     assert!(supervisor.contains("crate::http::reset_shared_client();"));
 }
+
+#[test]
+fn session_restore_sends_the_token_client_id_to_helix() {
+    let source = include_str!("../src/auth/mod.rs");
+    let body = function_body(
+        source,
+        "async fn session_from_tokens(mut tokens: StoredTokens)",
+        "pub async fn get_session()",
+    );
+    assert!(
+        body.contains(".header(\"Client-Id\", &validate.client_id)"),
+        "Helix /users must use the client id from oauth2/validate, not the app identity"
+    );
+}
+
+#[test]
+fn helix_and_eventsub_use_token_bound_credentials() {
+    let helix = include_str!("../src/helix.rs");
+    assert!(helix.contains("credentials_for_api"));
+
+    let eventsub = include_str!("../src/eventsub.rs");
+    let session = function_body(
+        eventsub,
+        "async fn run_session(app: AppHandle, initial_logins: HashSet<String>)",
+        "fn subscription_auth_rejected",
+    );
+    assert!(session.contains("credentials_for_api"));
+}

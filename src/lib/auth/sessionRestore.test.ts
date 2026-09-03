@@ -39,6 +39,14 @@ describe("isTransientAuthNetworkError", () => {
       ),
     ).toBe(false);
   });
+
+  it("does not treat a 401 helix users lookup as retryable", () => {
+    expect(
+      isTransientAuthNetworkError(
+        "HTTP status client error (401 Unauthorized) for url (https://api.twitch.tv/helix/users)",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("planAuthSessionRetry", () => {

@@ -15,6 +15,8 @@ pub struct StoredTokens {
     pub refresh_token: Option<String>,
     pub expires_at: Option<u64>,
     pub scopes: Vec<String>,
+    #[serde(default)]
+    pub client_id: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -91,4 +93,34 @@ pub fn now_unix() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_tokens_without_client_id_still_deserialize() {
+        let tokens: StoredTokens = serde_json::from_str(
+            r#"{"accessToken":"a","refreshToken":"r","expiresAt":1,"scopes":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(tokens.access_token, "a");
+        assert_eq!(tokens.client_id, None);
+    }
+
+    #[test]
+    fn persisted_tokens_round_trip_client_id() {
+        let tokens = StoredTokens {
+            access_token: "a".into(),
+            refresh_token: Some("r".into()),
+            expires_at: Some(1),
+            scopes: vec!["user:read:follows".into()],
+            client_id: Some("token-app".into()),
+        };
+        let json = serde_json::to_string(&tokens).unwrap();
+        assert!(json.contains("clientId"));
+        let parsed: StoredTokens = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.client_id.as_deref(), Some("token-app"));
+    }
 }

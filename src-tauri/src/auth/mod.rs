@@ -1,5 +1,7 @@
 mod store;
 
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -107,6 +109,11 @@ struct HelixUser {
     profile_image_url: String,
 }
 
+fn token_state_gate() -> &'static tokio::sync::Mutex<()> {
+    static GATE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 fn select_client_id(
     compiled: Option<&str>,
     runtime: Option<&str>,
@@ -139,12 +146,18 @@ fn client_id() -> Result<String, AuthError> {
     )
 }
 
+fn stored_token_client_id(token_client_id: Option<&str>) -> Option<&str> {
+    token_client_id.map(str::trim).filter(|id| !id.is_empty())
+}
+
 fn token_bound_client_id(token_client_id: Option<&str>, app_client_id: &str) -> String {
-    token_client_id
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
+    stored_token_client_id(token_client_id)
         .unwrap_or(app_client_id)
         .to_string()
+}
+
+fn should_clear_tokens_after_refresh_rejection(client_id_known: bool) -> bool {
+    client_id_known
 }
 
 fn http() -> reqwest::Client {
@@ -231,6 +244,7 @@ pub async fn poll_device_token(device_code: &str) -> Result<DevicePoll, AuthErro
 
     if res.status().is_success() {
         let token: TokenResponse = res.json().await?;
+        let _guard = token_state_gate().lock().await;
         let stored = StoredTokens {
             access_token: token.access_token,
             refresh_token: token.refresh_token,
@@ -275,6 +289,7 @@ async fn refresh_if_needed(mut tokens: StoredTokens) -> Result<StoredTokens, Aut
     let Some(refresh) = tokens.refresh_token.clone() else {
         return Ok(tokens);
     };
+    let client_id_known = stored_token_client_id(tokens.client_id.as_deref()).is_some();
     let app_client_id = client_id()?;
     let client_id = token_bound_client_id(tokens.client_id.as_deref(), &app_client_id);
     let http = http();
@@ -290,12 +305,20 @@ async fn refresh_if_needed(mut tokens: StoredTokens) -> Result<StoredTokens, Aut
         .map_err(map_http)?;
     if !res.status().is_success() {
         let status = res.status();
-        // Only wipe the stored session when Twitch definitively rejects the
-        // refresh token. A transient 5xx must not force a full re-login.
+        // Only wipe the shared stored session when Twitch rejects a refresh
+        // attempted with the persisted issuing client id. For pre-#70 rows,
+        // the app client is only a fallback; rejecting it does not prove that
+        // the refresh token itself is invalid.
         if status.as_u16() == 400 || status.as_u16() == 401 {
-            clear_tokens()?;
+            if should_clear_tokens_after_refresh_rejection(client_id_known) {
+                clear_tokens()?;
+                return Err(AuthError::Message(
+                    "session expired; please log in again".into(),
+                ));
+            }
             return Err(AuthError::Message(
-                "session expired; please log in again".into(),
+                "session refresh was rejected before the issuing Twitch client ID could be recovered"
+                    .into(),
             ));
         }
         return Err(AuthError::Message(crate::http::NETWORK_UNAVAILABLE.into()));
@@ -326,7 +349,37 @@ async fn validate_access_token(access_token: &str) -> Result<ValidateResponse, A
         .map_err(map_http)
 }
 
+async fn recover_legacy_client_id_if_possible(tokens: &mut StoredTokens) -> Result<(), AuthError> {
+    if stored_token_client_id(tokens.client_id.as_deref()).is_some() {
+        return Ok(());
+    }
+    if tokens
+        .expires_at
+        .is_some_and(|expires_at| now_unix() >= expires_at)
+    {
+        return Ok(());
+    }
+
+    match validate_access_token(&tokens.access_token).await {
+        Ok(validate) => {
+            tokens.client_id = Some(validate.client_id);
+            save_tokens(tokens)?;
+            Ok(())
+        }
+        Err(AuthError::Http(error))
+            if error.status() == Some(reqwest::StatusCode::UNAUTHORIZED) =>
+        {
+            // The access token may have expired before its recorded expiry.
+            // Leave the legacy row intact and let refresh attempt the app
+            // client as a non-destructive fallback.
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+
 async fn session_from_tokens(mut tokens: StoredTokens) -> Result<AuthSession, AuthError> {
+    recover_legacy_client_id_if_possible(&mut tokens).await?;
     tokens = refresh_if_needed(tokens).await?;
     let validate = validate_access_token(&tokens.access_token).await?;
 
@@ -365,6 +418,7 @@ async fn session_from_tokens(mut tokens: StoredTokens) -> Result<AuthSession, Au
 }
 
 pub async fn get_session() -> Result<AuthSession, AuthError> {
+    let _guard = token_state_gate().lock().await;
     match load_tokens()? {
         Some(tokens) => session_from_tokens(tokens).await.map_err(map_session_error),
         None => Ok(AuthSession {
@@ -379,6 +433,7 @@ pub async fn get_session() -> Result<AuthSession, AuthError> {
 }
 
 pub async fn logout() -> Result<(), AuthError> {
+    let _guard = token_state_gate().lock().await;
     if let Some(tokens) = load_tokens()? {
         let app_client_id = client_id()?;
         let client_id = token_bound_client_id(tokens.client_id.as_deref(), &app_client_id);
@@ -404,14 +459,11 @@ pub struct ApiCredentials {
 }
 
 pub async fn credentials_for_api() -> Result<ApiCredentials, AuthError> {
+    let _guard = token_state_gate().lock().await;
     let mut tokens = load_tokens()?.ok_or_else(|| AuthError::Message("not logged in".into()))?;
+    recover_legacy_client_id_if_possible(&mut tokens).await?;
     tokens = refresh_if_needed(tokens).await?;
-    let client_id = match tokens
-        .client_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
+    let client_id = match stored_token_client_id(tokens.client_id.as_deref()) {
         Some(id) => id.to_string(),
         None => {
             let validate = validate_access_token(&tokens.access_token).await?;
@@ -491,6 +543,26 @@ mod tests {
             token_bound_client_id(Some("  "), "compiled-app"),
             "compiled-app"
         );
+    }
+
+    #[test]
+    fn refresh_rejection_only_clears_when_issuing_client_is_known() {
+        assert!(should_clear_tokens_after_refresh_rejection(true));
+        assert!(!should_clear_tokens_after_refresh_rejection(false));
+        assert_eq!(stored_token_client_id(Some(" token-app ")), Some("token-app"));
+        assert_eq!(stored_token_client_id(Some("   ")), None);
+        assert_eq!(stored_token_client_id(None), None);
+    }
+
+    #[tokio::test]
+    async fn token_state_gate_serializes_callers() {
+        let first = token_state_gate().lock().await;
+        assert!(token_state_gate().try_lock().is_err());
+        drop(first);
+        let second = token_state_gate()
+            .try_lock()
+            .expect("token state gate should be available after owner drops");
+        drop(second);
     }
 
     #[test]

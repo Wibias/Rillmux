@@ -207,7 +207,7 @@ async function closeOverlayWindow() {
 type OverlaySnapshotSet = Dispatch<SetStateAction<ChannelPointsSnapshot | null>>;
 
 async function votePollChoice(args: {
-  poll: ChannelPointsPoll | undefined;
+  poll: ChannelPointsPoll | null | undefined;
   channel: string | null;
   votingId: string | null;
   choiceId: string;
@@ -235,7 +235,7 @@ async function votePollChoice(args: {
 }
 
 async function votePredictionOutcome(args: {
-  prediction: ChannelPointsPrediction | undefined;
+  prediction: ChannelPointsPrediction | null | undefined;
   channel: string | null;
   votingId: string | null;
   outcomeId: string;

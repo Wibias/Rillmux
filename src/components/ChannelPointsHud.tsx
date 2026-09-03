@@ -11,6 +11,8 @@ import {
   POINTS_HUD_CHIP_MIN_WIDTH,
   POINTS_HUD_MOVE_SLOP,
   POINTS_HUD_OFFSET_EVENT,
+  PLAYER_LAYOUT_CHANGED_EVENT,
+  playerLayoutChangedTargetsChannel,
   catalogRectForChip,
   chipOriginInOverlay,
   chipRectForPlayer,
@@ -29,7 +31,7 @@ import {
   type OverlayRect,
 } from "../lib/streaming/pointsHud";
 import { invoke, isTauri } from "../lib/tauri";
-import { ownAsyncSubscription } from "../lib/tauri/ownAsyncSubscription";
+import { listenWhileMounted, ownAsyncSubscription } from "../lib/tauri/ownAsyncSubscription";
 import { createHudGeometryPoller } from "../lib/streaming/hudGeometrySampler";
 import "./ChannelPointsHud.css";
 
@@ -243,9 +245,19 @@ function useChannelPointsHudModel() {
       });
       return unlisten;
     });
+    const stopLayout = listenWhileMounted<{ channel?: string }>(
+      PLAYER_LAYOUT_CHANGED_EVENT,
+      (event) => {
+        if (!playerLayoutChangedTargetsChannel(event.payload?.channel, channel)) {
+          return;
+        }
+        poller.nudge();
+      },
+    );
     return () => {
       poller.dispose();
       stopScale();
+      stopLayout();
     };
   }, [channel]);
 

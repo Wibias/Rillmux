@@ -636,6 +636,22 @@ fn player_window_title_matches(title: &str, channel: &str) -> bool {
         || lower.starts_with(&legacy_mpv_window_title(channel))
 }
 
+pub(crate) fn player_channel_for_title(title: &str, channels: &[String]) -> Option<String> {
+    channels
+        .iter()
+        .find(|channel| player_window_title_matches(title, channel))
+        .cloned()
+}
+
+pub(crate) fn player_layout_emit_due(
+    last: Option<Instant>,
+    now: Instant,
+    min_gap: Duration,
+    force: bool,
+) -> bool {
+    force || last.is_none_or(|prev| now.saturating_duration_since(prev) >= min_gap)
+}
+
 #[cfg(windows)]
 fn find_player_window(channel: &str) -> Option<*mut core::ffi::c_void> {
     find_window_by_title(&format!("{}-", sanitize_player_channel(channel)), false)

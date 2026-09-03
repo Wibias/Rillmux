@@ -25,6 +25,7 @@ import {
 import { useWatchingStore } from "../lib/streaming/store";
 import { invoke, isTauri } from "../lib/tauri";
 import { listenWhileMounted } from "../lib/tauri/ownAsyncSubscription";
+import { subscribePollOverlayHostListeners } from "../lib/streaming/pollOverlayHostListeners";
 import "./ChannelPointsPollOverlay.css";
 
 export interface ChannelPointsPollChoice {
@@ -473,23 +474,19 @@ function useChannelPointsPollOverlay() {
 
   useEffect(() => {
     if (overlayWindow || !isTauri() || !channel) return;
-    let active = true;
-    let listenersReady = false;
-    let unlistenReady: (() => void) | undefined;
-    let unlistenConfirmedVote: (() => void) | undefined;
-
-    const readyListener = listen<{ channel: string }>("poll-overlay-ready", (event) => {
-      if (!listenersReady) return;
-      const readyChannel = event.payload?.channel?.trim().toLowerCase();
-      if (readyChannel !== channel) return;
-      if (lastHostSnapshot?.channelLogin.toLowerCase() !== channel) return;
-      void emit("poll-overlay-state", lastHostSnapshot);
-    });
-    const confirmedVoteListener = listen<PollOverlayPredictionVoteConfirmed>(
-      "poll-overlay-vote-confirmed",
-      (event) => {
-        if (!listenersReady) return;
-        const payload = event.payload;
+    return subscribePollOverlayHostListeners<
+      { channel?: string },
+      PollOverlayPredictionVoteConfirmed
+    >({
+      listen: (event, handler) =>
+        listen(event, (incoming) => handler({ payload: incoming.payload })),
+      onReady: (payload) => {
+        const readyChannel = payload?.channel?.trim().toLowerCase();
+        if (readyChannel !== channel) return;
+        if (lastHostSnapshot?.channelLogin.toLowerCase() !== channel) return;
+        void emit("poll-overlay-state", lastHostSnapshot);
+      },
+      onConfirmedVote: (payload) => {
         const confirmedChannel = payload?.channel?.trim().toLowerCase();
         if (confirmedChannel !== channel) return;
         if (payload.snapshot?.channelLogin.toLowerCase() !== channel) return;
@@ -504,27 +501,7 @@ function useChannelPointsPollOverlay() {
         setError(null);
         void emit("poll-overlay-state", merged);
       },
-    );
-
-    void Promise.all([readyListener, confirmedVoteListener]).then(
-      ([readyUnlisten, confirmedVoteUnlisten]) => {
-        if (!active) {
-          readyUnlisten();
-          confirmedVoteUnlisten();
-          return;
-        }
-        unlistenReady = readyUnlisten;
-        unlistenConfirmedVote = confirmedVoteUnlisten;
-        listenersReady = true;
-      },
-    );
-
-    return () => {
-      active = false;
-      listenersReady = false;
-      unlistenReady?.();
-      unlistenConfirmedVote?.();
-    };
+    });
   }, [channel, overlayWindow]);
 
   useEffect(() => {

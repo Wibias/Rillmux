@@ -213,6 +213,54 @@ mod tests {
     }
 
     #[test]
+    fn player_layout_title_maps_to_the_matching_session_channel() {
+        let channels = vec!["forsen".into(), "xqc".into()];
+        assert_eq!(
+            player_channel_for_title("forsen-just_chatting", &channels),
+            Some("forsen".into())
+        );
+        assert_eq!(
+            player_channel_for_title("rillmux-xqc", &channels),
+            Some("xqc".into())
+        );
+        assert_eq!(
+            player_channel_for_title("stgui-forsen", &channels),
+            Some("forsen".into())
+        );
+        assert_eq!(player_channel_for_title("Notepad", &channels), None);
+    }
+
+    #[test]
+    fn player_layout_emit_is_forced_or_spaced_by_the_minimum_gap() {
+        let start = Instant::now();
+        assert!(player_layout_emit_due(
+            None,
+            start,
+            Duration::from_millis(16),
+            false
+        ));
+        assert!(!player_layout_emit_due(
+            Some(start),
+            start + Duration::from_millis(5),
+            Duration::from_millis(16),
+            false
+        ));
+        assert!(player_layout_emit_due(
+            Some(start),
+            start + Duration::from_millis(5),
+            Duration::from_millis(16),
+            true
+        ));
+        assert!(player_layout_emit_due(
+            Some(start),
+            start + Duration::from_millis(16),
+            Duration::from_millis(16),
+            false
+        ));
+        assert_eq!(PLAYER_LAYOUT_CHANGED_EVENT, "player-layout-changed");
+    }
+
+    #[test]
     fn hud_stacks_just_above_the_player_not_the_desktop() {
         // 0 = HWND_TOP (player is already front-most among peers).
         assert_eq!(hud_z_insert_after(10, 0), Some(0));

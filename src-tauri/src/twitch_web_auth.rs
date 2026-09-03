@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -11,6 +12,8 @@ use crate::http::{reset_on_transport, shared_client};
 
 const USER: &str = "twitch-website-oauth";
 const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
+const STATUS_FAILURE_BACKOFF_START: Duration = Duration::from_secs(2);
+const STATUS_FAILURE_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
 #[allow(dead_code)]
 pub(crate) const WEB_CLIENT_ID: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
@@ -61,6 +64,9 @@ pub const STATUS_CHANGED_EVENT: &str = "twitch-web-auth-changed";
 
 struct WebsiteAuthCache {
     status: Option<TwitchWebAuthStatus>,
+    retry_at: Option<Instant>,
+    backoff: Duration,
+    last_error: Option<String>,
 }
 
 pub(crate) struct WebsiteAuthRuntime {
@@ -70,7 +76,12 @@ pub(crate) struct WebsiteAuthRuntime {
 impl WebsiteAuthRuntime {
     pub(crate) fn new() -> Self {
         Self {
-            cache: Mutex::new(WebsiteAuthCache { status: None }),
+            cache: Mutex::new(WebsiteAuthCache {
+                status: None,
+                retry_at: None,
+                backoff: STATUS_FAILURE_BACKOFF_START,
+                last_error: None,
+            }),
         }
     }
 
@@ -84,16 +95,56 @@ impl WebsiteAuthRuntime {
     where
         F: Fn() -> Result<TwitchWebAuthStatus, TwitchWebAuthError>,
     {
-        if let Some(status) = self.lock_cache().status.clone() {
-            return Ok(status);
+        self.get_status_at(Instant::now(), load)
+    }
+
+    pub(crate) fn get_status_at<F>(
+        &self,
+        now: Instant,
+        load: F,
+    ) -> Result<TwitchWebAuthStatus, TwitchWebAuthError>
+    where
+        F: Fn() -> Result<TwitchWebAuthStatus, TwitchWebAuthError>,
+    {
+        {
+            let cache = self.lock_cache();
+            if let Some(status) = cache.status.clone() {
+                return Ok(status);
+            }
+            if let Some(retry_at) = cache.retry_at {
+                if now < retry_at {
+                    return Err(TwitchWebAuthError::Message(
+                        cache
+                            .last_error
+                            .clone()
+                            .unwrap_or_else(|| "website auth unavailable".into()),
+                    ));
+                }
+            }
         }
-        let status = load()?;
-        self.remember(status.clone());
-        Ok(status)
+        match load() {
+            Ok(status) => {
+                self.remember(status.clone());
+                Ok(status)
+            }
+            Err(error) => {
+                let mut cache = self.lock_cache();
+                cache.status = None;
+                let delay = cache.backoff;
+                cache.retry_at = Some(now + delay);
+                cache.backoff = delay.saturating_mul(2).min(STATUS_FAILURE_BACKOFF_MAX);
+                cache.last_error = Some(error.to_string());
+                Err(error)
+            }
+        }
     }
 
     pub(crate) fn remember(&self, status: TwitchWebAuthStatus) {
-        self.lock_cache().status = Some(status);
+        let mut cache = self.lock_cache();
+        cache.status = Some(status);
+        cache.retry_at = None;
+        cache.backoff = STATUS_FAILURE_BACKOFF_START;
+        cache.last_error = None;
     }
 }
 
@@ -623,21 +674,78 @@ mod tests {
     }
 
     #[test]
-    fn failed_status_load_is_not_cached() {
+    fn failed_status_load_uses_backoff_until_retry_or_save() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
         let runtime = WebsiteAuthRuntime::new();
-        let loads = std::sync::atomic::AtomicUsize::new(0);
-        let first = runtime.get_status(|| {
-            loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let loads = AtomicUsize::new(0);
+        let t0 = Instant::now();
+        let fail = || {
+            loads.fetch_add(1, Ordering::SeqCst);
             Err(TwitchWebAuthError::Message("keyring busy".into()))
-        });
-        assert!(first.is_err());
-        let second = runtime
-            .get_status(|| {
-                loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        };
+        assert!(runtime.get_status_at(t0, &fail).is_err());
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
+
+        assert!(runtime
+            .get_status_at(t0 + Duration::from_millis(500), &fail)
+            .is_err());
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
+
+        let recovered = runtime
+            .get_status_at(t0 + STATUS_FAILURE_BACKOFF_START, || {
+                loads.fetch_add(1, Ordering::SeqCst);
                 Ok(status_from(None))
             })
             .unwrap();
-        assert_eq!(second, status_from(None));
-        assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(recovered, status_from(None));
+        assert_eq!(loads.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn save_and_clear_supersede_status_failure_backoff() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let t0 = Instant::now();
+
+        let cleared = WebsiteAuthRuntime::new();
+        let clear_loads = AtomicUsize::new(0);
+        assert!(cleared
+            .get_status_at(t0, || {
+                clear_loads.fetch_add(1, Ordering::SeqCst);
+                Err(TwitchWebAuthError::Message("keyring busy".into()))
+            })
+            .is_err());
+        cleared.remember(status_from(None));
+        let loaded = cleared
+            .get_status_at(t0 + Duration::from_millis(100), || {
+                clear_loads.fetch_add(1, Ordering::SeqCst);
+                Ok(status_from(None))
+            })
+            .unwrap();
+        assert_eq!(loaded, status_from(None));
+        assert_eq!(clear_loads.load(Ordering::SeqCst), 1);
+
+        let saved = WebsiteAuthRuntime::new();
+        let save_loads = AtomicUsize::new(0);
+        assert!(saved
+            .get_status_at(t0, || {
+                save_loads.fetch_add(1, Ordering::SeqCst);
+                Err(TwitchWebAuthError::Message("keyring busy".into()))
+            })
+            .is_err());
+        let configured = TwitchWebAuthStatus {
+            configured: true,
+            login: Some("forsen".into()),
+            user_id: Some("123".into()),
+            playback_ready: true,
+        };
+        saved.remember(configured.clone());
+        let after_save = saved
+            .get_status_at(t0 + Duration::from_millis(100), || {
+                save_loads.fetch_add(1, Ordering::SeqCst);
+                Ok(status_from(None))
+            })
+            .unwrap();
+        assert_eq!(after_save, configured);
+        assert_eq!(save_loads.load(Ordering::SeqCst), 1);
     }
 }

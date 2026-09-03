@@ -1039,6 +1039,7 @@ pub fn run() {
                 let _ = enable_main_title_bar_overlay(&window);
             }
             streaming::init_dock(app.handle().clone());
+            streaming::init_player_layout_watch(app.handle().clone());
             eventsub::init(app.handle().clone());
             channel_points_realtime::init(app.handle().clone());
             viewer_presence::init(app.handle().clone());

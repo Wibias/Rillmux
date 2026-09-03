@@ -25,7 +25,9 @@ import {
   hudOffsetsEqual,
   hudKeepOnPlayerMiss,
   hudSyncRunningKey,
+  PLAYER_LAYOUT_CHANGED_EVENT,
   PLAYER_MISS_GRACE_MS,
+  playerLayoutChangedTargetsChannel,
   rewardUnavailableReason,
   sortCustomRewards,
 } from "./pointsHud";
@@ -73,6 +75,20 @@ describe("hudKeepOnPlayerMiss", () => {
     expect(hudKeepOnPlayerMiss("missing", PLAYER_MISS_GRACE_MS - 1)).toBe(true);
     expect(hudKeepOnPlayerMiss("missing", PLAYER_MISS_GRACE_MS)).toBe(false);
     expect(hudKeepOnPlayerMiss("visible", PLAYER_MISS_GRACE_MS)).toBe(true);
+  });
+});
+
+describe("player layout change events", () => {
+  it("names the native movement signal the HUD listens for", () => {
+    expect(PLAYER_LAYOUT_CHANGED_EVENT).toBe("player-layout-changed");
+  });
+
+  it("wakes only the HUD whose player moved", () => {
+    expect(playerLayoutChangedTargetsChannel("Forsen", "forsen")).toBe(true);
+    expect(playerLayoutChangedTargetsChannel(" xqc ", "xqc")).toBe(true);
+    expect(playerLayoutChangedTargetsChannel("xqc", "forsen")).toBe(false);
+    expect(playerLayoutChangedTargetsChannel(undefined, "forsen")).toBe(false);
+    expect(playerLayoutChangedTargetsChannel("  ", "forsen")).toBe(false);
   });
 });
 

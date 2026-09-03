@@ -158,6 +158,98 @@ describe("createHudGeometryPoller", () => {
     expect(commits).toBe(1);
   });
 
+  it("wakes immediately from idle when a layout signal nudges it", async () => {
+    const delays: number[] = [];
+    let placeCalls = 0;
+    const scheduled: Array<() => void> = [];
+    const poller = createHudGeometryPoller({
+      place: async () => {
+        placeCalls += 1;
+        return visible;
+      },
+      scale: async () => 1,
+      schedule(fn, delay) {
+        delays.push(delay);
+        scheduled.push(fn);
+        return delays.length;
+      },
+      cancel() {},
+      onCommit() {},
+    });
+    poller.start();
+    await flush();
+    for (let i = 0; i < HUD_GEOMETRY_IDLE_AFTER_STABLE_TICKS; i += 1) {
+      scheduled.shift()?.();
+      await flush();
+    }
+    expect(delays[delays.length - 1]).toBe(HUD_GEOMETRY_IDLE_MS);
+    const idlePlaceCalls = placeCalls;
+    poller.nudge();
+    await flush();
+    expect(placeCalls).toBe(idlePlaceCalls + 1);
+    expect(delays[delays.length - 1]).toBe(HUD_GEOMETRY_FAST_MS);
+  });
+
+  it("does not overlap placement samples when IPC is slow", async () => {
+    let inflight = 0;
+    let maxInflight = 0;
+    let calls = 0;
+    const first = deferred<ChannelPointsHudPlace>();
+    const scheduled: Array<() => void> = [];
+    const poller = createHudGeometryPoller({
+      place: () => {
+        inflight += 1;
+        maxInflight = Math.max(maxInflight, inflight);
+        calls += 1;
+        const finish = () => {
+          inflight -= 1;
+        };
+        if (calls === 1) return first.promise.finally(finish);
+        finish();
+        return Promise.resolve(visible);
+      },
+      scale: async () => 1,
+      schedule(fn) {
+        scheduled.push(fn);
+        return scheduled.length;
+      },
+      cancel() {},
+      onCommit() {},
+    });
+    poller.start();
+    await flush();
+    poller.nudge();
+    await flush();
+    expect(maxInflight).toBe(1);
+    first.resolve(visible);
+    await flush();
+    expect(maxInflight).toBe(1);
+  });
+
+  it("does not schedule more work after dispose during an in-flight sample", async () => {
+    const first = deferred<ChannelPointsHudPlace>();
+    const delays: number[] = [];
+    const scheduled: Array<() => void> = [];
+    const poller = createHudGeometryPoller({
+      place: () => first.promise,
+      scale: async () => 1,
+      schedule(fn, delay) {
+        delays.push(delay);
+        scheduled.push(fn);
+        return delays.length;
+      },
+      cancel() {},
+      onCommit() {},
+    });
+    poller.start();
+    await flush();
+    const scheduledBeforeDispose = scheduled.length;
+    poller.dispose();
+    first.resolve(visible);
+    await flush();
+    expect(scheduled.length).toBe(scheduledBeforeDispose);
+  });
+
   it("counts native work for one stationary HUD versus eight", async () => {
     function run(hudCount: number) {
       const stats = { place: 0, scale: 0 };

@@ -6,23 +6,47 @@ export function createOwnedListenerSet() {
   let inflight: Promise<void> | null = null;
 
   async function bindAll(registers: ListenerRegister[]): Promise<void> {
-    const results = await Promise.allSettled(
-      registers.map((register) => register()),
-    );
+    if (registers.length === 0) {
+      unlistens = [];
+      return;
+    }
+
     const owned: Array<() => void> = [];
     let failure: unknown;
-    for (const result of results) {
-      if (result.status === "fulfilled") {
-        owned.push(result.value);
-      } else if (failure === undefined) {
-        failure = result.reason;
+
+    await new Promise<void>((resolve, reject) => {
+      let remaining = registers.length;
+
+      const fail = (reason: unknown) => {
+        if (failure !== undefined) return;
+        failure = reason;
+        for (const unlisten of owned) unlisten();
+        owned.length = 0;
+        reject(reason);
+      };
+
+      for (const register of registers) {
+        void Promise.resolve()
+          .then(() => register())
+          .then(
+            (unlisten) => {
+              if (failure !== undefined) {
+                unlisten();
+                return;
+              }
+              owned.push(unlisten);
+              remaining -= 1;
+              if (remaining === 0) {
+                unlistens = owned.slice();
+                resolve();
+              }
+            },
+            (reason) => {
+              fail(reason);
+            },
+          );
       }
-    }
-    if (failure !== undefined) {
-      for (const unlisten of owned) unlisten();
-      throw failure;
-    }
-    unlistens = owned;
+    });
   }
 
   function release() {

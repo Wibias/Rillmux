@@ -118,4 +118,54 @@ describe("createOwnedListenerSet", () => {
     expect(first.unlistened()).toBe(1);
     expect(set.bound).toBe(false);
   });
+
+  it("rolls back immediately when a sibling hangs after another registration fails", async () => {
+    const first = controllableRegister();
+    const second = controllableRegister();
+    const hang = { register: () => new Promise<() => void>(() => {}) };
+    const set = createOwnedListenerSet();
+    const bound = set.bind([first.register, second.register, hang.register]);
+    first.complete();
+    second.fail(new Error("listen failed"));
+    const outcome = await Promise.race([
+      bound.then(
+        () => "resolved" as const,
+        (error: unknown) => error,
+      ),
+      new Promise<"timeout">((resolve) => {
+        setTimeout(() => resolve("timeout"), 50);
+      }),
+    ]);
+    expect(outcome).toBeInstanceOf(Error);
+    expect((outcome as Error).message).toBe("listen failed");
+    expect(first.unlistened()).toBe(1);
+    expect(set.bound).toBe(false);
+  });
+
+  it("removes the later listener when the first registration rejects", async () => {
+    const first = controllableRegister();
+    const second = controllableRegister();
+    const set = createOwnedListenerSet();
+    const bound = set.bind([first.register, second.register]);
+    second.complete();
+    first.fail(new Error("listen failed"));
+    await expect(bound).rejects.toThrow("listen failed");
+    expect(second.unlistened()).toBe(1);
+    expect(set.bound).toBe(false);
+  });
+
+  it("unlistens a late success that arrives after the attempt already failed", async () => {
+    const late = controllableRegister();
+    const failing = controllableRegister();
+    const set = createOwnedListenerSet();
+    const bound = set.bind([late.register, failing.register]);
+    failing.fail(new Error("listen failed"));
+    await expect(bound).rejects.toThrow("listen failed");
+    expect(late.unlistened()).toBe(0);
+    late.complete();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(late.unlistened()).toBe(1);
+    expect(set.bound).toBe(false);
+  });
 });

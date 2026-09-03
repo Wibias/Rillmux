@@ -88,7 +88,9 @@ fn fallback_client_refresh_rejection_does_not_destroy_shared_legacy_tokens() {
     );
 
     assert!(
-        refresh.contains("let client_id_known = stored_token_client_id(tokens.client_id.as_deref()).is_some();"),
+        refresh.contains(
+            "let client_id_known = stored_token_client_id(tokens.client_id.as_deref()).is_some();"
+        ),
         "refresh must distinguish a persisted token identity from an app-id fallback"
     );
     assert!(

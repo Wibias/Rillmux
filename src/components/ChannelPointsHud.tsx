@@ -29,6 +29,8 @@ import {
   type OverlayRect,
 } from "../lib/streaming/pointsHud";
 import { invoke, isTauri } from "../lib/tauri";
+import { ownAsyncSubscription } from "../lib/tauri/ownAsyncSubscription";
+import { createHudGeometryPoller } from "../lib/streaming/hudGeometrySampler";
 import "./ChannelPointsHud.css";
 
 export interface ChannelPointsReward {
@@ -210,36 +212,40 @@ function useChannelPointsHudModel() {
 
   useEffect(() => {
     if (!channel || !isTauri()) return;
-    let active = true;
-    const tick = async () => {
-      if (draggingRef.current) return;
-      const [next, nextScale] = await Promise.all([
+    const poller = createHudGeometryPoller({
+      place: () =>
         invoke<ChannelPointsHudPlace | null>("channel_points_hud_place", {
           channelLogin: channel,
         }).catch(() => null),
+      scale: () =>
         getCurrentWindow()
           .scaleFactor()
           .catch(() => window.devicePixelRatio || 1),
-      ]);
-      if (!active || draggingRef.current) return;
-      setScale(nextScale);
-      // Player HWNDs can disappear briefly while a multi-stream layout is being
-      // rebuilt. Keep the last valid geometry and catalog state until the owner
-      // decides the running session is genuinely gone.
-      if (next?.hidden) {
-        setHostHidden(true);
-        return;
-      }
-      if (!next?.player) return;
-      setHostHidden(false);
-      setHost(next.player);
-      setCaptionAvoid(next.captionAvoid ?? null);
-    };
-    void tick();
-    const timer = window.setInterval(() => void tick(), 250);
+      schedule: (fn, delay) => window.setTimeout(fn, delay),
+      cancel: (id) => window.clearTimeout(id),
+      onCommit: (next) => {
+        setScale(next.scale);
+        if (next.hidden) {
+          setHostHidden(true);
+          return;
+        }
+        if (!next.player) return;
+        setHostHidden(false);
+        setHost(next.player);
+        setCaptionAvoid(next.captionAvoid);
+      },
+      shouldSample: () => !draggingRef.current,
+    });
+    poller.start();
+    const stopScale = ownAsyncSubscription(async () => {
+      const unlisten = await getCurrentWindow().onScaleChanged((event) => {
+        poller.setScale(event.payload.scaleFactor);
+      });
+      return unlisten;
+    });
     return () => {
-      active = false;
-      window.clearInterval(timer);
+      poller.dispose();
+      stopScale();
     };
   }, [channel]);
 

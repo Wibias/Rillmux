@@ -2,7 +2,7 @@ use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -48,13 +48,58 @@ pub(crate) struct TwitchWebAuthSession {
     pub user_id: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TwitchWebAuthStatus {
     pub configured: bool,
     pub login: Option<String>,
     pub user_id: Option<String>,
     pub playback_ready: bool,
+}
+
+pub const STATUS_CHANGED_EVENT: &str = "twitch-web-auth-changed";
+
+struct WebsiteAuthCache {
+    status: Option<TwitchWebAuthStatus>,
+}
+
+pub(crate) struct WebsiteAuthRuntime {
+    cache: Mutex<WebsiteAuthCache>,
+}
+
+impl WebsiteAuthRuntime {
+    pub(crate) fn new() -> Self {
+        Self {
+            cache: Mutex::new(WebsiteAuthCache { status: None }),
+        }
+    }
+
+    fn lock_cache(&self) -> MutexGuard<'_, WebsiteAuthCache> {
+        self.cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn get_status<F>(&self, load: F) -> Result<TwitchWebAuthStatus, TwitchWebAuthError>
+    where
+        F: Fn() -> Result<TwitchWebAuthStatus, TwitchWebAuthError>,
+    {
+        if let Some(status) = self.lock_cache().status.clone() {
+            return Ok(status);
+        }
+        let status = load()?;
+        self.remember(status.clone());
+        Ok(status)
+    }
+
+    pub(crate) fn remember(&self, status: TwitchWebAuthStatus) {
+        self.lock_cache().status = Some(status);
+    }
+}
+
+fn website_auth_runtime() -> &'static WebsiteAuthRuntime {
+    static RUNTIME: OnceLock<WebsiteAuthRuntime> = OnceLock::new();
+    RUNTIME.get_or_init(WebsiteAuthRuntime::new)
 }
 
 #[derive(Debug, Deserialize)]
@@ -351,10 +396,12 @@ fn status_from(auth: Option<StoredWebsiteAuth>) -> TwitchWebAuthStatus {
 }
 
 pub fn get_status() -> Result<TwitchWebAuthStatus, TwitchWebAuthError> {
-    // Migration cleanup for releases that previously mirrored the secret to
-    // Streamlink's plugin-specific config file.
-    remove_streamlink_auth()?;
-    Ok(status_from(load_auth()?))
+    website_auth_runtime().get_status(|| {
+        // Migration cleanup for releases that previously mirrored the secret to
+        // Streamlink's plugin-specific config file.
+        remove_streamlink_auth()?;
+        Ok(status_from(load_auth()?))
+    })
 }
 
 async fn validate_token(token: &str) -> Result<ValidateResponse, TwitchWebAuthError> {
@@ -399,13 +446,17 @@ pub async fn save(raw_token: &str) -> Result<TwitchWebAuthStatus, TwitchWebAuthE
         login: website.login,
     };
     save_auth(&stored)?;
-    Ok(status_from(Some(stored)))
+    let status = status_from(Some(stored));
+    website_auth_runtime().remember(status.clone());
+    Ok(status)
 }
 
 pub fn clear() -> Result<TwitchWebAuthStatus, TwitchWebAuthError> {
     remove_streamlink_auth()?;
     clear_auth()?;
-    Ok(status_from(None))
+    let status = status_from(None);
+    website_auth_runtime().remember(status.clone());
+    Ok(status)
 }
 
 #[cfg(test)]
@@ -513,5 +564,80 @@ mod tests {
         assert_eq!(device_id(), device_id());
         assert!(!client_session_id().is_empty());
         assert_eq!(client_session_id(), client_session_id());
+    }
+
+    #[test]
+    fn status_cache_skips_repeated_migration_and_keyring_loads() {
+        let runtime = WebsiteAuthRuntime::new();
+        let loads = std::sync::atomic::AtomicUsize::new(0);
+        let load = || {
+            loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(status_from(None))
+        };
+        assert_eq!(runtime.get_status(&load).unwrap(), status_from(None));
+        assert_eq!(runtime.get_status(&load).unwrap(), status_from(None));
+        assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn save_and_clear_update_cached_status_without_reloading() {
+        let runtime = WebsiteAuthRuntime::new();
+        let loads = std::sync::atomic::AtomicUsize::new(0);
+        let configured = TwitchWebAuthStatus {
+            configured: true,
+            login: Some("forsen".into()),
+            user_id: Some("123".into()),
+            playback_ready: true,
+        };
+        runtime.remember(configured.clone());
+        let loaded = runtime
+            .get_status(|| {
+                loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(status_from(None))
+            })
+            .unwrap();
+        assert_eq!(loaded, configured);
+        assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        runtime.remember(status_from(None));
+        let cleared = runtime
+            .get_status(|| {
+                loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(configured.clone())
+            })
+            .unwrap();
+        assert_eq!(cleared, status_from(None));
+        assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn status_payload_does_not_include_the_token() {
+        let stored = StoredWebsiteAuth {
+            token: "super-secret-token".into(),
+            user_id: "123".into(),
+            login: "forsen".into(),
+        };
+        let json = serde_json::to_string(&status_from(Some(stored))).unwrap();
+        assert!(!json.contains("super-secret-token"));
+        assert!(!json.to_ascii_lowercase().contains("token"));
+    }
+
+    #[test]
+    fn failed_status_load_is_not_cached() {
+        let runtime = WebsiteAuthRuntime::new();
+        let loads = std::sync::atomic::AtomicUsize::new(0);
+        let first = runtime.get_status(|| {
+            loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(TwitchWebAuthError::Message("keyring busy".into()))
+        });
+        assert!(first.is_err());
+        let second = runtime
+            .get_status(|| {
+                loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(status_from(None))
+            })
+            .unwrap();
+        assert_eq!(second, status_from(None));
+        assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 }

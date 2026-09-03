@@ -1,5 +1,7 @@
 import { invoke, isTauri } from "../tauri";
 
+export const TWITCH_WEB_AUTH_CHANGED_EVENT = "twitch-web-auth-changed";
+
 export interface TwitchWebsiteAuthStatus {
   configured: boolean;
   login: string | null;

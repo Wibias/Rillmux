@@ -5,6 +5,7 @@ import {
   syncEventSub,
   syncViewerPresence,
 } from "../lib/streaming/store";
+import { ownAsyncSubscription } from "../lib/tauri/ownAsyncSubscription";
 
 /** Bind Streamlink status / session events for the app lifetime. */
 export function StreamingBootstrap({ children }: { children: ReactNode }) {
@@ -17,11 +18,7 @@ export function StreamingBootstrap({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    void bindStreamingListeners().then((unlisten) => {
-      cleanup = unlisten;
-    });
-    return () => cleanup?.();
+    return ownAsyncSubscription(() => bindStreamingListeners());
   }, []);
 
   useEffect(() => {

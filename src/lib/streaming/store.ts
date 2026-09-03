@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { invoke, isTauri } from "../tauri";
+import { createOwnedListenerSet } from "../tauri/ownedListenerSet";
 import type { HelixStream } from "../twitch/helix";
 import { getChannelStreams, getUsersByLogin } from "../twitch/helix";
 import { useSettingsStore } from "../settings/store";
@@ -71,7 +72,6 @@ interface WatchingState {
   applyStatus: (payload: StreamStatusEvent) => void;
 }
 
-let listenersBound = false;
 let lastChatSyncKey = "";
 let chatSyncInflight = "";
 let chatSyncGeneration = 0;
@@ -442,42 +442,43 @@ function stubHelixStream(opts: {
   };
 }
 
+const streamingListeners = createOwnedListenerSet();
+
 export async function bindStreamingListeners(): Promise<() => void> {
-  if (!isTauri() || listenersBound) {
+  if (!isTauri()) {
     return () => undefined;
   }
-  listenersBound = true;
-  const [unStatus, unChanged, unFraction] = await Promise.all([
-    listen<StreamStatusEvent>("stream-status", (event) => {
-      useWatchingStore.getState().applyStatus(event.payload);
-    }),
-    listen("stream-sessions-changed", () => {
-      void useWatchingStore.getState().refresh().then(() => {
-        afterSessionsChanged();
-      });
-    }),
-    listen<number>("dock-chat-fraction", (event) => {
-      const fraction = event.payload;
-      if (typeof fraction !== "number" || Number.isNaN(fraction)) return;
-      const settings = useSettingsStore.getState().settings;
-      const clamped = Math.min(0.45, Math.max(0.12, fraction));
-      if (Math.abs(settings.streaming.chatWidthFraction - clamped) < 0.001) return;
-      useSettingsStore.getState().setSettings({
-        streaming: {
-          ...settings.streaming,
-          chatWidthFraction: clamped,
-        },
-      });
-    }),
+  const unlisten = await streamingListeners.bind([
+    () =>
+      listen<StreamStatusEvent>("stream-status", (event) => {
+        useWatchingStore.getState().applyStatus(event.payload);
+      }),
+    () =>
+      listen("stream-sessions-changed", () => {
+        void useWatchingStore.getState().refresh().then(() => {
+          afterSessionsChanged();
+        });
+      }),
+    () =>
+      listen<number>("dock-chat-fraction", (event) => {
+        const fraction = event.payload;
+        if (typeof fraction !== "number" || Number.isNaN(fraction)) return;
+        const settings = useSettingsStore.getState().settings;
+        const clamped = Math.min(0.45, Math.max(0.12, fraction));
+        if (Math.abs(settings.streaming.chatWidthFraction - clamped) < 0.001) {
+          return;
+        }
+        useSettingsStore.getState().setSettings({
+          streaming: {
+            ...settings.streaming,
+            chatWidthFraction: clamped,
+          },
+        });
+      }),
   ]);
   syncEventSub();
   syncViewerPresence();
-  return () => {
-    listenersBound = false;
-    unStatus();
-    unChanged();
-    unFraction();
-  };
+  return unlisten;
 }
 
 export const useWatchingStore = create<WatchingState>((set, get) => ({

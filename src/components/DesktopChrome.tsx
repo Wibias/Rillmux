@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke, isTauri } from "../lib/tauri";
+import { ownAsyncSubscription } from "../lib/tauri/ownAsyncSubscription";
 import { useFollowedLiveStreams } from "../lib/browse/useFollowedLive";
 import { useAuthStore } from "../lib/auth/store";
 import { useSettingsStore } from "../lib/settings/store";
@@ -35,11 +36,10 @@ export function DesktopChrome() {
 
   useEffect(() => {
     if (!isTauri() || !hydrated) return;
-    let unlistenClose: (() => void) | undefined;
-    let disposed = false;
     const useTray = shouldCreateDesktopTray(import.meta.env.DEV);
 
-    void (async () => {
+    return ownAsyncSubscription(async () => {
+      let unlistenClose: (() => void) | undefined;
       const [
         { getCurrentWindow },
         { TrayIcon },
@@ -51,8 +51,6 @@ export function DesktopChrome() {
         import("@tauri-apps/api/menu"),
         import("@tauri-apps/api/app"),
       ]);
-
-      if (disposed) return;
 
       const win = getCurrentWindow();
       const showWindow = async () => {
@@ -84,7 +82,6 @@ export function DesktopChrome() {
             },
           ],
         });
-
         const icon = await defaultWindowIcon();
         await TrayIcon.new({
           id: MAIN_TRAY_ID,
@@ -112,18 +109,17 @@ export function DesktopChrome() {
           await win.hide();
         }
       });
-    })();
 
-    return () => {
-      disposed = true;
-      unlistenClose?.();
-      void import("@tauri-apps/api/tray")
-        .then(async ({ TrayIcon }) => {
-          const tray = await TrayIcon.getById(MAIN_TRAY_ID);
-          await tray?.close();
-        })
-        .catch(() => undefined);
-    };
+      return () => {
+        unlistenClose?.();
+        void import("@tauri-apps/api/tray")
+          .then(async ({ TrayIcon }) => {
+            const tray = await TrayIcon.getById(MAIN_TRAY_ID);
+            await tray?.close();
+          })
+          .catch(() => undefined);
+      };
+    });
   }, [hydrated, t]);
 
   useEffect(() => {

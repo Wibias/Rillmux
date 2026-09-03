@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { emit, listen } from "@tauri-apps/api/event";
+import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke, isTauri } from "../lib/tauri";
+import { listenWhileMounted } from "../lib/tauri/ownAsyncSubscription";
 import { debugRuntimeEvent } from "../lib/diagnostics/runtimeDebug";
 import {
   enqueueRaid,
@@ -181,8 +182,7 @@ export function RaidBanner() {
 
   useEffect(() => {
     if (!isTauri() || isRaidOverlayWindow()) return;
-    let unlisten: (() => void) | undefined;
-    void listen<RaidOutgoingEvent>("raid-outgoing", (event) => {
+    return listenWhileMounted<RaidOutgoingEvent>("raid-outgoing", (event) => {
       if (!useSettingsStore.getState().settings.streaming.followRaids) return;
       const payload = event.payload;
       if (!payload?.fromChannel || !payload?.toChannel) return;
@@ -209,39 +209,36 @@ export function RaidBanner() {
         return;
       }
       setQueue((q) => enqueueRaid(q, payload));
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
   }, []);
 
   useEffect(() => {
     if (!isTauri() || isRaidOverlayWindow()) return;
-    let unFollow: (() => void) | undefined;
-    let unStay: (() => void) | undefined;
-    let unCancel: (() => void) | undefined;
-    void listen<RaidOutgoingEvent>("raid-overlay-follow", (event) => {
-      if (!event.payload?.fromChannel) return;
-      void accept(event.payload);
-    }).then((fn) => {
-      unFollow = fn;
-    });
-    void listen<RaidOutgoingEvent>("raid-overlay-stay", (event) => {
-      if (!event.payload?.fromChannel) return;
-      stay(event.payload);
-    }).then((fn) => {
-      unStay = fn;
-    });
-    void listen<RaidOutgoingEvent>("raid-cancelled", (event) => {
-      if (!event.payload?.fromChannel) return;
-      drop(event.payload);
-    }).then((fn) => {
-      unCancel = fn;
-    });
+    const unFollow = listenWhileMounted<RaidOutgoingEvent>(
+      "raid-overlay-follow",
+      (event) => {
+        if (!event.payload?.fromChannel) return;
+        void accept(event.payload);
+      },
+    );
+    const unStay = listenWhileMounted<RaidOutgoingEvent>(
+      "raid-overlay-stay",
+      (event) => {
+        if (!event.payload?.fromChannel) return;
+        stay(event.payload);
+      },
+    );
+    const unCancel = listenWhileMounted<RaidOutgoingEvent>(
+      "raid-cancelled",
+      (event) => {
+        if (!event.payload?.fromChannel) return;
+        drop(event.payload);
+      },
+    );
     return () => {
-      unFollow?.();
-      unStay?.();
-      unCancel?.();
+      unFollow();
+      unStay();
+      unCancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- accept/stay close over refs
   }, []);

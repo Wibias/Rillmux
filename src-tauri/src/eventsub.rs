@@ -307,10 +307,11 @@ async fn reconnect_with_handoff(
 }
 
 async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<(), String> {
-    let token = auth::token_for_api()
+    let creds = auth::credentials_for_api()
         .await
         .map_err(|e| format!("auth: {e}"))?;
-    let client_id = auth::public_client_id().map_err(|e| format!("client id: {e}"))?;
+    let token = creds.access_token;
+    let client_id = creds.client_id;
 
     let (mut write, mut read, mut session) = connect_and_welcome(WS_URL).await?;
     let mut session_id = session.id.clone();

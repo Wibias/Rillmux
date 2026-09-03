@@ -18,8 +18,7 @@ pub enum HelixError {
 /// `query` is a list of key/value pairs; repeated keys are preserved
 /// (Helix uses e.g. `?login=a&login=b`).
 pub async fn fetch(path: &str, query: &[(String, String)]) -> Result<Value, HelixError> {
-    let token = auth::token_for_api().await?;
-    let client_id = auth::public_client_id()?;
+    let creds = auth::credentials_for_api().await?;
     let mut url = url::Url::parse(&format!(
         "https://api.twitch.tv/helix/{}",
         path.trim_start_matches('/')
@@ -30,8 +29,8 @@ pub async fn fetch(path: &str, query: &[(String, String)]) -> Result<Value, Heli
     }
     let res = shared_client()
         .get(url)
-        .header("Client-Id", client_id)
-        .bearer_auth(token)
+        .header("Client-Id", creds.client_id)
+        .bearer_auth(creds.access_token)
         .send()
         .await
         .map_err(reset_on_transport)?;

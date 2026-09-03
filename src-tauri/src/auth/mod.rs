@@ -139,6 +139,14 @@ fn client_id() -> Result<String, AuthError> {
     )
 }
 
+fn token_bound_client_id(token_client_id: Option<&str>, app_client_id: &str) -> String {
+    token_client_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(app_client_id)
+        .to_string()
+}
+
 fn http() -> reqwest::Client {
     shared_client()
 }
@@ -228,6 +236,7 @@ pub async fn poll_device_token(device_code: &str) -> Result<DevicePoll, AuthErro
             refresh_token: token.refresh_token,
             expires_at: token.expires_in.map(|s| now_unix().saturating_add(s)),
             scopes: token.scope.unwrap_or_default(),
+            client_id: Some(client_id.clone()),
         };
         save_tokens(&stored)?;
         return Ok(DevicePoll::Done {
@@ -266,7 +275,8 @@ async fn refresh_if_needed(mut tokens: StoredTokens) -> Result<StoredTokens, Aut
     let Some(refresh) = tokens.refresh_token.clone() else {
         return Ok(tokens);
     };
-    let client_id = client_id()?;
+    let app_client_id = client_id()?;
+    let client_id = token_bound_client_id(tokens.client_id.as_deref(), &app_client_id);
     let http = http();
     let res = http
         .post(TOKEN_URL)
@@ -296,34 +306,33 @@ async fn refresh_if_needed(mut tokens: StoredTokens) -> Result<StoredTokens, Aut
         refresh_token: token.refresh_token.or(tokens.refresh_token),
         expires_at: token.expires_in.map(|s| now_unix().saturating_add(s)),
         scopes: token.scope.unwrap_or(tokens.scopes),
+        client_id: tokens.client_id.or(Some(client_id)),
     };
     save_tokens(&tokens)?;
     Ok(tokens)
 }
 
-async fn session_from_tokens(tokens: StoredTokens) -> Result<AuthSession, AuthError> {
-    let tokens = refresh_if_needed(tokens).await?;
-    let client_id = client_id()?;
-    let http = http();
-
-    let validate: ValidateResponse = http
+async fn validate_access_token(access_token: &str) -> Result<ValidateResponse, AuthError> {
+    http()
         .get(VALIDATE_URL)
-        .bearer_auth(&tokens.access_token)
+        .bearer_auth(access_token)
         .send()
         .await
         .map_err(map_http)?
         .error_for_status()
         .map_err(map_http)?
         .json()
-        .await?;
+        .await
+        .map_err(map_http)
+}
 
-    if validate.client_id != client_id {
-        // Still usable, but warn via scopes/session only
-    }
+async fn session_from_tokens(mut tokens: StoredTokens) -> Result<AuthSession, AuthError> {
+    tokens = refresh_if_needed(tokens).await?;
+    let validate = validate_access_token(&tokens.access_token).await?;
 
-    let users: HelixUsersResponse = http
+    let users: HelixUsersResponse = http()
         .get("https://api.twitch.tv/helix/users")
-        .header("Client-Id", &client_id)
+        .header("Client-Id", &validate.client_id)
         .bearer_auth(&tokens.access_token)
         .send()
         .await
@@ -332,6 +341,11 @@ async fn session_from_tokens(tokens: StoredTokens) -> Result<AuthSession, AuthEr
         .map_err(map_http)?
         .json()
         .await?;
+
+    if tokens.client_id.as_deref() != Some(validate.client_id.as_str()) {
+        tokens.client_id = Some(validate.client_id.clone());
+        save_tokens(&tokens)?;
+    }
 
     let user = users.data.into_iter().next();
     Ok(AuthSession {
@@ -366,7 +380,8 @@ pub async fn get_session() -> Result<AuthSession, AuthError> {
 
 pub async fn logout() -> Result<(), AuthError> {
     if let Some(tokens) = load_tokens()? {
-        let client_id = client_id()?;
+        let app_client_id = client_id()?;
+        let client_id = token_bound_client_id(tokens.client_id.as_deref(), &app_client_id);
         let http = http();
         let _ = http
             .post(REVOKE_URL)
@@ -381,13 +396,34 @@ pub async fn logout() -> Result<(), AuthError> {
     Ok(())
 }
 
-/// Lightweight token accessor for the Helix proxy: refreshes when needed but
-/// skips the validate + /helix/users round trips (those only matter for the
-/// account UI, not for attaching a Bearer header).
-pub async fn token_for_api() -> Result<String, AuthError> {
-    let tokens = load_tokens()?.ok_or_else(|| AuthError::Message("not logged in".into()))?;
-    let tokens = refresh_if_needed(tokens).await?;
-    Ok(tokens.access_token)
+/// Token + the Twitch application that issued it. Helix rejects a Bearer
+/// token when `Client-Id` does not match, even if `/oauth2/validate` succeeded.
+pub struct ApiCredentials {
+    pub access_token: String,
+    pub client_id: String,
+}
+
+pub async fn credentials_for_api() -> Result<ApiCredentials, AuthError> {
+    let mut tokens = load_tokens()?.ok_or_else(|| AuthError::Message("not logged in".into()))?;
+    tokens = refresh_if_needed(tokens).await?;
+    let client_id = match tokens
+        .client_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        Some(id) => id.to_string(),
+        None => {
+            let validate = validate_access_token(&tokens.access_token).await?;
+            tokens.client_id = Some(validate.client_id.clone());
+            save_tokens(&tokens)?;
+            validate.client_id
+        }
+    };
+    Ok(ApiCredentials {
+        access_token: tokens.access_token,
+        client_id,
+    })
 }
 
 pub fn public_client_id() -> Result<String, AuthError> {
@@ -438,6 +474,23 @@ mod tests {
             "runtime-client"
         );
         assert_eq!(select_client_id(None, None, true).unwrap(), DEV_CLIENT_ID);
+    }
+
+    #[test]
+    fn helix_and_refresh_use_the_token_client_when_it_differs_from_the_app() {
+        assert_eq!(
+            token_bound_client_id(Some("token-app"), "compiled-app"),
+            "token-app"
+        );
+    }
+
+    #[test]
+    fn helix_and_refresh_fall_back_to_the_app_client_for_legacy_tokens() {
+        assert_eq!(token_bound_client_id(None, "compiled-app"), "compiled-app");
+        assert_eq!(
+            token_bound_client_id(Some("  "), "compiled-app"),
+            "compiled-app"
+        );
     }
 
     #[test]

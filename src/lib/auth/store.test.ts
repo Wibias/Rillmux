@@ -70,9 +70,10 @@ describe("auth transition ownership", () => {
     restore.resolve(loggedInSession);
     await refreshPromise;
 
-    expect(useAuthStore.getState().session).toEqual({
-      loggedIn: false,
-      scopes: [],
+    expect(useAuthStore.getState()).toMatchObject({
+      session: { loggedIn: false, scopes: [] },
+      loading: false,
+      error: null,
     });
   });
 

@@ -12,6 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.11] — 2026-09-04
+
+### Changed
+
+- Channel Points HUD placement reacts to native player-layout changes, serializes geometry work, and backs off to low-frequency polling while the player is idle
+- Website-auth status is cached after the first credential lookup and uses bounded retry backoff after failures instead of repeatedly hitting the keyring/filesystem
+- Refreshed frontend/Rust dependencies and pinned CodeQL/release actions while keeping the existing CI and release gates intact
+
+### Fixed
+
+- Stored Twitch sessions keep using the Twitch Client ID that issued their token across debug/release restarts, including legacy keyring rows that predate persisted client identity
+- Twitch token refresh and other mutable auth entry points are serialized so concurrent session restore, Helix, and EventSub callers cannot race a one-time-use refresh token
+- Legacy sessions recover their issuing Client ID before proactive refresh when possible, and a fallback-client rejection no longer destroys a still-recoverable shared keyring session
+- Async Tauri listeners, poll-overlay bindings, and tray bootstrap now clean up correctly across rapid mount/unmount, partial registration failure, and StrictMode-style restart races
+- EventSub connection attempts have a bounded connect timeout and retry instead of hanging indefinitely during a failed handshake
+- Channel Points HUD sync no longer overlaps passes, and repeated movement/layout nudges still make forward placement progress without leaving stale geometry behind
+
 ## [0.5.10] — 2026-09-03
 
 ### Changed
@@ -367,7 +384,8 @@ First public preview of the Windows rewrite (Tauri 2 + React + TypeScript). The 
 - Chatty is intentionally not supported
 - Unsigned installers may show a SmartScreen “Unknown publisher” warning until Authenticode is configured
 
-[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.10...HEAD
+[Unreleased]: https://github.com/Wibias/Rillmux/compare/v0.5.11...HEAD
+[0.5.11]: https://github.com/Wibias/Rillmux/compare/v0.5.10...v0.5.11
 [0.5.10]: https://github.com/Wibias/Rillmux/compare/v0.5.9...v0.5.10
 [0.5.9]: https://github.com/Wibias/Rillmux/compare/v0.5.8...v0.5.9
 [0.5.8]: https://github.com/Wibias/Rillmux/compare/v0.5.7...v0.5.8

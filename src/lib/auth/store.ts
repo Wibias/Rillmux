@@ -227,6 +227,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (isTauri()) {
       await invoke("auth_logout");
     }
-    set({ session: { loggedIn: false, scopes: [] }, device: null });
+    set({
+      session: { loggedIn: false, scopes: [] },
+      device: null,
+      loading: false,
+      error: null,
+    });
   },
 }));

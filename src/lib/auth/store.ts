@@ -9,13 +9,14 @@ import {
 } from "./sessionRestore";
 
 export interface AuthSession {
-  loggedIn: boolean;
-  // The access token stays in Rust; Helix calls go through the helix_fetch proxy.
-  userId?: string | null;
-  login?: string | null;
-  displayName?: string | null;
-  profileImageUrl?: string | null;
-  scopes: string[];
+  session: AuthSession | null;
+  loading: boolean;
+  device: DeviceCodeResponse | null;
+  error: string | null;
+  refreshSession: (opts?: { quiet?: boolean }) => Promise<void>;
+  startLogin: () => Promise<void>;
+  cancelLogin: () => void;
+  logout: () => Promise<void>;
 }
 
 export interface DeviceCodeResponse {
@@ -156,6 +157,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   startLogin: async () => {
+    sessionRefreshGeneration += 1;
     clearPoll();
     clearSessionRetry();
     set({ error: null, device: null, loading: true });
@@ -220,6 +222,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    sessionRefreshGeneration += 1;
     clearPoll();
     clearSessionRetry();
     if (isTauri()) {

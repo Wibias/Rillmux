@@ -9,14 +9,13 @@ import {
 } from "./sessionRestore";
 
 export interface AuthSession {
-  session: AuthSession | null;
-  loading: boolean;
-  device: DeviceCodeResponse | null;
-  error: string | null;
-  refreshSession: (opts?: { quiet?: boolean }) => Promise<void>;
-  startLogin: () => Promise<void>;
-  cancelLogin: () => void;
-  logout: () => Promise<void>;
+  loggedIn: boolean;
+  // The access token stays in Rust; Helix calls go through the helix_fetch proxy.
+  userId?: string | null;
+  login?: string | null;
+  displayName?: string | null;
+  profileImageUrl?: string | null;
+  scopes: string[];
 }
 
 export interface DeviceCodeResponse {

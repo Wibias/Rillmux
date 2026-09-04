@@ -156,6 +156,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   startLogin: async () => {
+    sessionRefreshGeneration += 1;
     clearPoll();
     clearSessionRetry();
     set({ error: null, device: null, loading: true });
@@ -220,11 +221,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    sessionRefreshGeneration += 1;
     clearPoll();
     clearSessionRetry();
     if (isTauri()) {
       await invoke("auth_logout");
     }
-    set({ session: { loggedIn: false, scopes: [] }, device: null });
+    set({
+      session: { loggedIn: false, scopes: [] },
+      device: null,
+      loading: false,
+      error: null,
+    });
   },
 }));

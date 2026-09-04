@@ -549,7 +549,10 @@ mod tests {
     fn refresh_rejection_only_clears_when_issuing_client_is_known() {
         assert!(should_clear_tokens_after_refresh_rejection(true));
         assert!(!should_clear_tokens_after_refresh_rejection(false));
-        assert_eq!(stored_token_client_id(Some(" token-app ")), Some("token-app"));
+        assert_eq!(
+            stored_token_client_id(Some(" token-app ")),
+            Some("token-app")
+        );
         assert_eq!(stored_token_client_id(Some("   ")), None);
         assert_eq!(stored_token_client_id(None), None);
     }

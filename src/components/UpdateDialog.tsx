@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { isTauri } from "../lib/tauri";
@@ -183,16 +183,21 @@ export function UpdateDialog({
   const blocks = useMemo(() => parseReleaseNotes(update.body), [update.body]);
   const version = formatVersion(update.version);
 
-  // Esc closes, matching "click outside closes".
+  // Esc closes, matching "click outside closes". The listener is bound once and
+  // reads the current phase/cancel via an effect event, so a new onCancel
+  // identity no longer re-subscribes the window listener.
+  const onEscape = useEffectEvent(() => {
+    if (phase === "available") {
+      onCancel();
+    }
+  });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && phase === "available") {
-        onCancel();
-      }
+      if (e.key === "Escape") onEscape();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, onCancel]);
+  }, []);
 
   const install = async () => {
     if (phase !== "available" && phase !== "error") return;

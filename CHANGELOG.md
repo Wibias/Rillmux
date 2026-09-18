@@ -12,7 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
-## [0.5.11] — 2026-09-04
 ## [0.5.12] — 2026-09-18
 
 ### Added

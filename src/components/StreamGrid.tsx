@@ -74,10 +74,16 @@ export function StreamGrid({
                 {stream.title}
               </p>
               <p className="stream-card__meta muted">
-                {t("routes:streamViewersUptime", {
-                  viewers: formatViewers(stream.viewer_count),
-                  uptime: formatUptime(stream.started_at),
-                })}
+                {t(
+                  stream.game_name
+                    ? "routes:streamViewersUptimeGame"
+                    : "routes:streamViewersUptime",
+                  {
+                    viewers: formatViewers(stream.viewer_count),
+                    uptime: formatUptime(stream.started_at),
+                    game: stream.game_name,
+                  },
+                )}
               </p>
             </div>
           </article>

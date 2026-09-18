@@ -421,125 +421,29 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
 }
 
 /*
- * Duplicates tauri-plugin-window-controls' injected stylesheet.
- * Production CSP is `style-src 'self'`, so the plugin's <style> tag is
- * dropped while #tbo-controls still mounts. DWM title-bar overlay steals
- * clicks from those buttons without closing, so they must not be a hit
- * target; HTML .shell__win-controls stays visible and quits the app.
+ * decorum injects its frameless titlebar chrome at page load. Its geometry
+ * arrives as a <style> tag plus inline styles, and production CSP is
+ * style-src 'self', so the contract has to live in this bundled file.
+ * Rillmux keeps its own caption buttons (.shell__win-controls): they follow the
+ * theme palette and close through app_quit, where decorum's own close button
+ * uses win.close(). The injected strip stays inert so the titlebar's own drag
+ * region and chips keep receiving clicks.
  */
-#tbo-controls {
+div[data-tauri-decorum-tb] {
   --title-bar-height: 38px;
-  position: fixed;
-  top: 0;
-  right: 0;
-  display: none;
+  height: var(--title-bar-height) !important; /* decorum inlines 32px */
+  z-index: 10 !important; /* under .shell__titlebar, so chips stay clickable */
   pointer-events: none;
-  z-index: 2147483647;
   -webkit-user-select: none;
   user-select: none;
 }
 
-#tbo-controls .tbo-btn {
-  box-sizing: border-box;
-  width: 46px;
-  height: var(--title-bar-height, 38px);
-  min-width: 46px;
-  min-height: 0;
-  display: grid;
-  place-items: center;
-  border: 0;
-  margin: 0;
-  padding: 0;
-  border-radius: 0;
-  background: var(--tbo-default, transparent);
-  color: var(--tbo-symbol, var(--text));
-  cursor: default;
-  font-weight: 400;
-  line-height: 0;
-  transition:
-    background-color 0.15s,
-    color 0.1s;
-}
-
-#tbo-controls .tbo-btn:hover,
-#tbo-controls .tbo-btn.tbo-hover {
-  background: var(--tbo-hover);
-  color: var(--tbo-symbol, var(--text));
-}
-
-#tbo-controls .tbo-btn:hover:active,
-#tbo-controls .tbo-btn.tbo-active {
-  background: var(--tbo-pressed);
-  transition: none;
-}
-
-#tbo-controls .tbo-close:hover {
-  background: #e81123;
-  color: #fff;
-}
-
-#tbo-controls .tbo-close:hover:active {
-  background: #c42b1ccc;
-  color: #fff;
-  transition: none;
-}
-
-#tbo-controls .tbo-btn[disabled] {
+div[data-tauri-decorum-tb] [data-tauri-drag-region] {
   pointer-events: none;
 }
 
-#tbo-controls .tbo-btn[disabled] .tbo-glyph {
-  opacity: 0.36;
-}
-
-#tbo-controls[data-active="false"] .tbo-btn:not(:hover):not(.tbo-hover) .tbo-glyph {
-  opacity: 0.32;
-}
-
-#tbo-controls .tbo-glyph {
-  width: 12px;
-  height: 12px;
-  line-height: 0;
-}
-
-#tbo-controls .tbo-glyph svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-#tbo-controls .tbo-min .tbo-glyph svg {
-  shape-rendering: crispEdges;
-}
-
-#tbo-controls .tbo-min .tbo-glyph:empty {
-  background: currentColor;
-  height: 1.4px;
-  width: 13px;
-  align-self: center;
-}
-
-#tbo-controls .tbo-max .tbo-glyph:empty {
-  box-sizing: border-box;
-  border: 1.1px solid currentColor;
-}
-
-#tbo-controls .tbo-close .tbo-glyph:empty {
-  background:
-    linear-gradient(
-      45deg,
-      transparent calc(50% - 0.6px),
-      currentColor calc(50% - 0.6px),
-      currentColor calc(50% + 0.6px),
-      transparent calc(50% + 0.6px)
-    ),
-    linear-gradient(
-      -45deg,
-      transparent calc(50% - 0.6px),
-      currentColor calc(50% - 0.6px),
-      currentColor calc(50% + 0.6px),
-      transparent calc(50% + 0.6px)
-    );
+div[data-tauri-decorum-tb] .decorum-tb-btn {
+  display: none;
 }
 
 .shell__win-controls {

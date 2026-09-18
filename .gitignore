@@ -38,3 +38,5 @@ legacy/build/tmp
 /.cursor
 /.ci-target
 /.worktrees
+/.agents/skills/verify-rillmux/evidence
+/.agents/skills/verify-rillmux/.runtime

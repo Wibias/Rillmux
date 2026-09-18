@@ -224,6 +224,31 @@ describe("composeMpvPlayerArgs", () => {
     expect(args).toContain("--geometry=82%x100%+0+0");
     expect(args).not.toContain("--window-maximized=yes");
   });
+
+  it("only raises the mpv volume ceiling for an opt-in boost", () => {
+    const meta = { channel: "forsen", title: "Live", game: "Variety" };
+    const boosted = composeMpvPlayerArgs(
+      { ...defaultMpvPresets(), volumeBoost: 200 },
+      "",
+      meta,
+    );
+    expect(boosted).toContain("--volume-max=200");
+    expect(boosted).toContain("--volume=200");
+
+    const normal = composeMpvPlayerArgs(defaultMpvPresets(), "", meta);
+    expect(normal).not.toContain("--volume");
+  });
+
+  it("rejects an unknown stored volume boost", () => {
+    expect(
+      migrateSettings({ player: { mpv: { volumeBoost: 9000 } } }).player.mpv
+        .volumeBoost,
+    ).toBe(100);
+    expect(
+      migrateSettings({ player: { mpv: { volumeBoost: 150 } } }).player.mpv
+        .volumeBoost,
+    ).toBe(150);
+  });
 });
 
 describe("resolveChannelLaunch", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { invoke, isTauri } from "../lib/tauri";
@@ -6,6 +6,26 @@ import { invoke, isTauri } from "../lib/tauri";
 export function TitlebarControls() {
   const { t } = useTranslation("common");
   const [maximized, setMaximized] = useState(false);
+  const snapTimer = useRef<number | null>(null);
+
+  const cancelSnap = () => {
+    if (snapTimer.current !== null) {
+      window.clearTimeout(snapTimer.current);
+      snapTimer.current = null;
+    }
+  };
+
+  // decorum raises the Windows snap layout flyout for a DOM caption button by
+  // simulating its Win+Z hotkey; there is no native button left to hover.
+  const armSnap = () => {
+    cancelSnap();
+    snapTimer.current = window.setTimeout(() => {
+      snapTimer.current = null;
+      void getCurrentWindow()
+        .setFocus()
+        .then(() => invoke("plugin:decorum|show_snap_overlay"));
+    }, 620);
+  };
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -21,6 +41,7 @@ export function TitlebarControls() {
     });
     return () => {
       disposed = true;
+      if (snapTimer.current !== null) window.clearTimeout(snapTimer.current);
       void unlisten.then((stop) => stop());
     };
   }, []);
@@ -44,7 +65,12 @@ export function TitlebarControls() {
         type="button"
         aria-label={maximized ? t("windowRestore") : t("windowMaximize")}
         title={maximized ? t("windowRestore") : t("windowMaximize")}
-        onClick={() => void win.toggleMaximize()}
+        onMouseEnter={armSnap}
+        onMouseLeave={cancelSnap}
+        onClick={() => {
+          cancelSnap();
+          void win.toggleMaximize();
+        }}
       >
         {maximized ? (
           <svg viewBox="0 0 12 12" width="16" height="16" aria-hidden>

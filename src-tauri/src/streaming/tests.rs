@@ -1086,4 +1086,33 @@ mod tests {
         assert!(args.contains("--title=chan-just_chatting"));
         assert!(args.contains("--force-media-title=chan-just_chatting"));
     }
+
+    #[test]
+    fn dock_args_keep_an_opt_in_volume_boost() {
+        // The booster is composed in the frontend; dock mode must not drop it,
+        // or the stream would attach at mpv's default 100 % ceiling.
+        let args = build_mpv_dock_args(
+            "chan",
+            "Just Chatting",
+            false,
+            "--no-border --volume-max=200 --volume=200",
+            0,
+            1,
+            Some("2x2"),
+        );
+        assert!(args.contains("--volume-max=200"));
+        assert!(args.contains("--volume=200"));
+    }
+
+    #[test]
+    fn attached_volume_follows_the_composed_args() {
+        assert_eq!(
+            mpv_initial_volume("--no-border --volume-max=150 --volume=150"),
+            150.0
+        );
+        // No booster, or garbage: mpv's normal 100 %.
+        assert_eq!(mpv_initial_volume("--no-border --volume-max=130"), 100.0);
+        assert_eq!(mpv_initial_volume("--volume=loud"), 100.0);
+        assert_eq!(mpv_initial_volume(""), 100.0);
+    }
 }

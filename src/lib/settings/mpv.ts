@@ -12,6 +12,28 @@ export interface MpvPresetSettings {
   loopReload: boolean;
   /** --cache=yes --demuxer-max-back-bytes=250M */
   cacheRewind: boolean;
+  /**
+   * --volume=N --volume-max=N. 100 leaves mpv at its default ceiling (130),
+   * so nothing above 100 % happens unless the user opts in.
+   */
+  volumeBoost: number;
+}
+
+/**
+ * Off by default. mpv clamps `volume` to `volume-max` (100-1000, default 130),
+ * so a boost needs both flags; anything above 100 % is software gain and can
+ * clip on already-loud streams.
+ */
+export const MPV_VOLUME_BOOSTS = [100, 130, 150, 200, 300] as const;
+
+export const DEFAULT_MPV_VOLUME_BOOST = 100;
+
+/** Old settings blobs / hand-edited JSON must not inject an arbitrary gain. */
+export function normalizeMpvVolumeBoost(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return (MPV_VOLUME_BOOSTS as readonly number[]).includes(parsed)
+    ? parsed
+    : DEFAULT_MPV_VOLUME_BOOST;
 }
 
 export const defaultMpvPresets = (): MpvPresetSettings => ({
@@ -20,6 +42,7 @@ export const defaultMpvPresets = (): MpvPresetSettings => ({
   windowMaximized: true,
   loopReload: true,
   cacheRewind: true,
+  volumeBoost: DEFAULT_MPV_VOLUME_BOOST,
 });
 
 export const MPV_WINGET = "winget install -e --id shinchiro.mpv";
@@ -88,6 +111,12 @@ export function composeMpvPlayerArgs(
     parts.push("--cache=yes");
     parts.push("--demuxer-max-back-bytes=250M");
   }
+  if (presets.volumeBoost > 100) {
+    // Order matters: mpv clamps volume to volume-max, so raise the ceiling
+    // first (last-one-wins for repeated options).
+    parts.push(`--volume-max=${presets.volumeBoost}`);
+    parts.push(`--volume=${presets.volumeBoost}`);
+  }
   parts.push(`--title="${label}"`);
   parts.push(`--force-media-title="${label}"`);
   const extras = customExtras.trim();
@@ -103,5 +132,8 @@ export function describeMpvPresets(presets: MpvPresetSettings): string[] {
   if (presets.windowMaximized) items.push("start maximized");
   if (presets.loopReload) items.push("Enter reloads the stream");
   if (presets.cacheRewind) items.push("cache + rewind buffer");
+  if (presets.volumeBoost > 100) {
+    items.push(`volume boost ${presets.volumeBoost}%`);
+  }
   return items;
 }

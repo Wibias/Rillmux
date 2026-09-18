@@ -12,6 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.12] — 2026-09-18
+
+### Added
+
+- Stream cards show the game next to the viewer count and uptime, dropping the segment for streams without one
+- Optional mpv volume booster in Settings → Player (Off/130/150/200/300) that composes `--volume-max`/`--volume` and is honoured when a stream attaches
+
+### Changed
+
+- Caption controls move from `tauri-plugin-window-controls` to `tauri-plugin-decorum`, keeping the app-themed title bar and Windows 11 Snap Layouts; `withGlobalTauri` is enabled for its injected runtime
+
+### Fixed
+
+- Quitting closes the overlay webviews and waits for them before exiting, removing Chromium's `Failed to unregister class Chrome_WidgetWin_0` (error 1412) teardown error in debug builds
+- React Doctor's effect-event rule satisfied in the update dialog after the React 19.3 bump
+
+### Internal
+
+- Project verifier under `.agents/skills/verify-rillmux/` with WebView-side native logging and drives for the volume booster and the card meta line
+
 ## [0.5.11] — 2026-09-04
 
 ### Changed

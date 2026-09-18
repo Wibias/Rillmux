@@ -22,6 +22,7 @@
   "pinnedShow": "Show",
   "pinnedHide": "Hide",
   "streamViewersUptime": "{{viewers}} viewers • {{uptime}}",
+  "streamViewersUptimeGame": "{{viewers}} viewers • {{uptime}} • {{game}}",
   "streamMore": "More actions",
   "streamOpenChannel": "Open channel",
   "streamOpenTwitch": "Open in Twitch",

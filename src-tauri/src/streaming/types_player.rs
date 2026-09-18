@@ -205,6 +205,8 @@ struct FastPlayerCtx {
     player_path: PathBuf,
     /// Dock argv for the fallback respawn (IPC failed): mpv <args> <url>.
     fallback_argv: Vec<String>,
+    /// `--volume=` target from the composed args (booster aware).
+    volume: f64,
     /// Guards one-time loadfile across the stdout/stderr watcher threads.
     fired: Arc<AtomicBool>,
     /// Guards one-time offline goodbye across the stdout/stderr watchers.
@@ -222,10 +224,10 @@ fn close_session_player(state: &StreamingState, id: &str, graceful: bool) {
     }
 }
 
-/// After attaching a live stream, force mute off and a sane volume.
+/// After attaching a live stream, force mute off and the configured volume.
 /// Important: mpv's JSON IPC needs a real boolean for flags — the string
 /// `"no"` is truthy and would *enable* mute (speaker shows "!").
-fn mpv_ensure_audible(pipe: &str) {
+fn mpv_ensure_audible(pipe: &str, volume: f64) {
     let _ = mpv_ipc_json(
         pipe,
         vec![
@@ -235,12 +237,25 @@ fn mpv_ensure_audible(pipe: &str) {
         ],
         Duration::from_millis(800),
     );
+    // mpv clamps `volume` to `volume-max` (default 130), and an opted-in
+    // booster is only audible once that ceiling is raised to match.
+    if volume > 100.0 {
+        let _ = mpv_ipc_json(
+            pipe,
+            vec![
+                serde_json::Value::String("set_property".into()),
+                serde_json::Value::String("volume-max".into()),
+                serde_json::Value::from(volume),
+            ],
+            Duration::from_millis(800),
+        );
+    }
     let _ = mpv_ipc_json(
         pipe,
         vec![
             serde_json::Value::String("set_property".into()),
             serde_json::Value::String("volume".into()),
-            serde_json::Value::from(100),
+            serde_json::Value::from(volume),
         ],
         Duration::from_millis(800),
     );

@@ -755,6 +755,19 @@ fn rebuild_player_args_preserving_quotes(args: &str) -> Vec<String> {
 }
 
 /// Prefer an exact title match (mpv `--title=channel`), else prefix / contains.
+/// Initial `--volume=` from the composed player args — the frontend owns mpv
+/// flags, so the opt-in booster's target volume travels inside them. Args
+/// without a volume flag (and junk values) mean mpv's normal 100%.
+fn mpv_initial_volume(player_args: &str) -> f64 {
+    rebuild_player_args_preserving_quotes(player_args)
+        .iter()
+        .filter_map(|arg| arg.strip_prefix("--volume="))
+        .filter_map(|value| value.trim().parse::<f64>().ok())
+        .rfind(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(100.0)
+}
+
+/// Prefer an exact title match (mpv `--title=channel`), else prefix / contains.
 /// Includes minimized windows so dock group min/restore can still find players.
 #[cfg(windows)]
 fn find_window_by_title(needle: &str, exact_preferred: bool) -> Option<*mut core::ffi::c_void> {

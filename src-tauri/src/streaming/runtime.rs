@@ -183,7 +183,7 @@ fn spawn_output_readers(
                             if attached {
                                 // Image/idle sessions leave mute/aid in a bad
                                 // state (speaker "!"); force audible playback.
-                                mpv_ensure_audible(&fx.pipe);
+                                mpv_ensure_audible(&fx.pipe, fx.volume);
                                 // Clear the loading-phase show-text now that
                                 // video frames are on screen.
                                 let _ = mpv_ipc_command(
@@ -449,6 +449,7 @@ pub fn start_stream(
                     port,
                     player_path: player_path.clone(),
                     fallback_argv: dock_argv,
+                    volume: mpv_initial_volume(&preset_player_args),
                     fired: Arc::new(AtomicBool::new(false)),
                     goodbye: Arc::new(AtomicBool::new(false)),
                     osd: Mutex::new(String::new()),

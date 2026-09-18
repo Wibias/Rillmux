@@ -18,6 +18,7 @@ import {
   isFollowedSort,
   isFollowedView,
 } from "../browse/followedList";
+import { normalizeMpvVolumeBoost } from "./mpv";
 
 interface SettingsState {
   settings: AppSettings;
@@ -69,7 +70,11 @@ export function migrateSettings(raw: unknown): AppSettings {
       ...base.player,
       ...input.player,
       input: input.player?.input ?? base.player.input,
-      mpv: { ...base.player.mpv, ...input.player?.mpv },
+      mpv: {
+        ...base.player.mpv,
+        ...input.player?.mpv,
+        volumeBoost: normalizeMpvVolumeBoost(input.player?.mpv?.volumeBoost),
+      },
     },
     chat: { ...base.chat, ...input.chat },
     streaming: {

@@ -16,7 +16,12 @@ import type {
   StreamOpenMode,
   ThemeMode,
 } from "../lib/settings/types";
-import { defaultMpvPresets, describeMpvPresets } from "../lib/settings/mpv";
+import {
+  defaultMpvPresets,
+  describeMpvPresets,
+  MPV_VOLUME_BOOSTS,
+  normalizeMpvVolumeBoost,
+} from "../lib/settings/mpv";
 import { playerInstallGuide } from "../lib/settings/playerInstall";
 import { eventToHotkey, normalizeHotkey } from "../lib/hotkeys";
 import { toggleMutedFollowed } from "../lib/notifications/followedLive";
@@ -861,6 +866,44 @@ export function SettingsPlayerPanel() {
               >
                 {t("settings:playerMpvReset")}
               </button>
+            </div>
+          </div>
+        ) : null}
+
+        {settings.player.id === "mpv" ? (
+          <div className="settings__row">
+            <div className="settings__label">
+              <span>{t("settings:playerMpvVolumeBoost")}</span>
+              <small className="muted">
+                {t("settings:playerMpvVolumeBoostHint")}
+              </small>
+            </div>
+            <div className="settings__control">
+              <select
+                value={String(settings.player.mpv.volumeBoost)}
+                aria-label={t("settings:playerMpvVolumeBoost")}
+                onChange={(e) =>
+                  setSettings({
+                    player: {
+                      ...settings.player,
+                      mpv: {
+                        ...settings.player.mpv,
+                        volumeBoost: normalizeMpvVolumeBoost(
+                          Number(e.target.value),
+                        ),
+                      },
+                    },
+                  })
+                }
+              >
+                {MPV_VOLUME_BOOSTS.map((level) => (
+                  <option key={level} value={level}>
+                    {level === 100
+                      ? t("settings:playerMpvVolumeBoostOff")
+                      : t("settings:playerMpvVolumeBoostLevel", { level })}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         ) : null}

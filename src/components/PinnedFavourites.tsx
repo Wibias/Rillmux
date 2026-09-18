@@ -134,10 +134,16 @@ export function PinnedFavourites({
                     {stream.title}
                   </p>
                   <p className="muted">
-                    {t("streamViewersUptime", {
-                      viewers: formatViewers(stream.viewer_count),
-                      uptime: formatUptime(stream.started_at),
-                    })}
+                    {t(
+                      stream.game_name
+                        ? "streamViewersUptimeGame"
+                        : "streamViewersUptime",
+                      {
+                        viewers: formatViewers(stream.viewer_count),
+                        uptime: formatUptime(stream.started_at),
+                        game: stream.game_name,
+                      },
+                    )}
                   </p>
                 </div>
                 <StreamActionsMenu

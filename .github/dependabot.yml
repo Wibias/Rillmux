@@ -16,6 +16,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    ignore:
+      # 0.2.x replaces the JS/DOM caption controls with system-themed native
+      # buttons and builder-only setup; Rillmux moved to tauri-plugin-decorum.
+      - dependency-name: "tauri-plugin-window-controls"
+        versions: [">= 0.2.0"]
     groups:
       cargo-minor-patch:
         update-types:

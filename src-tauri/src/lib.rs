@@ -28,7 +28,7 @@ use streaming::{
     StreamingState,
 };
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_window_controls::{TitleBarColors, WindowControlsExt};
+use tauri_plugin_decorum::WebviewWindowExt;
 
 #[tauri::command]
 async fn get_doctor_report() -> Result<DoctorReport, String> {
@@ -829,8 +829,8 @@ fn poll_overlay_raise() {
 
 #[tauri::command]
 fn app_quit(app: AppHandle) {
-    cleanup_on_exit(&app);
-    app.exit(0);
+    close_overlay_windows(&app);
+    exit_after_overlays_close(&app);
 }
 
 const MAIN_TRAY_ID: &str = "main-tray";
@@ -841,6 +841,33 @@ fn close_overlay_windows(app: &AppHandle) {
             let _ = window.close();
         }
     }
+}
+
+/// Overlay webviews are destroyed on a later event-loop turn. Exiting in the
+/// same turn makes Chromium unregister its window class while overlay HWNDs are
+/// still alive, which prints "Failed to unregister class Chrome_WidgetWin_0"
+/// (error 1412) on the debug console. Close the overlays first, give them a
+/// bounded moment to go away, then leave.
+fn exit_after_overlays_close(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(750);
+        while std::time::Instant::now() < deadline {
+            let overlays_left = app
+                .webview_windows()
+                .keys()
+                .any(|label| label.as_str() != "main");
+            if !overlays_left {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let host = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            cleanup_on_exit(&host);
+            host.exit(0);
+        });
+    });
 }
 
 fn cleanup_on_exit(app: &AppHandle) {
@@ -895,30 +922,23 @@ fn show_main_window(app: &AppHandle) {
 }
 
 fn enable_main_title_bar_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
-    window.set_title_bar_height(38).map_err(|e| e.to_string())?;
-    let light = TitleBarColors {
-        symbol: Some("#0e0e10".into()),
-        hover: Some("#00000014".into()),
-        pressed: Some("#0000000a".into()),
-        ..Default::default()
-    };
-    let dark = TitleBarColors {
-        symbol: Some("#efeff1".into()),
-        hover: Some("#ffffff14".into()),
-        pressed: Some("#ffffff0a".into()),
-        ..Default::default()
-    };
+    // decorum owns the frameless titlebar: it injects the DOM chrome and its
+    // show_snap_overlay command keeps Win11 Snap Layouts reachable from the DOM
+    // maximize button. Decorating twice would stack page-load listeners, so the
+    // first successful call wins and the webview's later invoke is a no-op.
+    static APPLIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if APPLIED.load(std::sync::atomic::Ordering::SeqCst) {
+        return Ok(());
+    }
     window
-        .set_title_bar_colors(light, dark)
+        .create_overlay_titlebar()
         .map_err(|e| e.to_string())?;
-    // Native DWM caption buttons steal clicks from HTML/plugin chrome
-    // without delivering WM_CLOSE, so X appears to do nothing.
+    APPLIED.store(true, std::sync::atomic::Ordering::SeqCst);
     Ok(())
 }
 
-/// Inject native Win11 caption buttons into the frameless main window.
-/// Called from the webview after `__TAURI_INTERNALS__` exists so the overlay
-/// script does not bail out on a too-early eval.
+/// Kept for the webview's post-mount call: the overlay is already applied from
+/// `setup`, so this only guards against a stale no-op invoke.
 #[tauri::command]
 fn enable_title_bar_overlay(window: tauri::WebviewWindow) -> Result<(), String> {
     enable_main_title_bar_overlay(&window)
@@ -978,7 +998,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_window_controls::init())
+        .plugin(tauri_plugin_decorum::init())
         .manage(streaming)
         .manage(viewer_presence)
         .invoke_handler(tauri::generate_handler![
@@ -1071,10 +1091,7 @@ pub fn run() {
                     // close-to-tray still needs it.
                     close_overlay_windows(window.app_handle());
                     #[cfg(debug_assertions)]
-                    {
-                        cleanup_on_exit(window.app_handle());
-                        window.app_handle().exit(0);
-                    }
+                    exit_after_overlays_close(window.app_handle());
                 }
             }
         })

@@ -35,7 +35,7 @@
     "deep-link:default",
     "process:default",
     "dialog:allow-open",
-    "window-controls:default",
+    "decorum:allow-show-snap-overlay",
     "allow-get-doctor-report",
     "allow-get-twitch-client-id",
     "allow-auth-get-session",

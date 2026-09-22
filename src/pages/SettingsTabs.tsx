@@ -52,6 +52,10 @@ async function pickExecutablePath(): Promise<string | null> {
 
 const QUALITY_PRESETS = [
   "best",
+  "2160p60",
+  "2160p",
+  "1440p60",
+  "1440p",
   "1080p60",
   "1080p",
   "720p60",

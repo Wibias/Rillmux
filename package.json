@@ -19,32 +19,32 @@
     "streamlink:fetch": "node scripts/fetch-streamlink.mjs"
   },
   "dependencies": {
-    "@sentry/react": "^10.74.0",
-    "@tanstack/react-query": "^5.102.8",
+    "@sentry/react": "^10.75.0",
+    "@tanstack/react-query": "^5.103.1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-deep-link": "^2.4.10",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-notification": "^2.4.0",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-store": "^2.4.4",
-    "@tauri-apps/plugin-updater": "^2.11.0",
+    "@tauri-apps/plugin-store": "^2.4.5",
+    "@tauri-apps/plugin-updater": "^2.12.0",
     "i18next": "^26.4.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-i18next": "^17.0.14",
-    "react-router": "^8.3.1",
+    "react-router": "^8.4.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "typescript": "~5.8.3",
     "vite": "^8.3.0",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   },
   "allowScripts": {
     "esbuild@0.28.1": true

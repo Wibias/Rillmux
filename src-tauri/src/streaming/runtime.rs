@@ -376,6 +376,7 @@ pub fn start_stream(
     }
     let source = req.streamlink_source.as_deref().unwrap_or("bundled");
     let player_id = req.player_id.as_deref().unwrap_or("mpv");
+    let auto_catch_up = req.auto_catch_up.unwrap_or(false);
 
     let (streamlink, _source_label) =
         resolve_streamlink(source, req.streamlink_custom_path.as_deref())?;
@@ -443,13 +444,17 @@ pub fn start_stream(
                         Duration::from_secs(3),
                     );
                 });
+                let effective_volume = inherited_or_initial(
+                    live_player_volume(state).or_else(remembered_volume),
+                    mpv_initial_volume(&preset_player_args),
+                );
                 use_fast = true;
                 fast_ctx = Some(Arc::new(FastPlayerCtx {
                     pipe: pipe.clone(),
                     port,
                     player_path: player_path.clone(),
                     fallback_argv: dock_argv,
-                    volume: mpv_initial_volume(&preset_player_args),
+                    volume: effective_volume,
                     fired: Arc::new(AtomicBool::new(false)),
                     goodbye: Arc::new(AtomicBool::new(false)),
                     osd: Mutex::new(String::new()),
@@ -650,6 +655,8 @@ pub fn start_stream(
                 ready_at: None,
                 mpv_missing_since: None,
                 offline_until: None,
+                catch_up: auto_catch_up && player_id == "mpv",
+                catch_up_active: false,
             },
         );
     }
@@ -848,6 +855,8 @@ pub fn start_session_watchdog(app: AppHandle, state: SharedStreaming) {
             Ok(false) => {}
             Err(_) => {}
         }
+        // Opt-in: nudge mpv speed when a session has drifted behind live.
+        apply_catch_up(&state);
     });
 }
 

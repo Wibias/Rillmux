@@ -1115,4 +1115,29 @@ mod tests {
         assert_eq!(mpv_initial_volume("--volume=loud"), 100.0);
         assert_eq!(mpv_initial_volume(""), 100.0);
     }
+
+    #[test]
+    fn new_sessions_inherit_the_previous_volume_over_the_default() {
+        // The level left on the old stream carries over a switch / raid follow.
+        assert_eq!(inherited_or_initial(Some(35.0), 100.0), 35.0);
+        assert_eq!(inherited_or_initial(Some(35.0), 200.0), 35.0);
+        // Without a remembered level, the composed --volume (booster) wins.
+        assert_eq!(inherited_or_initial(None, 200.0), 200.0);
+        // Junk readings must never silence the stream.
+        assert_eq!(inherited_or_initial(Some(0.0), 100.0), 100.0);
+        assert_eq!(inherited_or_initial(Some(f64::NAN), 100.0), 100.0);
+    }
+
+    #[test]
+    fn catch_up_uses_hysteresis_around_the_buffered_lead() {
+        // Engage only once the lead clearly exceeds the enter threshold.
+        assert!(!catch_up_should_engage(false, 5.9));
+        assert!(catch_up_should_engage(false, 6.1));
+        // Once engaged, keep going until the lead drains below the exit band.
+        assert!(catch_up_should_engage(true, 2.5));
+        assert!(!catch_up_should_engage(true, 1.9));
+        // mpv reports -1 / NaN when no lead is available: never engage.
+        assert!(!catch_up_should_engage(false, -1.0));
+        assert!(!catch_up_should_engage(true, f64::NAN));
+    }
 }

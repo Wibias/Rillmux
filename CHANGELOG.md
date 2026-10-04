@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.13] — 2026-10-04
+
+### Added
+
+- Stream quality presets for 1440p and 2160p in Settings → Streaming
+- The mpv volume you set carries over when switching streams, following a raid, or opening another window instead of resetting to the configured default
+- Optional mpv auto catch-up (Settings → Player): while a stream has drifted behind live, playback speeds up to 1.1× and returns to normal once it has caught up
+
+### Internal
+
+- Refreshed crate, npm, and GitHub Actions dependencies
+
 ## [0.5.12] — 2026-09-18
 
 ### Added

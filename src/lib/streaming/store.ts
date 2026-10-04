@@ -651,6 +651,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           retryStreams: 0,
           retryMax: 0,
           playerNoClose: settings.streaming.playerNoClose,
+          autoCatchUp:
+            settings.player.mpv.autoCatchUp && launch.playerId === "mpv",
           reserveChat,
           replaceExisting,
           slotIndex: Math.max(0, plannedChannels.indexOf(channel)),
@@ -818,6 +820,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           retryStreams: 0,
           retryMax: 0,
           playerNoClose: settings.streaming.playerNoClose,
+          autoCatchUp:
+            settings.player.mpv.autoCatchUp && launch.playerId === "mpv",
           reserveChat,
           replaceExisting: false,
           slotIndex: Math.max(0, plannedChannels.indexOf(toLogin)),

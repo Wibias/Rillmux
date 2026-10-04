@@ -832,6 +832,7 @@ export function SettingsPlayerPanel() {
                   ["windowMaximized", "playerMpvMaximized"],
                   ["loopReload", "playerMpvLoopReload"],
                   ["cacheRewind", "playerMpvCacheRewind"],
+                  ["autoCatchUp", "playerMpvAutoCatchUp"],
                 ] as const
               ).map(([key, labelKey]) => (
                 <label key={key} className="settings__row settings__row--check">

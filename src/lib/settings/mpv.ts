@@ -17,6 +17,12 @@ export interface MpvPresetSettings {
    * so nothing above 100 % happens unless the user opts in.
    */
   volumeBoost: number;
+  /**
+   * Opt-in: when the stream falls behind the live edge, temporarily raise the
+   * mpv playback speed to catch up, then return to normal once the buffered
+   * lead drains. Applied live over IPC, not through launch args.
+   */
+  autoCatchUp: boolean;
 }
 
 /**
@@ -27,6 +33,9 @@ export interface MpvPresetSettings {
 export const MPV_VOLUME_BOOSTS = [100, 130, 150, 200, 300] as const;
 
 export const DEFAULT_MPV_VOLUME_BOOST = 100;
+
+/** Playback speed mpv is raised to while auto catch-up is draining a lag. */
+export const MPV_CATCH_UP_SPEED = 1.1;
 
 /** Old settings blobs / hand-edited JSON must not inject an arbitrary gain. */
 export function normalizeMpvVolumeBoost(value: unknown): number {
@@ -43,6 +52,7 @@ export const defaultMpvPresets = (): MpvPresetSettings => ({
   loopReload: true,
   cacheRewind: true,
   volumeBoost: DEFAULT_MPV_VOLUME_BOOST,
+  autoCatchUp: false,
 });
 
 export const MPV_WINGET = "winget install -e --id shinchiro.mpv";
@@ -110,6 +120,9 @@ export function composeMpvPlayerArgs(
   if (presets.cacheRewind) {
     parts.push("--cache=yes");
     parts.push("--demuxer-max-back-bytes=250M");
+  } else if (presets.autoCatchUp) {
+    // Catch-up drains a forward buffer; without one there is no lag to measure.
+    parts.push("--cache=yes");
   }
   if (presets.volumeBoost > 100) {
     // Order matters: mpv clamps volume to volume-max, so raise the ceiling
@@ -134,6 +147,9 @@ export function describeMpvPresets(presets: MpvPresetSettings): string[] {
   if (presets.cacheRewind) items.push("cache + rewind buffer");
   if (presets.volumeBoost > 100) {
     items.push(`volume boost ${presets.volumeBoost}%`);
+  }
+  if (presets.autoCatchUp) {
+    items.push(`auto catch-up to ${MPV_CATCH_UP_SPEED}x when behind`);
   }
   return items;
 }

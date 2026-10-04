@@ -1,6 +1,3 @@
-// MSVC prints “.lib/.exp werden erstellt” to stdout while linking cdylibs; ignore that noise.
-#![allow(linker_messages)]
-
 mod auth;
 mod branding;
 mod channel_points;

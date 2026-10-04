@@ -282,8 +282,7 @@ fn mpv_get_property_f64(pipe: &str, property: &str) -> Option<f64> {
     use std::fs::OpenOptions;
     use std::io::{BufRead, BufReader, Write};
     let mut file = OpenOptions::new().read(true).write(true).open(pipe).ok()?;
-    let msg =
-        serde_json::json!({ "command": ["get_property", property] }).to_string() + "\n";
+    let msg = serde_json::json!({ "command": ["get_property", property] }).to_string() + "\n";
     file.write_all(msg.as_bytes()).ok()?;
     let mut reader = BufReader::new(file);
     let mut line = String::new();

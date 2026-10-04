@@ -27,6 +27,8 @@ pub struct LaunchRequest {
     pub retry_streams: Option<u32>,
     pub retry_max: Option<u32>,
     pub player_no_close: Option<bool>,
+    /// Opt-in: raise mpv speed while the stream is behind live, then restore.
+    pub auto_catch_up: Option<bool>,
     /// Leave a right strip for Chatterino; Rust sets absolute mpv --geometry.
     pub reserve_chat: Option<bool>,
     /// When true, keep existing sessions until this one is ready, then stop them.
@@ -85,6 +87,10 @@ struct LiveSession {
     mpv_missing_since: Option<Instant>,
     /// Natural stream end: keep mpv alive until this Instant for the offline OSD.
     offline_until: Option<Instant>,
+    /// Opt-in live-drift catch-up for this session (mpv fast start only).
+    catch_up: bool,
+    /// Whether mpv is currently sped up for catch-up (avoids redundant IPC).
+    catch_up_active: bool,
 }
 
 /// Pre-launched mpv owned by a session (fast start): the window appears
@@ -183,6 +189,9 @@ fn close_fast_player(player: &mut Option<FastPlayer>, graceful: bool) {
     let Some(mut p) = player.take() else {
         return;
     };
+    // Remember the level the user left the player at so the next stream
+    // (switch, raid follow, or a later watch) reopens at their volume.
+    capture_player_volume(&p.pipe);
     if graceful {
         let _ = mpv_ipc_command(&p.pipe, &["quit"], Duration::from_millis(700));
         for _ in 0..10 {
@@ -264,6 +273,172 @@ fn mpv_ensure_audible(pipe: &str, volume: f64) {
         &["set_property", "aid", "auto"],
         Duration::from_millis(800),
     );
+}
+
+/// Read a numeric mpv property over IPC (e.g. volume, demuxer-cache-time).
+/// Returns None when the pipe is unavailable or mpv reports no number.
+#[cfg(windows)]
+fn mpv_get_property_f64(pipe: &str, property: &str) -> Option<f64> {
+    use std::fs::OpenOptions;
+    use std::io::{BufRead, BufReader, Write};
+    let mut file = OpenOptions::new().read(true).write(true).open(pipe).ok()?;
+    let msg = serde_json::json!({ "command": ["get_property", property] }).to_string() + "\n";
+    file.write_all(msg.as_bytes()).ok()?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    for _ in 0..20 {
+        line.clear();
+        if reader.read_line(&mut line).ok()? == 0 {
+            break;
+        }
+        let trimmed = line.trim();
+        if !trimmed.contains("\"error\"") {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+        if value.get("error").and_then(|e| e.as_str()) != Some("success") {
+            return None;
+        }
+        return value.get("data").and_then(|d| d.as_f64());
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn mpv_get_property_f64(_pipe: &str, _property: &str) -> Option<f64> {
+    None
+}
+
+/// Last mpv volume the user settled on, so switching streams (or following a
+/// raid) keeps their level instead of resetting to the configured default.
+/// Process-local: a fresh app start returns to the configured volume.
+static LAST_MPV_VOLUME: OnceLock<Mutex<Option<f64>>> = OnceLock::new();
+
+fn volume_is_usable(value: f64) -> bool {
+    value.is_finite() && value > 0.0
+}
+
+fn remembered_volume() -> Option<f64> {
+    LAST_MPV_VOLUME
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|slot| *slot)
+        .filter(|value| volume_is_usable(*value))
+}
+
+fn remember_volume(value: f64) {
+    if !volume_is_usable(value) {
+        return;
+    }
+    if let Ok(mut slot) = LAST_MPV_VOLUME.get_or_init(|| Mutex::new(None)).lock() {
+        *slot = Some(value);
+    }
+}
+
+/// Capture the volume of an owned player just before it closes.
+fn capture_player_volume(pipe: &str) {
+    if let Some(volume) = mpv_get_property_f64(pipe, "volume") {
+        remember_volume(volume);
+    }
+}
+
+/// Volume of a still-live owned player. A seamless switch launches the new
+/// player while the old one is still playing, so read it before it is closed.
+fn live_player_volume(state: &StreamingState) -> Option<f64> {
+    let pipe = {
+        let map = state.inner.lock().ok()?;
+        map.values()
+            .find_map(|session| session.player.as_ref().map(|player| player.pipe.clone()))
+    }?;
+    mpv_get_property_f64(&pipe, "volume")
+}
+
+/// New sessions start at the volume the user had on the stream they came from,
+/// falling back to the composed --volume= value (the opt-in volume boost).
+fn inherited_or_initial(inherited: Option<f64>, initial: f64) -> f64 {
+    inherited
+        .filter(|value| volume_is_usable(*value))
+        .unwrap_or(initial)
+}
+
+/// Playback speed mpv is raised to while auto catch-up drains a lag.
+const CATCH_UP_SPEED: f64 = 1.1;
+/// Buffered lead (seconds) above which playback counts as behind live.
+const CATCH_UP_ENTER_SECS: f64 = 6.0;
+/// Buffered lead (seconds) below which playback returns to normal speed.
+const CATCH_UP_EXIT_SECS: f64 = 2.0;
+
+/// Hysteresis so the speed does not flap around the enter threshold.
+fn catch_up_should_engage(active: bool, lead_secs: f64) -> bool {
+    if !lead_secs.is_finite() {
+        return false;
+    }
+    let threshold = if active {
+        CATCH_UP_EXIT_SECS
+    } else {
+        CATCH_UP_ENTER_SECS
+    };
+    lead_secs > threshold
+}
+
+/// Speed up owned players that have drifted behind live, and drop back to
+/// normal once the buffered lead drains. Opt-in per session.
+fn apply_catch_up(state: &StreamingState) {
+    let targets: Vec<(String, String, bool)> = {
+        let Ok(map) = state.inner.lock() else {
+            return;
+        };
+        map.iter()
+            .filter_map(|(id, session)| {
+                if !session.catch_up || !session.info.ready {
+                    return None;
+                }
+                let pipe = session.player.as_ref()?.pipe.clone();
+                Some((id.clone(), pipe, session.catch_up_active))
+            })
+            .collect()
+    };
+    for (id, pipe, active) in targets {
+        // Missing lead means "not applicable"; treat it as caught up.
+        let lead = mpv_cached_lead(&pipe).unwrap_or(0.0);
+        let next = catch_up_should_engage(active, lead);
+        if next == active {
+            continue;
+        }
+        let speed = if next { CATCH_UP_SPEED } else { 1.0 };
+        let applied = mpv_ipc_json(
+            &pipe,
+            vec![
+                serde_json::Value::String("set_property".into()),
+                serde_json::Value::String("speed".into()),
+                serde_json::Value::from(speed),
+            ],
+            Duration::from_millis(500),
+        )
+        .is_ok();
+        if applied {
+            if let Ok(mut map) = state.inner.lock() {
+                if let Some(session) = map.get_mut(&id) {
+                    session.catch_up_active = next;
+                }
+            }
+        }
+    }
+}
+
+/// Forward-buffered media (seconds) mpv has downloaded ahead of playback. A
+/// large lead means playback is behind the live edge. Tries the current mpv
+/// property name first, then the older alias, skipping "not applicable" (-1).
+fn mpv_cached_lead(pipe: &str) -> Option<f64> {
+    for property in ["demuxer-cache-duration", "demuxer-cache-time"] {
+        if let Some(value) = mpv_get_property_f64(pipe, property) {
+            if value >= 0.0 {
+                return Some(value);
+            }
+        }
+    }
+    None
 }
 
 const OFFLINE_GOODBYE_SECS: u64 = 5;

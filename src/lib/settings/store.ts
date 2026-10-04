@@ -74,6 +74,9 @@ export function migrateSettings(raw: unknown): AppSettings {
         ...base.player.mpv,
         ...input.player?.mpv,
         volumeBoost: normalizeMpvVolumeBoost(input.player?.mpv?.volumeBoost),
+        autoCatchUp: Boolean(
+          input.player?.mpv?.autoCatchUp ?? base.player.mpv.autoCatchUp,
+        ),
       },
     },
     chat: { ...base.chat, ...input.chat },

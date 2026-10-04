@@ -96,6 +96,7 @@
   "playerMpvMaximized": "Start maximized",
   "playerMpvLoopReload": "Enter reloads stream",
   "playerMpvCacheRewind": "Cache + rewind buffer",
+  "playerMpvAutoCatchUp": "Auto catch-up when behind live",
   "playerMpvVolumeBoost": "Volume boost",
   "playerMpvVolumeBoostHint": "Software gain above 100% for quiet streams. mpv applies it per stream and can clip loud audio.",
   "playerMpvVolumeBoostOff": "Off (100%)",

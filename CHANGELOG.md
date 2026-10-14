@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.14] — 2026-10-14
+
+### Fixed
+
+- Multistream dock dividers keep an 8 px hit target at rest so near-seam drags resize adjacent panes together instead of grabbing a single mpv window
+
 ## [0.5.13] — 2026-10-04
 
 ### Added

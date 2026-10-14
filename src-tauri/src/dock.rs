@@ -34,7 +34,9 @@ impl Rect {
     }
 }
 
-pub const DIVIDER_REST_THICK: i32 = 2;
+// Match the hover target up front so near-seam clicks cannot fall through to
+// mpv's own resize border.
+pub const DIVIDER_REST_THICK: i32 = 8;
 pub const DIVIDER_HOVER_THICK: i32 = 8;
 pub const MONITOR_SWITCH_WIDTH: i32 = 56;
 pub const MONITOR_SWITCH_HEIGHT: i32 = 28;
@@ -573,6 +575,144 @@ pub fn tile_rect(video: Rect, index: usize, layout: &str) -> Rect {
         x += cw;
     }
     video
+}
+
+fn grid_dims(layout: &str) -> (usize, usize) {
+    match layout {
+        "1" => (1, 1),
+        "2" => (2, 1),
+        "1x2" => (1, 2),
+        "1x3" => (1, 3),
+        "1x4" => (1, 4),
+        "2x2" => (2, 2),
+        "3x2" => (3, 2),
+        "4x2" => (4, 2),
+        "8x1" => (8, 1),
+        "3plus1" => (2, 3),
+        "2plus1" => (2, 2),
+        _ => (2, 2),
+    }
+}
+
+fn tile_grip_plan(video: Rect, cfg: &DockConfig, layout: &str) -> Vec<(isize, Rect)> {
+    const THICK: i32 = DIVIDER_REST_THICK;
+    let mut out = Vec::new();
+    if layout == "3plus1" || layout == "2plus1" {
+        let stack_n = if layout == "2plus1" { 2 } else { 3 };
+        let main_frac = cfg.main_frac.clamp(0.4, 0.85);
+        let side = cfg.main_side.as_str();
+        let stack = normalize_weights(&cfg.stack_weights[..stack_n], stack_n);
+        if side == "top" || side == "bottom" {
+            let main_h = ((video.height() as f64) * main_frac).round() as i32;
+            let seam_y = if side == "top" {
+                video.top + main_h
+            } else {
+                video.bottom - main_h
+            };
+            out.push((
+                2,
+                Rect {
+                    left: video.left,
+                    top: seam_y - THICK / 2,
+                    right: video.right,
+                    bottom: seam_y + THICK / 2,
+                },
+            ));
+            let stack_top = if side == "top" {
+                video.top + main_h
+            } else {
+                video.top
+            };
+            let stack_bottom = if side == "top" {
+                video.bottom
+            } else {
+                video.bottom - main_h
+            };
+            let mut x = video.left as f64;
+            for seam in 0..stack_n.saturating_sub(1) {
+                x += video.width() as f64 * stack[seam];
+                out.push((
+                    300 + seam as isize,
+                    Rect {
+                        left: x as i32 - THICK / 2,
+                        top: stack_top,
+                        right: x as i32 + THICK / 2,
+                        bottom: stack_bottom,
+                    },
+                ));
+            }
+        } else {
+            let main_w = ((video.width() as f64) * main_frac).round() as i32;
+            let seam_x = if side == "right" {
+                video.right - main_w
+            } else {
+                video.left + main_w
+            };
+            out.push((
+                2,
+                Rect {
+                    left: seam_x - THICK / 2,
+                    top: video.top,
+                    right: seam_x + THICK / 2,
+                    bottom: video.bottom,
+                },
+            ));
+            let stack_left = if side == "right" {
+                video.left
+            } else {
+                video.left + main_w
+            };
+            let stack_right = if side == "right" {
+                video.right - main_w
+            } else {
+                video.right
+            };
+            let mut y = video.top as f64;
+            for seam in 0..stack_n.saturating_sub(1) {
+                y += video.height() as f64 * stack[seam];
+                out.push((
+                    300 + seam as isize,
+                    Rect {
+                        left: stack_left,
+                        top: y as i32 - THICK / 2,
+                        right: stack_right,
+                        bottom: y as i32 + THICK / 2,
+                    },
+                ));
+            }
+        }
+        return out;
+    }
+    let (cols, rows) = grid_dims(layout);
+    let col_w = normalize_weights(&cfg.col_weights, cols);
+    let row_w = normalize_weights(&cfg.row_weights, rows);
+    let mut x = video.left as f64;
+    for seam in 0..cols.saturating_sub(1) {
+        x += video.width() as f64 * col_w[seam];
+        out.push((
+            100 + seam as isize,
+            Rect {
+                left: x as i32 - THICK / 2,
+                top: video.top,
+                right: x as i32 + THICK / 2,
+                bottom: video.bottom,
+            },
+        ));
+    }
+    let mut y = video.top as f64;
+    for seam in 0..rows.saturating_sub(1) {
+        y += video.height() as f64 * row_w[seam];
+        out.push((
+            200 + seam as isize,
+            Rect {
+                left: video.left,
+                top: y as i32 - THICK / 2,
+                right: video.right,
+                bottom: y as i32 + THICK / 2,
+            },
+        ));
+    }
+    out
 }
 
 fn ensure_grip_thread() {
@@ -1536,23 +1676,6 @@ fn grip_thread_main() {
         }
     }
 
-    fn grid_dims(layout: &str) -> (usize, usize) {
-        match layout {
-            "1" => (1, 1),
-            "2" => (2, 1),
-            "1x2" => (1, 2),
-            "1x3" => (1, 3),
-            "1x4" => (1, 4),
-            "2x2" => (2, 2),
-            "3x2" => (3, 2),
-            "4x2" => (4, 2),
-            "8x1" => (8, 1),
-            "3plus1" => (2, 3),
-            "2plus1" => (2, 2),
-            _ => (2, 2),
-        }
-    }
-
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
@@ -1770,127 +1893,6 @@ fn grip_thread_main() {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
         }
-    }
-
-    fn tile_grip_plan(video: Rect, cfg: &DockConfig, layout: &str) -> Vec<(isize, Rect)> {
-        const THICK: i32 = DIVIDER_REST_THICK;
-        let mut out = Vec::new();
-        if layout == "3plus1" || layout == "2plus1" {
-            let stack_n = if layout == "2plus1" { 2 } else { 3 };
-            let main_frac = cfg.main_frac.clamp(0.4, 0.85);
-            let side = cfg.main_side.as_str();
-            let stack = normalize_weights(&cfg.stack_weights[..stack_n], stack_n);
-            if side == "top" || side == "bottom" {
-                let main_h = ((video.height() as f64) * main_frac).round() as i32;
-                let seam_y = if side == "top" {
-                    video.top + main_h
-                } else {
-                    video.bottom - main_h
-                };
-                out.push((
-                    2,
-                    Rect {
-                        left: video.left,
-                        top: seam_y - THICK / 2,
-                        right: video.right,
-                        bottom: seam_y + THICK / 2,
-                    },
-                ));
-                let stack_top = if side == "top" {
-                    video.top + main_h
-                } else {
-                    video.top
-                };
-                let stack_bottom = if side == "top" {
-                    video.bottom
-                } else {
-                    video.bottom - main_h
-                };
-                let mut x = video.left as f64;
-                for seam in 0..stack_n.saturating_sub(1) {
-                    x += video.width() as f64 * stack[seam];
-                    out.push((
-                        300 + seam as isize,
-                        Rect {
-                            left: x as i32 - THICK / 2,
-                            top: stack_top,
-                            right: x as i32 + THICK / 2,
-                            bottom: stack_bottom,
-                        },
-                    ));
-                }
-            } else {
-                let main_w = ((video.width() as f64) * main_frac).round() as i32;
-                let seam_x = if side == "right" {
-                    video.right - main_w
-                } else {
-                    video.left + main_w
-                };
-                out.push((
-                    2,
-                    Rect {
-                        left: seam_x - THICK / 2,
-                        top: video.top,
-                        right: seam_x + THICK / 2,
-                        bottom: video.bottom,
-                    },
-                ));
-                let stack_left = if side == "right" {
-                    video.left
-                } else {
-                    video.left + main_w
-                };
-                let stack_right = if side == "right" {
-                    video.right - main_w
-                } else {
-                    video.right
-                };
-                let mut y = video.top as f64;
-                for seam in 0..stack_n.saturating_sub(1) {
-                    y += video.height() as f64 * stack[seam];
-                    out.push((
-                        300 + seam as isize,
-                        Rect {
-                            left: stack_left,
-                            top: y as i32 - THICK / 2,
-                            right: stack_right,
-                            bottom: y as i32 + THICK / 2,
-                        },
-                    ));
-                }
-            }
-            return out;
-        }
-        let (cols, rows) = grid_dims(layout);
-        let col_w = normalize_weights(&cfg.col_weights, cols);
-        let row_w = normalize_weights(&cfg.row_weights, rows);
-        let mut x = video.left as f64;
-        for seam in 0..cols.saturating_sub(1) {
-            x += video.width() as f64 * col_w[seam];
-            out.push((
-                100 + seam as isize,
-                Rect {
-                    left: x as i32 - THICK / 2,
-                    top: video.top,
-                    right: x as i32 + THICK / 2,
-                    bottom: video.bottom,
-                },
-            ));
-        }
-        let mut y = video.top as f64;
-        for seam in 0..rows.saturating_sub(1) {
-            y += video.height() as f64 * row_w[seam];
-            out.push((
-                200 + seam as isize,
-                Rect {
-                    left: video.left,
-                    top: y as i32 - THICK / 2,
-                    right: video.right,
-                    bottom: y as i32 + THICK / 2,
-                },
-            ));
-        }
-        out
     }
 
     fn place_existing_tiles(g: &GripWindows, video: Rect, cfg: &DockConfig) {
@@ -2285,14 +2287,28 @@ mod leftover_grip_tests {
     }
 
     #[test]
-    fn divider_is_hairline_until_hover() {
-        assert_eq!(divider_thickness(false), 2);
-        assert_eq!(divider_thickness(true), 8);
-        let rest = vertical_divider_rect(100, 0, 800, divider_thickness(false));
-        assert_eq!(rest.width(), 2);
-        let hover = vertical_divider_rect(100, 0, 800, divider_thickness(true));
-        assert_eq!(hover.width(), 8);
-        assert_eq!(rest.left + rest.width() / 2, hover.left + hover.width() / 2);
+    fn one_by_two_stack_has_easy_horizontal_divider_hit_target() {
+        let video = Rect {
+            left: 0,
+            top: 0,
+            right: 1000,
+            bottom: 800,
+        };
+        let cfg = DockConfig {
+            layout: "1x2".into(),
+            ..DockConfig::default()
+        };
+
+        let plan = tile_grip_plan(video, &cfg, "1x2");
+        let (_, divider) = plan
+            .iter()
+            .find(|(code, _)| *code == 200)
+            .expect("1x2 must have a row divider");
+
+        assert_eq!(divider.left, 0);
+        assert_eq!(divider.top, 396);
+        assert_eq!(divider.right, 1000);
+        assert_eq!(divider.bottom, 404);
     }
 
     #[test]

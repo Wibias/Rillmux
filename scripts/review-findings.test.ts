@@ -78,9 +78,9 @@ describe("full-review regression gates", () => {
     );
   });
 
-  test("dock divider is a hairline at rest and thickens only while hovered", () => {
+  test("dock divider keeps an easy hit target at rest and while hovered", () => {
     const source = read("src-tauri/src/dock.rs");
-    expect(source).toContain("pub const DIVIDER_REST_THICK: i32 = 2;");
+    expect(source).toContain("pub const DIVIDER_REST_THICK: i32 = 8;");
     expect(source).toContain("pub const DIVIDER_HOVER_THICK: i32 = 8;");
     expect(source).toContain("fn divider_thickness(hover: bool)");
     expect(source).toContain("resize_divider_hwnd");

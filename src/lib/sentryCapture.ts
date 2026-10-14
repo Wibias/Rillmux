@@ -77,7 +77,6 @@ export async function ensureInit(): Promise<SentrySdk | null> {
   Sentry.init({
     dsn,
     enabled: true,
-    sendDefaultPii: false,
     tracesSampleRate: 0,
     beforeSend(event) {
       // Strip auth-ish leftovers from request, messages and breadcrumbs.

@@ -125,7 +125,11 @@ pub fn open_independent_chatterino(channel: &str) -> Result<(), StreamError> {
     if key.is_empty() {
         return Err(StreamError::Message("channel is empty".into()));
     }
-    if let Some(pid) = independent_chatterino_pids().lock().ok().and_then(|p| p.get(&key).copied()) {
+    if let Some(pid) = independent_chatterino_pids()
+        .lock()
+        .ok()
+        .and_then(|p| p.get(&key).copied())
+    {
         if pid_is_alive(pid) {
             return Ok(());
         }

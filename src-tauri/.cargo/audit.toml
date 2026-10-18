@@ -1,0 +1,10 @@
+# zip 4.6.1 is required by tauri-plugin-updater 2.13.1, the latest stable
+# release. The patched line is zip >= 9, which that plugin cannot use.
+# Windows update packages are minisign-verified before ZipArchive::extract.
+# Drop these ignores when tauri-plugin-updater depends on zip >= 9.
+[advisories]
+ignore = [
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
+]

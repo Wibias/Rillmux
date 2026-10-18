@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.15] — 2026-10-18
+
+### Fixed
+
+- Independent stream windows no longer merge into a shared Chatterino chat; each stream now opens its own chat window docked to that mpv window, and closing one stream removes only its chat without touching other sessions
+
 ## [0.5.14] — 2026-10-14
 
 ### Fixed

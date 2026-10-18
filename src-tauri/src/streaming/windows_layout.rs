@@ -105,6 +105,105 @@ fn launch_chatterino_with_path(
     Ok(())
 }
 
+fn independent_chatterino_appdata(channel: &str) -> PathBuf {
+    let safe = channel
+        .trim()
+        .trim_start_matches("t:")
+        .trim_start_matches('#')
+        .to_ascii_lowercase();
+    chatterino_dock_appdata().join("independent").join(safe)
+}
+
+/// Independent streams own one Chatterino profile and process per channel.
+/// The shared dock profile stays reserved for the coordinated Multistream split.
+pub fn open_independent_chatterino(channel: &str) -> Result<(), StreamError> {
+    let key = channel
+        .trim()
+        .trim_start_matches("t:")
+        .trim_start_matches('#')
+        .to_ascii_lowercase();
+    if key.is_empty() {
+        return Err(StreamError::Message("channel is empty".into()));
+    }
+    if let Some(pid) = independent_chatterino_pids().lock().ok().and_then(|p| p.get(&key).copied()) {
+        if pid_is_alive(pid) {
+            return Ok(());
+        }
+    }
+    let path = cached_chatterino_path()
+        .ok_or_else(|| StreamError::Message("Chatterino executable was not found".into()))?;
+    let appdata = independent_chatterino_appdata(&key);
+    let _ = fs::create_dir_all(&appdata);
+    seed_chatterino_dock_home(&appdata);
+    strip_dock_chatterino_window_layout(&appdata);
+    #[cfg(windows)]
+    suppress_chatterino_changelog_prompt(&path, &appdata);
+    let channels_arg = format!("t:{key}");
+    let spawned = spawn_dock_chatterino_process(&path, &channels_arg, &appdata)?;
+    let pid = match &spawned {
+        DockChatterinoSpawn::Child(child) => child.id(),
+        DockChatterinoSpawn::Adopted(pid) => *pid,
+    };
+    if let Ok(mut pids) = independent_chatterino_pids().lock() {
+        pids.insert(key.clone(), pid);
+    }
+    if let DockChatterinoSpawn::Child(mut child) = spawned {
+        thread::spawn(move || {
+            let _ = child.wait();
+            if let Ok(mut pids) = independent_chatterino_pids().lock() {
+                if pids.get(&key).copied() == Some(pid) {
+                    pids.remove(&key);
+                }
+            }
+        });
+    }
+    thread::spawn(move || {
+        for _ in 0..40 {
+            place_chatterino_window_right(pid);
+            if find_main_window_for_pid(pid).is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+    Ok(())
+}
+
+pub fn close_independent_chatterino(channel: &str) {
+    let key = channel
+        .trim()
+        .trim_start_matches("t:")
+        .trim_start_matches('#')
+        .to_ascii_lowercase();
+    let pid = independent_chatterino_pids()
+        .lock()
+        .ok()
+        .and_then(|mut pids| pids.remove(&key));
+    if let Some(pid) = pid {
+        #[cfg(windows)]
+        {
+            for hwnd in top_level_windows_for_pid(pid) {
+                post_close_hwnd(hwnd);
+            }
+            wait_pid_exit(pid, Duration::from_millis(600));
+            if pid_is_alive(pid) {
+                terminate_pid(pid);
+            }
+        }
+    }
+}
+
+pub fn close_all_independent_chatterino() {
+    let channels: Vec<String> = independent_chatterino_pids()
+        .lock()
+        .ok()
+        .map(|pids| pids.keys().cloned().collect())
+        .unwrap_or_default();
+    for channel in channels {
+        close_independent_chatterino(&channel);
+    }
+}
+
 fn spawnable_exe_path(path: &Path) -> PathBuf {
     #[cfg(windows)]
     {

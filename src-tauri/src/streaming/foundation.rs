@@ -81,6 +81,12 @@ fn owned_chatterino_pid() -> &'static Mutex<Option<u32>> {
     PID.get_or_init(|| Mutex::new(None))
 }
 
+fn independent_chatterino_pids(
+) -> &'static Mutex<std::collections::HashMap<String, u32>> {
+    static PIDS: OnceLock<Mutex<std::collections::HashMap<String, u32>>> = OnceLock::new();
+    PIDS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
 fn last_chatterino_channels() -> &'static Mutex<String> {
     static LAST: OnceLock<Mutex<String>> = OnceLock::new();
     LAST.get_or_init(|| Mutex::new(String::new()))

@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Independent stream windows no longer merge into a shared Chatterino chat; each stream now opens its own chat window docked to that mpv window, and closing one stream removes only its chat without touching other sessions
 
+### Security
+
+- Updated rustls to 0.23.46 so the in-app updater and Twitch clients pick up the patched TLS session handling
+
 ## [0.5.14] — 2026-10-14
 
 ### Fixed

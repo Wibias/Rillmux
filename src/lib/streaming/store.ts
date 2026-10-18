@@ -75,6 +75,7 @@ interface WatchingState {
 let lastChatSyncKey = "";
 let chatSyncInflight = "";
 let chatSyncGeneration = 0;
+const independentChatChannels = new Set<string>();
 let layoutTimer: ReturnType<typeof setTimeout> | null = null;
 let presenceMetadata: PresenceMetadata = {};
 let lastPresenceSyncKey = "";
@@ -212,6 +213,45 @@ function layoutChannels(): string[] {
 function chatterinoChannels(): string[] {
   const mode = useSettingsStore.getState().settings.streaming.streamOpenMode;
   return mode === "multistream" ? layoutChannels() : runningChannels();
+}
+
+async function syncIndependentChatterino(channels: string[]) {
+  if (!isTauri()) return;
+  const settings = useSettingsStore.getState().settings;
+  if (settings.chat.provider !== "chatterino") return;
+  const desired = new Set(
+    channels.flatMap((channel) => {
+      const key = channel.trim().toLowerCase();
+      return key ? [key] : [];
+    }),
+  );
+  const opens: Promise<unknown>[] = [];
+  for (const channel of desired) {
+    if (independentChatChannels.has(channel)) continue;
+    opens.push(
+      invoke("open_independent_chatterino_chat", { channel })
+        .then(() => independentChatChannels.add(channel))
+        .catch((reason) => {
+          useWatchingStore.setState({
+            error:
+              reason instanceof Error
+                ? reason.message
+                : `Chatterino7 failed to open: ${String(reason)}`,
+          });
+        }),
+    );
+  }
+  const closes: Promise<unknown>[] = [];
+  for (const channel of [...independentChatChannels]) {
+    if (desired.has(channel)) continue;
+    independentChatChannels.delete(channel);
+    closes.push(
+      invoke("close_independent_chatterino_chat", { channel }).catch(
+        () => undefined,
+      ),
+    );
+  }
+  await Promise.allSettled([...opens, ...closes]);
 }
 
 function syncSlotsFromSessions(sessions: StreamSession[]) {
@@ -392,7 +432,11 @@ function afterSessionsChanged() {
     count: channels.length,
     layoutChannels: layoutChannels().join(","),
   });
-  void syncChatterino(chatterinoChannels());
+  if (useSettingsStore.getState().settings.streaming.streamOpenMode === "independent") {
+    void syncIndependentChatterino(chatterinoChannels());
+  } else {
+    void syncChatterino(chatterinoChannels());
+  }
   syncEventSub();
   syncViewerPresence();
   scheduleLayoutAfterReady();
@@ -615,7 +659,12 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
         set({ slotChannels: [] });
       }
 
-      if (hasChatterino) {
+      if (hasChatterino && mode === "independent") {
+        void syncIndependentChatterino([
+          ...running.map((session) => session.channel.toLowerCase()),
+          channel,
+        ]);
+      } else if (hasChatterino) {
         const existingChannels = running.map((session) =>
           session.channel.toLowerCase(),
         );
@@ -789,7 +838,9 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
       ? [...new Set([...get().slotChannels, toLogin])]
       : [toLogin];
 
-    if (hasChatterino) {
+    if (hasChatterino && mode === "independent") {
+      void syncIndependentChatterino([...runningChannels(), toLogin]);
+    } else if (hasChatterino) {
       void syncChatterino([...new Set([...runningChannels(), toLogin])]);
     }
 

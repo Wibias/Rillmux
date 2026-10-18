@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.16] — 2026-10-19
+
+### Fixed
+
+- Independent streams can open their own Chatterino window again. The new chat commands were registered but not allowed on the main window, so starting a stream failed with an ACL error.
+
 ## [0.5.15] — 2026-10-18
 
 ### Fixed

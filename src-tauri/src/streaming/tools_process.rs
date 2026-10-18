@@ -223,6 +223,7 @@ fn normalize_layout(layout: Option<&str>) -> String {
 /// Kill the Chatterino process we spawned (never unrelated user windows).
 pub fn close_owned_chatterino() {
     bump_chatterino_close_epoch();
+    close_all_independent_chatterino();
     close_owned_chatterino_wait(Duration::from_millis(1500));
 }
 

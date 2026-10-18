@@ -539,6 +539,22 @@ async fn open_chatterino_chat(channels: Vec<String>) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn open_independent_chatterino_chat(channel: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        streaming::open_independent_chatterino(&channel).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn close_independent_chatterino_chat(channel: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || streaming::close_independent_chatterino(&channel))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn close_owned_chatterino() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
         streaming::debug_chatterino_windows("close.before");
@@ -1026,6 +1042,8 @@ pub fn run() {
             stream_stop_all,
             stream_toggle_mute,
             open_chatterino_chat,
+            open_independent_chatterino_chat,
+            close_independent_chatterino_chat,
             close_owned_chatterino,
             layout_watching,
             dock_set_linked,

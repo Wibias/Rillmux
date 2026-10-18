@@ -225,9 +225,10 @@ async function syncIndependentChatterino(channels: string[]) {
       return key ? [key] : [];
     }),
   );
-  const opens = [...desired]
-    .filter((channel) => !independentChatChannels.has(channel))
-    .map((channel) =>
+  const opens: Promise<unknown>[] = [];
+  for (const channel of desired) {
+    if (independentChatChannels.has(channel)) continue;
+    opens.push(
       invoke("open_independent_chatterino_chat", { channel })
         .then(() => independentChatChannels.add(channel))
         .catch((reason) => {
@@ -239,14 +240,17 @@ async function syncIndependentChatterino(channels: string[]) {
           });
         }),
     );
-  const closes = [...independentChatChannels]
-    .filter((channel) => !desired.has(channel))
-    .map((channel) => {
-      independentChatChannels.delete(channel);
-      return invoke("close_independent_chatterino_chat", { channel }).catch(
+  }
+  const closes: Promise<unknown>[] = [];
+  for (const channel of [...independentChatChannels]) {
+    if (desired.has(channel)) continue;
+    independentChatChannels.delete(channel);
+    closes.push(
+      invoke("close_independent_chatterino_chat", { channel }).catch(
         () => undefined,
-      );
-    });
+      ),
+    );
+  }
   await Promise.allSettled([...opens, ...closes]);
 }
 

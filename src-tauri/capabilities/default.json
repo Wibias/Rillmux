@@ -63,6 +63,8 @@
     "allow-stream-stop-all",
     "allow-stream-toggle-mute",
     "allow-open-chatterino-chat",
+    "allow-open-independent-chatterino-chat",
+    "allow-close-independent-chatterino-chat",
     "allow-close-owned-chatterino",
     "allow-layout-watching",
     "allow-dock-set-linked",

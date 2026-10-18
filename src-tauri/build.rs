@@ -26,6 +26,8 @@ const COMMANDS: &[&str] = &[
     "stream_stop_all",
     "stream_toggle_mute",
     "open_chatterino_chat",
+    "open_independent_chatterino_chat",
+    "close_independent_chatterino_chat",
     "close_owned_chatterino",
     "layout_watching",
     "dock_set_linked",

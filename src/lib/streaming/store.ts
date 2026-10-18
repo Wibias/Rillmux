@@ -219,27 +219,35 @@ async function syncIndependentChatterino(channels: string[]) {
   if (!isTauri()) return;
   const settings = useSettingsStore.getState().settings;
   if (settings.chat.provider !== "chatterino") return;
-  const desired = new Set(channels.map((channel) => channel.toLowerCase()).filter(Boolean));
-  for (const channel of desired) {
-    if (independentChatChannels.has(channel)) continue;
-    independentChatChannels.add(channel);
-    try {
-      await invoke("open_independent_chatterino_chat", { channel });
-    } catch (reason) {
+  const desired = new Set(
+    channels.flatMap((channel) => {
+      const key = channel.trim().toLowerCase();
+      return key ? [key] : [];
+    }),
+  );
+  const opens = [...desired]
+    .filter((channel) => !independentChatChannels.has(channel))
+    .map((channel) =>
+      invoke("open_independent_chatterino_chat", { channel })
+        .then(() => independentChatChannels.add(channel))
+        .catch((reason) => {
+          useWatchingStore.setState({
+            error:
+              reason instanceof Error
+                ? reason.message
+                : `Chatterino7 failed to open: ${String(reason)}`,
+          });
+        }),
+    );
+  const closes = [...independentChatChannels]
+    .filter((channel) => !desired.has(channel))
+    .map((channel) => {
       independentChatChannels.delete(channel);
-      useWatchingStore.setState({
-        error:
-          reason instanceof Error
-            ? reason.message
-            : `Chatterino7 failed to open: ${String(reason)}`,
-      });
-    }
-  }
-  for (const channel of [...independentChatChannels]) {
-    if (desired.has(channel)) continue;
-    independentChatChannels.delete(channel);
-    void invoke("close_independent_chatterino_chat", { channel }).catch(() => undefined);
-  }
+      return invoke("close_independent_chatterino_chat", { channel }).catch(
+        () => undefined,
+      );
+    });
+  await Promise.allSettled([...opens, ...closes]);
 }
 
 function syncSlotsFromSessions(sessions: StreamSession[]) {

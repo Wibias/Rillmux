@@ -247,13 +247,11 @@ pub fn chat_fraction() -> f64 {
         .unwrap_or(DEFAULT_CHAT_FRACTION)
 }
 
-/// One independent stream owns its own video|chat pair. Cascade offsets a
-/// later pair that shares a monitor so both seams stay visible.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndependentPlacement {
     pub channel: String,
     pub monitor: usize,
-    pub cascade: usize,
+    pub same_monitor_offset: usize,
 }
 
 fn independent_placements() -> &'static Mutex<Vec<IndependentPlacement>> {
@@ -346,7 +344,7 @@ pub fn next_independent_placements(
             next.push(IndependentPlacement {
                 channel: key,
                 monitor: existing.monitor % monitors,
-                cascade: existing.cascade,
+                same_monitor_offset: existing.same_monitor_offset,
             });
             continue;
         }
@@ -364,7 +362,7 @@ pub fn next_independent_placements(
         next.push(IndependentPlacement {
             channel: key,
             monitor,
-            cascade,
+            same_monitor_offset: cascade,
         });
     }
     next
@@ -412,9 +410,8 @@ pub fn move_independent_seam_to_monitor(index: usize, monitor: usize) {
         .filter(|(other, placement)| *other != index && placement.monitor == monitor)
         .count();
     placements[index].monitor = monitor;
-    placements[index].cascade = cascade;
+    placements[index].same_monitor_offset = cascade;
     let next = placements.clone();
-    drop(placements);
     write_independent_dock(&next);
 }
 
@@ -440,7 +437,10 @@ pub fn independent_seam_work(index: usize) -> Option<Rect> {
     let placements = independent_placements().lock().ok()?;
     let placement = placements.get(index)?;
     let monitor = monitors.get(placement.monitor % monitors.len()).copied()?;
-    Some(independent_work_rect(monitor, placement.cascade))
+    Some(independent_work_rect(
+        monitor,
+        placement.same_monitor_offset,
+    ))
 }
 
 pub fn independent_window_splits() -> Vec<(String, Rect, Rect)> {
@@ -456,7 +456,7 @@ pub fn independent_window_splits() -> Vec<(String, Rect, Rect)> {
         .iter()
         .filter_map(|placement| {
             let monitor = monitors.get(placement.monitor % monitors.len()).copied()?;
-            let work = independent_work_rect(monitor, placement.cascade);
+            let work = independent_work_rect(monitor, placement.same_monitor_offset);
             let (video, chat) = split_work_for_chat(work, fraction);
             Some((placement.channel.clone(), video, chat))
         })
@@ -2690,10 +2690,10 @@ mod leftover_grip_tests {
         let next = next_independent_placements(&[], &["alpha".into(), "beta".into()], 2);
         assert_eq!(next[0].channel, "alpha");
         assert_eq!(next[0].monitor, 0);
-        assert_eq!(next[0].cascade, 0);
+        assert_eq!(next[0].same_monitor_offset, 0);
         assert_eq!(next[1].channel, "beta");
         assert_eq!(next[1].monitor, 1);
-        assert_eq!(next[1].cascade, 0);
+        assert_eq!(next[1].same_monitor_offset, 0);
     }
 
     #[test]
@@ -2701,16 +2701,16 @@ mod leftover_grip_tests {
         let next = next_independent_placements(&[], &["alpha".into(), "beta".into()], 1);
         assert_eq!(next[0].monitor, 0);
         assert_eq!(next[1].monitor, 0);
-        assert_eq!(next[0].cascade, 0);
-        assert_eq!(next[1].cascade, 1);
+        assert_eq!(next[0].same_monitor_offset, 0);
+        assert_eq!(next[1].same_monitor_offset, 1);
         let monitor = Rect {
             left: 0,
             top: 0,
             right: 1920,
             bottom: 1080,
         };
-        let first = independent_work_rect(monitor, next[0].cascade);
-        let second = independent_work_rect(monitor, next[1].cascade);
+        let first = independent_work_rect(monitor, next[0].same_monitor_offset);
+        let second = independent_work_rect(monitor, next[1].same_monitor_offset);
         assert_eq!(first, monitor);
         assert!(second.left > first.left);
         assert!(second.top > first.top);
@@ -2723,7 +2723,7 @@ mod leftover_grip_tests {
         let previous = vec![IndependentPlacement {
             channel: "beta".into(),
             monitor: 1,
-            cascade: 0,
+            same_monitor_offset: 0,
         }];
         let next = next_independent_placements(&previous, &["beta".into(), "alpha".into()], 2);
         assert_eq!(next[0].channel, "beta");

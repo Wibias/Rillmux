@@ -1862,8 +1862,6 @@ fn independent_chat_hwnd(channel: &str) -> Option<*mut core::ffi::c_void> {
     find_main_window_for_pid(pid)
 }
 
-/// Place each independent player and its own Chatterino as a video|chat pair.
-/// Returns how many pairs have both windows.
 #[cfg(windows)]
 fn place_independent_pairs() -> usize {
     let mut ready = 0usize;

@@ -377,8 +377,6 @@ fn write_independent_dock(placements: &[IndependentPlacement]) {
             .map(|placement| placement.channel.clone())
             .collect();
         g.layout = "independent".into();
-        // Shared-dock chat relaunch keys off this flag. Independent chats are
-        // separate processes and must not be merged back into one.
         g.reserve_chat = false;
         g.linked = !placements.is_empty();
     }
@@ -1213,7 +1211,6 @@ struct GripWindows {
     chat: *mut core::ffi::c_void,
     /// Center ◀ ▶ handle — click to pick a monitor (identify overlays).
     mover: *mut core::ffi::c_void,
-    /// Extra video|chat seams for independent streams after the first.
     extra: Vec<(*mut core::ffi::c_void, *mut core::ffi::c_void)>,
     tiles: Vec<*mut core::ffi::c_void>,
     /// Temporary Windows-style monitor number overlays.

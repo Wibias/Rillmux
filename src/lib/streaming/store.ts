@@ -407,8 +407,7 @@ function scheduleLayoutAfterReady() {
       return;
     }
     const mode = settings.streaming.streamOpenMode;
-    const reserveChat =
-      settings.chat.provider === "chatterino" && mode !== "independent";
+    const reserveChat = settings.chat.provider === "chatterino";
     const linkedDock =
       mode === "multistream" && settings.streaming.linkedDock;
     const layout = currentLayout();

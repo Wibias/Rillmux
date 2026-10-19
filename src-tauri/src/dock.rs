@@ -1557,22 +1557,7 @@ fn grip_thread_main() {
                 let hdc = BeginPaint(hwnd, &mut ps);
                 let mut rc = Rect::default();
                 GetClientRect(hwnd, &mut rc);
-                if matches!(kind, GripKind::Move) {
-                    let hover = MOVER_HOVER.load(Ordering::Relaxed);
-                    let brush = CreateSolidBrush(if hover { 0x00_60_60_70 } else { 0x00_40_40_48 });
-                    FillRect(hdc, &rc, brush);
-                    DeleteObject(brush);
-                    SetBkMode(hdc, TRANSPARENT);
-                    SetTextColor(hdc, if hover { 0x00_FF_FF_FF } else { 0x00_DD_DD_DD });
-                    let label = wide("◀  ▶");
-                    DrawTextW(
-                        hdc,
-                        label.as_ptr(),
-                        -1,
-                        &mut rc,
-                        DT_CENTER | DT_VCENTER | DT_SINGLELINE,
-                    );
-                } else if matches!(kind, GripKind::IndependentMove(_)) {
+                if matches!(kind, GripKind::Move | GripKind::IndependentMove(_)) {
                     let hover = MOVER_HOVER.load(Ordering::Relaxed);
                     let brush = CreateSolidBrush(if hover { 0x00_60_60_70 } else { 0x00_40_40_48 });
                     FillRect(hdc, &rc, brush);

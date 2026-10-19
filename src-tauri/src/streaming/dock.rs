@@ -22,6 +22,10 @@ pub fn layout_watching(
     chat_fraction: Option<f64>,
     main_side: Option<&str>,
 ) -> Result<(), StreamError> {
+    if layout == Some("independent") {
+        return layout_independent_streams(channels, chat_fraction);
+    }
+    crate::dock::clear_independent_placements();
     let cleaned: Vec<String> = channels
         .iter()
         .map(|c| c.trim().trim_start_matches('#').to_lowercase())
@@ -91,9 +95,61 @@ pub fn layout_watching(
 /// When true, skip retile/place so we don't un-minimize the dock group.
 static DOCK_GROUP_MINIMIZED: AtomicBool = AtomicBool::new(false);
 
+fn layout_independent_streams(
+    channels: &[String],
+    chat_fraction: Option<f64>,
+) -> Result<(), StreamError> {
+    let cleaned: Vec<String> = channels
+        .iter()
+        .map(|c| c.trim().trim_start_matches('#').to_lowercase())
+        .filter(|c| !c.is_empty())
+        .collect();
+    sync_layout_chat_fraction(chat_fraction);
+    if cleaned.is_empty() {
+        crate::dock::clear_session();
+        return Ok(());
+    }
+    crate::dock::sync_independent_session(&cleaned);
+    #[cfg(windows)]
+    {
+        let cleaned = cleaned.clone();
+        let generation = LAYOUT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        let expected = cleaned.len().clamp(1, 8);
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(400));
+            let mut streak = 0;
+            for _ in 0..28 {
+                if LAYOUT_GENERATION.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                let found = place_independent_pairs();
+                if found >= expected {
+                    streak += 1;
+                    if streak >= 2 {
+                        restack_dock_windows(&cleaned, false);
+                        return;
+                    }
+                } else {
+                    streak = 0;
+                }
+                thread::sleep(Duration::from_millis(250));
+            }
+            restack_dock_windows(&cleaned, false);
+        });
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 fn apply_dock_layout_inner(raise_after_apply: bool) {
     if DOCK_GROUP_MINIMIZED.load(Ordering::SeqCst) {
+        return;
+    }
+    if crate::dock::has_independent_placements() {
+        let _ = place_independent_pairs();
+        if raise_after_apply {
+            raise_dock_windows(&crate::dock::independent_channels(), false);
+        }
         return;
     }
     let cfg = crate::dock::snapshot();
@@ -193,6 +249,7 @@ fn start_dock_visibility_watchdog() {
             let cfg = crate::dock::snapshot();
             // Sync whenever the dock is active (linked grips and/or reserved chat).
             let dock_active = !cfg.channels.is_empty() && (cfg.linked || cfg.reserve_chat);
+            let dock_active = dock_active || crate::dock::has_independent_placements();
             if !dock_active {
                 if group_minimized {
                     group_minimized = false;
@@ -575,7 +632,13 @@ fn dock_member_hwnds(channels: &[String], reserve_chat: bool) -> Vec<*mut core::
             out.push(hwnd);
         }
     }
-    if reserve_chat {
+    if crate::dock::has_independent_placements() {
+        for channel in channels.iter().take(8) {
+            if let Some(hwnd) = independent_chat_hwnd(channel) {
+                out.push(hwnd);
+            }
+        }
+    } else if reserve_chat {
         let pid = owned_chatterino_pid()
             .lock()
             .ok()
@@ -675,6 +738,25 @@ fn minimize_dock_group(hwnds: &[*mut core::ffi::c_void]) {
 
 #[cfg(windows)]
 fn restore_dock_group(channels: &[String], reserve_chat: bool, layout: &str) {
+    if layout == "independent" || crate::dock::has_independent_placements() {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn ShowWindow(hwnd: *mut core::ffi::c_void, cmd: i32) -> i32;
+        }
+        const SW_RESTORE: i32 = 9;
+        let hwnds = dock_member_hwnds(channels, true);
+        for &hwnd in &hwnds {
+            if is_hwnd_alive(hwnd) {
+                unsafe {
+                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(50));
+        let _ = place_independent_pairs();
+        raise_dock_windows(channels, false);
+        return;
+    }
     #[link(name = "user32")]
     unsafe extern "system" {
         fn ShowWindow(hwnd: *mut core::ffi::c_void, cmd: i32) -> i32;

@@ -1005,7 +1005,12 @@ pub fn stop_stream(state: &StreamingState, id: &str) -> Result<(), StreamError> 
 /// retiles mpv; leftover tabs stay until this relaunch. Off the caller thread
 /// because RestartOwned waits for the previous Qt process to exit.
 fn relaunch_dock_chatterino(remaining: &[String]) {
-    if remaining.is_empty() || !crate::dock::snapshot().reserve_chat {
+    let cfg = crate::dock::snapshot();
+    if remaining.is_empty()
+        || !cfg.reserve_chat
+        || cfg.layout == "independent"
+        || crate::dock::has_independent_placements()
+    {
         return;
     }
     let channels = remaining.to_vec();

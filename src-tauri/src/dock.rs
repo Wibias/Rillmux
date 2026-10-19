@@ -7,7 +7,7 @@
     clippy::needless_range_loop
 )]
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -16,7 +16,7 @@ pub const DEFAULT_CHAT_FRACTION: f64 = 0.18;
 pub const MIN_CHAT_FRACTION: f64 = 0.12;
 pub const MAX_CHAT_FRACTION: f64 = 0.45;
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 pub struct Rect {
     pub left: i32,
@@ -247,6 +247,232 @@ pub fn chat_fraction() -> f64 {
         .unwrap_or(DEFAULT_CHAT_FRACTION)
 }
 
+/// One independent stream owns its own video|chat pair. Cascade offsets a
+/// later pair that shares a monitor so both seams stay visible.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndependentPlacement {
+    pub channel: String,
+    pub monitor: usize,
+    pub cascade: usize,
+}
+
+fn independent_placements() -> &'static Mutex<Vec<IndependentPlacement>> {
+    static P: OnceLock<Mutex<Vec<IndependentPlacement>>> = OnceLock::new();
+    P.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+static ARMED_INDEPENDENT_SEAM: AtomicIsize = AtomicIsize::new(-1);
+
+pub fn has_independent_placements() -> bool {
+    independent_placements()
+        .lock()
+        .map(|g| !g.is_empty())
+        .unwrap_or(false)
+}
+
+pub fn independent_channels() -> Vec<String> {
+    independent_placements()
+        .lock()
+        .map(|g| g.iter().map(|p| p.channel.clone()).collect())
+        .unwrap_or_default()
+}
+
+pub fn clear_independent_placements() {
+    if let Ok(mut g) = independent_placements().lock() {
+        g.clear();
+    }
+    ARMED_INDEPENDENT_SEAM.store(-1, Ordering::SeqCst);
+}
+
+pub fn arm_independent_seam(index: usize) {
+    ARMED_INDEPENDENT_SEAM.store(index as isize, Ordering::SeqCst);
+}
+
+pub fn take_armed_independent_seam() -> Option<usize> {
+    let value = ARMED_INDEPENDENT_SEAM.swap(-1, Ordering::SeqCst);
+    if value >= 0 {
+        Some(value as usize)
+    } else {
+        None
+    }
+}
+
+/// Video on the left, chat on the right, sharing the seam and not overlapping.
+pub fn split_work_for_chat(work: Rect, fraction: f64) -> (Rect, Rect) {
+    let width = work.width().max(2);
+    let chat_w = ((width as f64) * clamp_chat_fraction(fraction)).round() as i32;
+    let chat_w = chat_w.clamp(1, width - 1);
+    let chat = Rect {
+        left: work.right - chat_w,
+        top: work.top,
+        right: work.right,
+        bottom: work.bottom,
+    };
+    let video = Rect {
+        left: work.left,
+        top: work.top,
+        right: chat.left,
+        bottom: work.bottom,
+    };
+    (video, chat)
+}
+
+pub fn independent_work_rect(monitor: Rect, cascade: usize) -> Rect {
+    if cascade == 0 || monitor.width() < 200 || monitor.height() < 200 {
+        return monitor;
+    }
+    let shift = (cascade as i32) * 48;
+    Rect {
+        left: monitor.left + shift.min((monitor.width() / 5).max(0)),
+        top: monitor.top + shift.min((monitor.height() / 5).max(0)),
+        right: monitor.right,
+        bottom: monitor.bottom,
+    }
+}
+
+pub fn next_independent_placements(
+    previous: &[IndependentPlacement],
+    channels: &[String],
+    monitor_count: usize,
+) -> Vec<IndependentPlacement> {
+    let monitors = monitor_count.max(1);
+    let mut next = Vec::new();
+    for channel in channels {
+        let key = channel.trim().trim_start_matches('#').to_ascii_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        if let Some(existing) = previous.iter().find(|placement| placement.channel == key) {
+            next.push(IndependentPlacement {
+                channel: key,
+                monitor: existing.monitor % monitors,
+                cascade: existing.cascade,
+            });
+            continue;
+        }
+        let monitor = (0..monitors)
+            .min_by_key(|idx| {
+                next.iter()
+                    .filter(|placement| placement.monitor == *idx)
+                    .count()
+            })
+            .unwrap_or(0);
+        let cascade = next
+            .iter()
+            .filter(|placement| placement.monitor == monitor)
+            .count();
+        next.push(IndependentPlacement {
+            channel: key,
+            monitor,
+            cascade,
+        });
+    }
+    next
+}
+
+fn write_independent_dock(placements: &[IndependentPlacement]) {
+    if let Ok(mut g) = dock().lock() {
+        g.channels = placements
+            .iter()
+            .map(|placement| placement.channel.clone())
+            .collect();
+        g.layout = "independent".into();
+        // Shared-dock chat relaunch keys off this flag. Independent chats are
+        // separate processes and must not be merged back into one.
+        g.reserve_chat = false;
+        g.linked = !placements.is_empty();
+    }
+}
+
+pub fn sync_independent_session(channels: &[String]) {
+    let previous = independent_placements()
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    let next = next_independent_placements(&previous, channels, monitor_count());
+    if let Ok(mut g) = independent_placements().lock() {
+        *g = next.clone();
+    }
+    write_independent_dock(&next);
+    ensure_grip_thread();
+    #[cfg(windows)]
+    post_cmd(DockCmd::Sync);
+}
+
+pub fn move_independent_seam_to_monitor(index: usize, monitor: usize) {
+    let monitors = monitor_count();
+    let monitor = monitor % monitors;
+    let Ok(mut placements) = independent_placements().lock() else {
+        return;
+    };
+    if index >= placements.len() {
+        return;
+    }
+    let cascade = placements
+        .iter()
+        .enumerate()
+        .filter(|(other, placement)| *other != index && placement.monitor == monitor)
+        .count();
+    placements[index].monitor = monitor;
+    placements[index].cascade = cascade;
+    let next = placements.clone();
+    drop(placements);
+    write_independent_dock(&next);
+}
+
+#[cfg(windows)]
+pub fn monitor_work_rects() -> Vec<Rect> {
+    list_monitor_work()
+}
+
+#[cfg(not(windows))]
+pub fn monitor_work_rects() -> Vec<Rect> {
+    Vec::new()
+}
+
+pub fn monitor_count() -> usize {
+    monitor_work_rects().len().max(1)
+}
+
+pub fn independent_seam_work(index: usize) -> Option<Rect> {
+    let monitors = monitor_work_rects();
+    if monitors.is_empty() {
+        return None;
+    }
+    let placements = independent_placements().lock().ok()?;
+    let placement = placements.get(index)?;
+    let monitor = monitors.get(placement.monitor % monitors.len()).copied()?;
+    Some(independent_work_rect(monitor, placement.cascade))
+}
+
+pub fn independent_window_splits() -> Vec<(String, Rect, Rect)> {
+    let fraction = chat_fraction();
+    let monitors = monitor_work_rects();
+    if monitors.is_empty() {
+        return Vec::new();
+    }
+    let Ok(placements) = independent_placements().lock() else {
+        return Vec::new();
+    };
+    placements
+        .iter()
+        .filter_map(|placement| {
+            let monitor = monitors.get(placement.monitor % monitors.len()).copied()?;
+            let work = independent_work_rect(monitor, placement.cascade);
+            let (video, chat) = split_work_for_chat(work, fraction);
+            Some((placement.channel.clone(), video, chat))
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+pub fn independent_grip_splits() -> Vec<(Rect, Rect)> {
+    independent_window_splits()
+        .into_iter()
+        .map(|(_, video, chat)| (video, chat))
+        .collect()
+}
+
 /// Update where the large pane sits for 2+1 / 3+1. Does not retile by itself —
 /// call `run_apply` / `layout_watching` after.
 pub fn set_main_side(side: &str) {
@@ -291,6 +517,16 @@ pub fn sync_session(channels: &[String], layout: &str, reserve_chat: bool, linke
 
 /// Drop closed streams from the dock snapshot and retile the rest in place.
 pub fn drop_closed_channels(running: &[String]) {
+    if snapshot().layout == "independent" {
+        sync_independent_session(running);
+        if !has_independent_placements() {
+            clear_session();
+            return;
+        }
+        #[cfg(windows)]
+        run_apply();
+        return;
+    }
     let cfg = snapshot();
     let next = remaining_dock_channels(&cfg.channels, running);
     if next.is_empty() {
@@ -308,8 +544,14 @@ pub fn drop_closed_channels(running: &[String]) {
 }
 
 pub fn clear_session() {
+    clear_independent_placements();
     if let Ok(mut g) = dock().lock() {
         g.channels.clear();
+        if g.layout == "independent" {
+            g.layout = "2x2".into();
+            g.linked = false;
+            g.reserve_chat = false;
+        }
     }
     #[cfg(windows)]
     post_cmd(DockCmd::Sync);
@@ -971,6 +1213,8 @@ struct GripWindows {
     chat: *mut core::ffi::c_void,
     /// Center ◀ ▶ handle — click to pick a monitor (identify overlays).
     mover: *mut core::ffi::c_void,
+    /// Extra video|chat seams for independent streams after the first.
+    extra: Vec<(*mut core::ffi::c_void, *mut core::ffi::c_void)>,
     tiles: Vec<*mut core::ffi::c_void>,
     /// Temporary Windows-style monitor number overlays.
     identifies: Vec<*mut core::ffi::c_void>,
@@ -1189,6 +1433,8 @@ fn grip_thread_main() {
     enum GripKind {
         Chat,
         Move,
+        IndependentChat(usize),
+        IndependentMove(usize),
         Col(usize),
         Row(usize),
         Main,
@@ -1223,6 +1469,8 @@ fn grip_thread_main() {
             1 => GripKind::Chat,
             2 => GripKind::Main,
             10 => GripKind::Move,
+            n if (400..500).contains(&n) => GripKind::IndependentChat((n - 400) as usize),
+            n if (500..600).contains(&n) => GripKind::IndependentMove((n - 500) as usize),
             n if (100..200).contains(&n) => GripKind::Col((n - 100) as usize),
             n if (200..300).contains(&n) => GripKind::Row((n - 200) as usize),
             n if (300..400).contains(&n) => GripKind::Stack((n - 300) as usize),
@@ -1234,6 +1482,7 @@ fn grip_thread_main() {
         matches!(
             kind,
             GripKind::Chat
+                | GripKind::IndependentChat(_)
                 | GripKind::Col(_)
                 | GripKind::Row(_)
                 | GripKind::Main
@@ -1243,7 +1492,7 @@ fn grip_thread_main() {
     fn divider_is_vertical(kind: GripKind) -> bool {
         let side = snapshot().main_side;
         match kind {
-            GripKind::Chat | GripKind::Col(_) => true,
+            GripKind::Chat | GripKind::IndependentChat(_) | GripKind::Col(_) => true,
             GripKind::Row(_) => false,
             GripKind::Main => side != "top" && side != "bottom",
             GripKind::Stack(_) => side == "top" || side == "bottom",
@@ -1326,6 +1575,21 @@ fn grip_thread_main() {
                         &mut rc,
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE,
                     );
+                } else if matches!(kind, GripKind::IndependentMove(_)) {
+                    let hover = MOVER_HOVER.load(Ordering::Relaxed);
+                    let brush = CreateSolidBrush(if hover { 0x00_60_60_70 } else { 0x00_40_40_48 });
+                    FillRect(hdc, &rc, brush);
+                    DeleteObject(brush);
+                    SetBkMode(hdc, TRANSPARENT);
+                    SetTextColor(hdc, if hover { 0x00_FF_FF_FF } else { 0x00_DD_DD_DD });
+                    let label = wide("◀  ▶");
+                    DrawTextW(
+                        hdc,
+                        label.as_ptr(),
+                        -1,
+                        &mut rc,
+                        DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                    );
                 } else if let GripKind::Identify(idx) = kind {
                     let brush = CreateSolidBrush(0x00_20_20_28);
                     FillRect(hdc, &rc, brush);
@@ -1377,8 +1641,10 @@ fn grip_thread_main() {
             WM_SETCURSOR => {
                 let side = snapshot().main_side;
                 let cursor_id = match kind {
-                    GripKind::Move | GripKind::Identify(_) => IDC_HAND,
-                    GripKind::Chat | GripKind::Col(_) => IDC_SIZEWE,
+                    GripKind::Move | GripKind::IndependentMove(_) | GripKind::Identify(_) => {
+                        IDC_HAND
+                    }
+                    GripKind::Chat | GripKind::IndependentChat(_) | GripKind::Col(_) => IDC_SIZEWE,
                     GripKind::Row(_) => IDC_SIZENS,
                     GripKind::Main => {
                         if side == "top" || side == "bottom" {
@@ -1400,7 +1666,7 @@ fn grip_thread_main() {
                 1
             }
             WM_MOUSEMOVE
-                if matches!(kind, GripKind::Move)
+                if matches!(kind, GripKind::Move | GripKind::IndependentMove(_))
                     && drag().lock().map(|g| g.is_none()).unwrap_or(true) =>
             {
                 if !MOVER_HOVER.swap(true, Ordering::Relaxed) {
@@ -1443,7 +1709,7 @@ fn grip_thread_main() {
                 TrackMouseEvent(&mut tme);
                 0
             }
-            WM_MOUSELEAVE if matches!(kind, GripKind::Move) => {
+            WM_MOUSELEAVE if matches!(kind, GripKind::Move | GripKind::IndependentMove(_)) => {
                 MOVER_HOVER.store(false, Ordering::Relaxed);
                 SetLayeredWindowAttributes(hwnd, 0, ALPHA_REST, LWA_ALPHA);
                 InvalidateRect(hwnd, std::ptr::null(), 1);
@@ -1463,8 +1729,20 @@ fn grip_thread_main() {
                     post_cmd(DockCmd::PickMonitor);
                     return 0;
                 }
+                if let GripKind::IndependentMove(index) = kind {
+                    arm_independent_seam(index);
+                    post_cmd(DockCmd::PickMonitor);
+                    return 0;
+                }
                 if let GripKind::Identify(idx) = kind {
                     dismiss_monitor_picker();
+                    if let Some(seam) = take_armed_independent_seam() {
+                        move_independent_seam_to_monitor(seam, idx);
+                        request_raise_after_apply();
+                        run_apply();
+                        post_cmd(DockCmd::Sync);
+                        return 0;
+                    }
                     if let Ok(mut g) = dock().lock() {
                         g.monitor_index = idx;
                     }
@@ -1508,7 +1786,21 @@ fn grip_thread_main() {
                     bottom: 1080,
                 });
                 match d.kind {
-                    GripKind::Move | GripKind::Identify(_) => 0,
+                    GripKind::Move | GripKind::IndependentMove(_) | GripKind::Identify(_) => 0,
+                    GripKind::IndependentChat(index) => {
+                        let seam = independent_seam_work(index).unwrap_or(work);
+                        let w = seam.width().max(1) as f64;
+                        let chat_w = (seam.right - pt.x).max(0) as f64;
+                        let frac = clamp_chat_fraction(chat_w / w);
+                        drop(guard);
+                        if let Ok(mut g) = dock().lock() {
+                            g.chat_fraction = frac;
+                        }
+                        emit_fraction(frac);
+                        run_apply();
+                        reposition_all_grips_static();
+                        return 0;
+                    }
                     GripKind::Chat => {
                         let w = work.width().max(1) as f64;
                         let chat_w = (work.right - pt.x).max(0) as f64;
@@ -1687,6 +1979,7 @@ fn grip_thread_main() {
             Mutex::new(GripWindows {
                 chat: std::ptr::null_mut(),
                 mover: std::ptr::null_mut(),
+                extra: Vec::new(),
                 tiles: Vec::new(),
                 identifies: Vec::new(),
             })
@@ -1724,7 +2017,7 @@ fn grip_thread_main() {
         kind_code: isize,
     ) -> *mut core::ffi::c_void {
         let title = wide("");
-        let is_mover = kind_code == 10;
+        let is_mover = kind_code == 10 || (500..600).contains(&kind_code);
         let is_identify = (1000..1100).contains(&kind_code);
         let layered = is_mover || is_identify;
         // Identify overlays briefly cover the desktop; regular grips must not.
@@ -1816,9 +2109,14 @@ fn grip_thread_main() {
     }
 
     fn grip_hwnds_for_zorder(g: &GripWindows) -> Vec<*mut core::ffi::c_void> {
-        let mut list = Vec::with_capacity(2 + g.tiles.len());
+        let mut list = Vec::with_capacity(2 + g.tiles.len() + g.extra.len() * 2);
         if !g.chat.is_null() {
             list.push(g.chat);
+        }
+        for (chat, _) in &g.extra {
+            if !chat.is_null() {
+                list.push(*chat);
+            }
         }
         for &h in &g.tiles {
             if !h.is_null() {
@@ -1828,6 +2126,11 @@ fn grip_thread_main() {
         // Mover last so it sits above seam/tile grips.
         if !g.mover.is_null() {
             list.push(g.mover);
+        }
+        for (_, mover) in &g.extra {
+            if !mover.is_null() {
+                list.push(*mover);
+            }
         }
         list
     }
@@ -1962,7 +2265,36 @@ fn grip_thread_main() {
         let _ = reposition_grips_inner();
     }
 
+    fn place_independent_seam_grips(g: &GripWindows, splits: &[(Rect, Rect)]) {
+        const THICK: i32 = DIVIDER_REST_THICK;
+        unsafe {
+            if let Some((video, chat)) = splits.first() {
+                place_divider_grip(
+                    g.chat,
+                    vertical_divider_rect(chat.left, video.top, video.bottom, THICK),
+                );
+                place_grip(g.mover, mover_rect(*video, Some(*chat)));
+            }
+            for (offset, (video, chat)) in splits.iter().enumerate().skip(1) {
+                let Some((chat_hwnd, mover)) = g.extra.get(offset - 1) else {
+                    continue;
+                };
+                place_divider_grip(
+                    *chat_hwnd,
+                    vertical_divider_rect(chat.left, video.top, video.bottom, THICK),
+                );
+                place_grip(*mover, mover_rect(*video, Some(*chat)));
+            }
+        }
+    }
+
     fn reposition_grips_inner() -> Result<(), ()> {
+        if crate::dock::has_independent_placements() {
+            let splits = crate::dock::independent_grip_splits();
+            let g = grips().lock().map_err(|_| ())?;
+            place_independent_seam_grips(&g, &splits);
+            return Ok(());
+        }
         let cfg = snapshot();
         let mut g = grips().lock().map_err(|_| ())?;
         if !cfg.linked || cfg.channels.is_empty() {
@@ -2117,6 +2449,10 @@ fn grip_thread_main() {
         unsafe {
             hide_grip(g.chat);
             hide_grip(g.mover);
+            for (chat, mover) in &g.extra {
+                hide_grip(*chat);
+                hide_grip(*mover);
+            }
             for &h in &g.tiles {
                 hide_grip(h);
             }
@@ -2133,6 +2469,10 @@ fn grip_thread_main() {
         unsafe {
             hide_grip(g.chat);
             hide_grip(g.mover);
+            for (chat, mover) in &g.extra {
+                hide_grip(*chat);
+                hide_grip(*mover);
+            }
         }
     }
 
@@ -2169,8 +2509,69 @@ fn grip_thread_main() {
     }
 
     fn sync_grips_full(instance: *mut core::ffi::c_void, class: *const u16) {
+        unsafe fn restore_shared_grip_kinds(g: &mut GripWindows) {
+            if !g.chat.is_null() {
+                SetWindowLongPtrW(g.chat, GWLP_USERDATA, 1);
+            }
+            if !g.mover.is_null() {
+                SetWindowLongPtrW(g.mover, GWLP_USERDATA, 10);
+            }
+            for (chat, mover) in g.extra.drain(..) {
+                destroy_grip(chat);
+                destroy_grip(mover);
+            }
+        }
+
+        unsafe fn show_independent_grips(
+            instance: *mut core::ffi::c_void,
+            class: *const u16,
+            g: &mut GripWindows,
+        ) {
+            let splits = crate::dock::independent_grip_splits();
+            for hwnd in g.tiles.drain(..) {
+                destroy_grip(hwnd);
+            }
+            if splits.is_empty() {
+                restore_shared_grip_kinds(g);
+                return;
+            }
+            if g.chat.is_null() {
+                g.chat = create_grip(instance, class, 400);
+            } else {
+                SetWindowLongPtrW(g.chat, GWLP_USERDATA, 400);
+            }
+            if g.mover.is_null() {
+                g.mover = create_grip(instance, class, 500);
+            } else {
+                SetWindowLongPtrW(g.mover, GWLP_USERDATA, 500);
+            }
+            while g.extra.len() + 1 < splits.len() {
+                let index = (g.extra.len() + 1) as isize;
+                g.extra.push((
+                    create_grip(instance, class, 400 + index),
+                    create_grip(instance, class, 500 + index),
+                ));
+            }
+            while g.extra.len() + 1 > splits.len() {
+                if let Some((chat, mover)) = g.extra.pop() {
+                    destroy_grip(chat);
+                    destroy_grip(mover);
+                }
+            }
+            place_independent_seam_grips(g, &splits);
+        }
+
         if GRIPS_GROUP_MINIMIZED.load(Ordering::SeqCst) {
             hide_all_grips();
+            return;
+        }
+        if crate::dock::has_independent_placements() {
+            let Ok(mut g) = grips().lock() else {
+                return;
+            };
+            unsafe {
+                show_independent_grips(instance, class, &mut g);
+            }
             return;
         }
         let cfg = snapshot();
@@ -2178,6 +2579,7 @@ fn grip_thread_main() {
             return;
         };
         unsafe {
+            restore_shared_grip_kinds(&mut g);
             for h in g.tiles.drain(..) {
                 destroy_grip(h);
             }
@@ -2264,6 +2666,74 @@ fn grip_thread_main() {
 #[cfg(test)]
 mod leftover_grip_tests {
     use super::*;
+
+    #[test]
+    fn independent_split_puts_chat_beside_video_without_overlap() {
+        let work = Rect {
+            left: 0,
+            top: 0,
+            right: 1000,
+            bottom: 800,
+        };
+        let (video, chat) = split_work_for_chat(work, 0.2);
+        assert_eq!(video.left, 0);
+        assert_eq!(video.top, 0);
+        assert_eq!(video.bottom, 800);
+        assert_eq!(chat.top, 0);
+        assert_eq!(chat.right, 1000);
+        assert_eq!(chat.bottom, 800);
+        assert_eq!(video.right, chat.left);
+        assert!(!rects_overlap(video, chat));
+        assert!(chat.width() > 0);
+        assert!(video.width() > chat.width());
+    }
+
+    #[test]
+    fn independent_streams_take_separate_monitors_before_cascading() {
+        let next = next_independent_placements(&[], &["alpha".into(), "beta".into()], 2);
+        assert_eq!(next[0].channel, "alpha");
+        assert_eq!(next[0].monitor, 0);
+        assert_eq!(next[0].cascade, 0);
+        assert_eq!(next[1].channel, "beta");
+        assert_eq!(next[1].monitor, 1);
+        assert_eq!(next[1].cascade, 0);
+    }
+
+    #[test]
+    fn second_independent_stream_on_one_monitor_is_offset_not_tiled() {
+        let next = next_independent_placements(&[], &["alpha".into(), "beta".into()], 1);
+        assert_eq!(next[0].monitor, 0);
+        assert_eq!(next[1].monitor, 0);
+        assert_eq!(next[0].cascade, 0);
+        assert_eq!(next[1].cascade, 1);
+        let monitor = Rect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let first = independent_work_rect(monitor, next[0].cascade);
+        let second = independent_work_rect(monitor, next[1].cascade);
+        assert_eq!(first, monitor);
+        assert!(second.left > first.left);
+        assert!(second.top > first.top);
+        assert_eq!(second.right, monitor.right);
+        assert_eq!(second.bottom, monitor.bottom);
+    }
+
+    #[test]
+    fn existing_independent_monitor_is_kept_when_another_stream_opens() {
+        let previous = vec![IndependentPlacement {
+            channel: "beta".into(),
+            monitor: 1,
+            cascade: 0,
+        }];
+        let next = next_independent_placements(&previous, &["beta".into(), "alpha".into()], 2);
+        assert_eq!(next[0].channel, "beta");
+        assert_eq!(next[0].monitor, 1);
+        assert_eq!(next[1].channel, "alpha");
+        assert_eq!(next[1].monitor, 0);
+    }
 
     #[test]
     fn empty_session_destroys_leftover_grips() {

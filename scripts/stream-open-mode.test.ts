@@ -33,5 +33,6 @@ describe("stream opening modes", () => {
 
     expect(body).toContain("layoutChannels()");
     expect(body).not.toContain("orderedChannels()");
+    expect(body).toContain('layout: channels.length ? "independent" : undefined');
   });
 });

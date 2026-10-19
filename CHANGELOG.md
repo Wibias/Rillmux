@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.17] — 2026-10-19
+
+### Fixed
+
+- Independent windows use the same side-by-side layout as a single stream: video on the left, that stream's chat on the right, with the seam divider and the monitor-switch button. Chat no longer covers the player. Another independent stream opens on the next monitor, or slightly offset on the same one, instead of joining the multistream grid.
+
 ## [0.5.16] — 2026-10-19
 
 ### Fixed

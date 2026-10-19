@@ -161,15 +161,6 @@ pub fn open_independent_chatterino(channel: &str) -> Result<(), StreamError> {
             }
         });
     }
-    thread::spawn(move || {
-        for _ in 0..40 {
-            place_chatterino_window_right(pid);
-            if find_main_window_for_pid(pid).is_some() {
-                break;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-    });
     Ok(())
 }
 
@@ -1291,6 +1282,13 @@ fn raise_dock_windows_inner(channels: &[String], reserve_chat: bool, foreground:
             raise_hwnd(hwnd, false);
         }
     }
+    if crate::dock::has_independent_placements() {
+        for channel in channels.iter().take(8) {
+            if let Some(hwnd) = independent_chat_hwnd(channel) {
+                raise_hwnd(hwnd, false);
+            }
+        }
+    }
     let members = dock_member_hwnds(channels, reserve_chat);
     if let Some(anchor) = topmost_dock_member(&members) {
         crate::dock::restack_grips_above(anchor as isize);
@@ -1843,6 +1841,51 @@ fn place_chatterino_window_right(pid: u32) {
         move_hwnd_to(hwnd, chat, true);
         close_extra_chatterino_windows(target_pid, hwnd);
     }
+}
+
+#[cfg(windows)]
+fn independent_chat_key(channel: &str) -> String {
+    channel
+        .trim()
+        .trim_start_matches("t:")
+        .trim_start_matches('#')
+        .to_ascii_lowercase()
+}
+
+#[cfg(windows)]
+fn independent_chat_hwnd(channel: &str) -> Option<*mut core::ffi::c_void> {
+    let key = independent_chat_key(channel);
+    let pid = independent_chatterino_pids()
+        .lock()
+        .ok()
+        .and_then(|pids| pids.get(&key).copied())?;
+    find_main_window_for_pid(pid)
+}
+
+#[cfg(windows)]
+fn place_independent_pairs() -> usize {
+    let mut ready = 0usize;
+    for (channel, video, chat) in crate::dock::independent_window_splits() {
+        let player = find_player_window(&channel);
+        let chat_hwnd = independent_chat_hwnd(&channel);
+        if let Some(hwnd) = player {
+            move_hwnd_to(hwnd, rect_from_dock(video), false);
+        }
+        if let Some(hwnd) = chat_hwnd {
+            move_hwnd_to(hwnd, rect_from_dock(chat), true);
+            if let Some(pid) = independent_chatterino_pids()
+                .lock()
+                .ok()
+                .and_then(|pids| pids.get(&independent_chat_key(&channel)).copied())
+            {
+                close_extra_chatterino_windows(pid, hwnd);
+            }
+        }
+        if player.is_some() && chat_hwnd.is_some() {
+            ready += 1;
+        }
+    }
+    ready
 }
 
 #[cfg(not(windows))]

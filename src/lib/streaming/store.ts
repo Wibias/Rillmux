@@ -374,6 +374,25 @@ function scheduleLayoutAfterReady() {
   layoutTimer = setTimeout(() => {
     layoutTimer = null;
     const settings = useSettingsStore.getState().settings;
+    if (settings.streaming.streamOpenMode === "independent") {
+      const channels =
+        settings.chat.provider === "chatterino" ? runningChannels() : [];
+      debugRuntimeEvent("windows", "layout.request", {
+        channels: channels.join(","),
+        reserveChat: channels.length > 0,
+        layout: channels.length ? "independent" : "",
+        linkedDock: channels.length > 0,
+        chatFraction: settings.streaming.chatWidthFraction,
+      });
+      void invoke("layout_watching", {
+        channels,
+        reserveChat: false,
+        layout: channels.length ? "independent" : undefined,
+        linkedDock: false,
+        chatFraction: settings.streaming.chatWidthFraction,
+      }).catch(() => undefined);
+      return;
+    }
     const channels = layoutChannels();
     if (!channels.length) {
       debugRuntimeEvent("windows", "layout.request", {
@@ -388,8 +407,7 @@ function scheduleLayoutAfterReady() {
       return;
     }
     const mode = settings.streaming.streamOpenMode;
-    const reserveChat =
-      settings.chat.provider === "chatterino" && mode !== "independent";
+    const reserveChat = settings.chat.provider === "chatterino";
     const linkedDock =
       mode === "multistream" && settings.streaming.linkedDock;
     const layout = currentLayout();
@@ -626,6 +644,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     const replaceExisting = seamless && running.length > 0;
     const hasChatterino = settings.chat.provider === "chatterino";
     const reserveChat = hasChatterino && mode !== "independent";
+    const besideChat = hasChatterino;
 
     const launch = resolveChannelLaunch(
       settings,
@@ -634,7 +653,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
         title: stream.title,
         game: stream.game_name,
       },
-      { sideBySideChat: reserveChat },
+      { sideBySideChat: besideChat },
     );
     debugRuntimeEvent("windows", "watch.start", {
       channel,
@@ -702,7 +721,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           playerNoClose: settings.streaming.playerNoClose,
           autoCatchUp:
             settings.player.mpv.autoCatchUp && launch.playerId === "mpv",
-          reserveChat,
+          reserveChat: besideChat,
           replaceExisting,
           slotIndex: Math.max(0, plannedChannels.indexOf(channel)),
           slotCount: plannedChannels.length,
@@ -832,7 +851,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
         title: target.title,
         game: target.game_name,
       },
-      { sideBySideChat: reserveChat },
+      { sideBySideChat: hasChatterino },
     );
     const plannedChannels = multi
       ? [...new Set([...get().slotChannels, toLogin])]
@@ -873,7 +892,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           playerNoClose: settings.streaming.playerNoClose,
           autoCatchUp:
             settings.player.mpv.autoCatchUp && launch.playerId === "mpv",
-          reserveChat,
+          reserveChat: hasChatterino,
           replaceExisting: false,
           slotIndex: Math.max(0, plannedChannels.indexOf(toLogin)),
           slotCount: plannedChannels.length,

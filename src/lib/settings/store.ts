@@ -207,14 +207,22 @@ export function migrateSettings(raw: unknown): AppSettings {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
   };
 
-  // Only an actual Multistream session may use the linked dock.
-  if (merged.streaming.streamOpenMode !== "multistream") {
-    merged.streaming.linkedDock = false;
-  }
   // Older browse/multistream views still consume this derived compatibility
   // bit. Launch/session behavior uses streamOpenMode exclusively.
   merged.streaming.seamlessSwitch =
     merged.streaming.streamOpenMode !== "multistream";
+
+  // v23: switching away from Multistream used to persist linkedDock=false, so
+  // the chat divider and monitor switch stayed gone after switching back.
+  // The preference is independent of the current mode; layout only applies it
+  // while Multistream is selected.
+  if (
+    prevSchema < 23 &&
+    merged.streaming.streamOpenMode === "multistream" &&
+    merged.streaming.linkedDock === false
+  ) {
+    merged.streaming.linkedDock = true;
+  }
 
   // v8: webbrowser default flipped off — it made first stream starts very slow.
   if (prevSchema < 8) {

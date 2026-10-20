@@ -176,7 +176,7 @@ export interface AppSettings {
   closeToTray?: boolean;
 }
 
-export const SETTINGS_SCHEMA_VERSION = 22;
+export const SETTINGS_SCHEMA_VERSION = 23;
 
 export const defaultDebugCategories = (): DebugCategories => ({
   windows: true,

@@ -482,19 +482,17 @@ export function SettingsStreamingLayoutPanel() {
             value={settings.streaming.streamOpenMode}
             onChange={(e) => {
               const mode = e.target.value as StreamOpenMode;
-              const linkedDock =
-                mode === "multistream" ? settings.streaming.linkedDock : false;
               setSettings({
                 streaming: {
                   ...settings.streaming,
                   streamOpenMode: mode,
-                  linkedDock,
                 },
               });
               if (isTauri()) {
-                void invoke("dock_set_linked", { enabled: linkedDock }).catch(
-                  () => undefined,
-                );
+                void invoke("dock_set_linked", {
+                  enabled:
+                    mode === "multistream" && settings.streaming.linkedDock,
+                }).catch(() => undefined);
               }
               queueMicrotask(() => {
                 void useWatchingStore

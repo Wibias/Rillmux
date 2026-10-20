@@ -99,6 +99,27 @@ describe("migrateSettings", () => {
     expect(result.gui.onboardingDone).toBe(true);
   });
 
+  it("keeps linked dock grips when the open mode is not multistream", () => {
+    const result = migrateSettings({
+      schemaVersion: 23,
+      streaming: { streamOpenMode: "independent", linkedDock: true },
+    });
+    expect(result.streaming.streamOpenMode).toBe("independent");
+    expect(result.streaming.linkedDock).toBe(true);
+  });
+
+  it("restores multistream dock grips cleared by leaving the mode", () => {
+    const result = migrateSettings({
+      schemaVersion: 22,
+      streaming: {
+        streamOpenMode: "multistream",
+        linkedDock: false,
+        chatWidthFraction: 0.18,
+      },
+    });
+    expect(result.streaming.linkedDock).toBe(true);
+  });
+
   it("normalizes streamLanguages and defaults missing to empty", () => {
     const empty = migrateSettings({ schemaVersion: 12, streaming: {} });
     expect(empty.streaming.streamLanguages).toEqual([]);

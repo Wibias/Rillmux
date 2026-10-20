@@ -1,6 +1,6 @@
 [package]
 name = "rillmux"
-version = "0.5.17"
+version = "0.5.18"
 description = "Desktop Twitch browser for Streamlink"
 authors = ["Wibias"]
 edition = "2021"

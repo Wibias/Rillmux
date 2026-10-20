@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.18] — 2026-10-20
+
+### Fixed
+
+- Multistream keeps the linked-dock grips when you leave that mode and come back. The chat divider, tile dividers, and monitor switch no longer stay hidden after a switch to Independent or Seamless.
+
 ## [0.5.17] — 2026-10-19
 
 ### Fixed

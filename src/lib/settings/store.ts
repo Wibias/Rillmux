@@ -45,6 +45,16 @@ function parseChannelPointsHudOffset(
   };
 }
 
+function restoreLinkedDockClearedBeforeSchema23(
+  settings: AppSettings,
+  prevSchema: number,
+): void {
+  if (prevSchema >= 23) return;
+  if (settings.streaming.streamOpenMode !== "multistream") return;
+  if (settings.streaming.linkedDock !== false) return;
+  settings.streaming.linkedDock = true;
+}
+
 /** Migrate older settings blobs toward the current schema. */
 export function migrateSettings(raw: unknown): AppSettings {
   const base = defaultSettings();
@@ -207,14 +217,12 @@ export function migrateSettings(raw: unknown): AppSettings {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
   };
 
-  // Only an actual Multistream session may use the linked dock.
-  if (merged.streaming.streamOpenMode !== "multistream") {
-    merged.streaming.linkedDock = false;
-  }
   // Older browse/multistream views still consume this derived compatibility
   // bit. Launch/session behavior uses streamOpenMode exclusively.
   merged.streaming.seamlessSwitch =
     merged.streaming.streamOpenMode !== "multistream";
+
+  restoreLinkedDockClearedBeforeSchema23(merged, prevSchema);
 
   // v8: webbrowser default flipped off — it made first stream starts very slow.
   if (prevSchema < 8) {

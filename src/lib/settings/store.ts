@@ -45,6 +45,16 @@ function parseChannelPointsHudOffset(
   };
 }
 
+function restoreLinkedDockClearedBeforeSchema23(
+  settings: AppSettings,
+  prevSchema: number,
+): void {
+  if (prevSchema >= 23) return;
+  if (settings.streaming.streamOpenMode !== "multistream") return;
+  if (settings.streaming.linkedDock !== false) return;
+  settings.streaming.linkedDock = true;
+}
+
 /** Migrate older settings blobs toward the current schema. */
 export function migrateSettings(raw: unknown): AppSettings {
   const base = defaultSettings();
@@ -212,17 +222,7 @@ export function migrateSettings(raw: unknown): AppSettings {
   merged.streaming.seamlessSwitch =
     merged.streaming.streamOpenMode !== "multistream";
 
-  // v23: switching away from Multistream used to persist linkedDock=false, so
-  // the chat divider and monitor switch stayed gone after switching back.
-  // The preference is independent of the current mode; layout only applies it
-  // while Multistream is selected.
-  if (
-    prevSchema < 23 &&
-    merged.streaming.streamOpenMode === "multistream" &&
-    merged.streaming.linkedDock === false
-  ) {
-    merged.streaming.linkedDock = true;
-  }
+  restoreLinkedDockClearedBeforeSchema23(merged, prevSchema);
 
   // v8: webbrowser default flipped off — it made first stream starts very slow.
   if (prevSchema < 8) {

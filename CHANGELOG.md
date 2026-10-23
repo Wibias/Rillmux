@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Follow actions use the `user:edit:follows` Twitch permission. Existing sessions show a one-time "Log in again to follow" action in the menu.
 
+### Security
+
+- Updated `rustls-webpki`, `webpki-root-certs`, and `webpki-roots` to clear RUSTSEC-2026-0381, RUSTSEC-2026-0382, and RUSTSEC-2026-0383.
+
 ## [0.5.18] — 2026-10-20
 
 ### Fixed

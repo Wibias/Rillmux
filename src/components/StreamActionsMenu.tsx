@@ -1,18 +1,30 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Link } from "react-router";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import type { HelixStream } from "../lib/twitch/helix";
-import { twitchChannelUrl } from "../lib/browse/format";
-import { isTauri } from "../lib/tauri";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  followChannel,
+  isFollowingChannel,
+  unfollowChannel,
+  type HelixStream,
+} from "../lib/twitch/helix";
+import { followedStreamsQueryKey } from "../lib/notifications/followedLive";
+import { useAuthStore } from "../lib/auth/store";
+import { StreamActionsMenuPanel } from "./StreamActionsMenuPanel";
+import { useStreamMenuPosition } from "./useStreamMenuPosition";
 import "./StreamActionsMenu.css";
 
-async function openExternal(url: string) {
-  if (isTauri()) {
-    await openUrl(url);
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
+const FOLLOW_SCOPE = "user:edit:follows";
+
+function followStateQueryKey(
+  userId: string | null | undefined,
+  broadcasterId: string,
+) {
+  return [
+    "channel-follow-state",
+    userId ?? "anonymous",
+    broadcasterId,
+  ] as const;
 }
 
 export function StreamActionsMenu({
@@ -26,15 +38,40 @@ export function StreamActionsMenu({
   onWatch?: (stream: HelixStream) => void;
   onTogglePin?: (login: string) => void;
 }) {
-  const { t } = useTranslation(["common", "routes"]);
+  const { t } = useTranslation(["routes"]);
+  const queryClient = useQueryClient();
+  const session = useAuthStore((s) => s.session);
+  const startLogin = useAuthStore((s) => s.startLogin);
   const [open, setOpen] = useState(false);
+  const [confirmingUnfollow, setConfirmingUnfollow] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [actionError, setActionError] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const menuId = `${useId()}-stream-menu`;
+
+  const userId = session?.loggedIn ? session.userId : null;
+  const canFollow = Boolean(
+    userId && session?.scopes.includes(FOLLOW_SCOPE),
+  );
+  const followState = useQuery({
+    queryKey: followStateQueryKey(userId, stream.user_id),
+    queryFn: () => isFollowingChannel(userId!, stream.user_id),
+    enabled: open && Boolean(userId),
+    staleTime: 60_000,
+  });
+  const following = followState.data === true;
+  const position = useStreamMenuPosition(open, triggerRef, panelRef);
 
   useEffect(() => {
     if (!open) return;
     const onPointer = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !panelRef.current?.contains(target)
+      ) {
         setOpen(false);
       }
     };
@@ -49,10 +86,59 @@ export function StreamActionsMenu({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) {
+      setConfirmingUnfollow(false);
+      setActionError(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      panelRef.current
+        ?.querySelector<HTMLElement>('[role="menuitem"]')
+        ?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  useEffect(() => {
+    if (!confirmingUnfollow) return;
+    panelRef.current
+      ?.querySelector<HTMLElement>(".stream-menu__confirm-actions button")
+      ?.focus();
+  }, [confirmingUnfollow]);
+
+  const runFollowAction = async (next: boolean) => {
+    if (!userId) return;
+    setPending(true);
+    setActionError(false);
+    try {
+      if (next) {
+        await followChannel(userId, stream.user_id);
+      } else {
+        await unfollowChannel(userId, stream.user_id);
+      }
+      queryClient.setQueryData(
+        followStateQueryKey(userId, stream.user_id),
+        next,
+      );
+      await queryClient.invalidateQueries({
+        queryKey: followedStreamsQueryKey(userId),
+      });
+      setConfirmingUnfollow(false);
+      setOpen(false);
+    } catch {
+      setConfirmingUnfollow(false);
+      setActionError(true);
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <div className="stream-menu" ref={rootRef}>
       <button
         type="button"
+        ref={triggerRef}
         className="stream-menu__trigger"
         aria-expanded={open}
         aria-haspopup="menu"
@@ -65,63 +151,42 @@ export function StreamActionsMenu({
       >
         <span aria-hidden="true">⋮</span>
       </button>
-      {open ? (
-        <div id={menuId} className="stream-menu__panel" role="menu">
-          {onWatch ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
+      {open
+        ? createPortal(
+            <StreamActionsMenuPanel
+              menuId={menuId}
+              panelRef={panelRef}
+              position={position}
+              stream={stream}
+              pinned={pinned}
+              confirmingUnfollow={confirmingUnfollow}
+              pending={pending}
+              actionError={actionError}
+              following={following}
+              followStatePending={followState.isPending}
+              showFollowPermission={Boolean(userId) && !canFollow}
+              showFollowAction={canFollow}
+              onWatch={onWatch}
+              onTogglePin={onTogglePin}
+              onClose={() => setOpen(false)}
+              onStartLogin={() => {
                 setOpen(false);
-                onWatch(stream);
+                void startLogin();
               }}
-            >
-              {t("common:watch")}
-            </button>
-          ) : null}
-          <Link
-            role="menuitem"
-            to={`/channel/${stream.user_login}`}
-            onClick={() => setOpen(false)}
-          >
-            {t("routes:streamOpenChannel")}
-          </Link>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              void openExternal(twitchChannelUrl(stream.user_login));
-            }}
-          >
-            {t("routes:streamOpenTwitch")}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              void navigator.clipboard.writeText(
-                twitchChannelUrl(stream.user_login),
-              );
-            }}
-          >
-            {t("routes:streamCopyUrl")}
-          </button>
-          {onTogglePin ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onTogglePin(stream.user_login);
+              onFollowToggle={() => {
+                if (following) {
+                  setActionError(false);
+                  setConfirmingUnfollow(true);
+                } else {
+                  void runFollowAction(true);
+                }
               }}
-            >
-              {pinned ? t("routes:streamUnpin") : t("routes:streamPin")}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+              onCancelUnfollow={() => setConfirmingUnfollow(false)}
+              onConfirmUnfollow={() => void runFollowAction(false)}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

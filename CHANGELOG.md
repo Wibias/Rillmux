@@ -12,6 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.19] — 2026-10-23
+
+### Added
+
+- Follow and unfollow channels directly from a stream card's three-dot menu. Unfollowing asks for confirmation, and the Followed list refreshes immediately.
+
+### Fixed
+
+- The stream card action menu is no longer clipped at the bottom of the page. It opens above the card when there is not enough room below and always stays within the window.
+
+### Changed
+
+- Follow actions use the `user:edit:follows` Twitch permission. Existing sessions show a one-time "Log in again to follow" action in the menu.
+
+### Security
+
+- Updated `rustls-webpki`, `webpki-root-certs`, and `webpki-roots` to clear RUSTSEC-2026-0381, RUSTSEC-2026-0382, and RUSTSEC-2026-0383.
+
 ## [0.5.18] — 2026-10-20
 
 ### Fixed

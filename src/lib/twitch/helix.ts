@@ -32,6 +32,14 @@ export async function helixFetch<T>(
   return helixFetchPairs<T>(path, toPairs(query));
 }
 
+async function helixMutate(
+  method: "POST" | "DELETE",
+  path: string,
+  query?: HelixQuery,
+): Promise<void> {
+  await invoke("helix_mutate", { method, path, query: toPairs(query) });
+}
+
 export interface HelixPage<T> {
   data: T[];
   pagination?: { cursor?: string };
@@ -138,6 +146,38 @@ export async function getFollowedChannelLogins(userId: string): Promise<string[]
     if (!cursor) break;
   }
   return logins;
+}
+
+/** Whether `userId` currently follows `broadcasterId`. */
+export async function isFollowingChannel(
+  userId: string,
+  broadcasterId: string,
+): Promise<boolean> {
+  const page = await helixFetch<HelixPage<HelixFollowedChannel>>(
+    "channels/followed",
+    { user_id: userId, broadcaster_id: broadcasterId },
+  );
+  return page.data.length > 0;
+}
+
+export async function followChannel(
+  userId: string,
+  broadcasterId: string,
+): Promise<void> {
+  await helixMutate("POST", "channels/follows", {
+    from_id: userId,
+    to_id: broadcasterId,
+  });
+}
+
+export async function unfollowChannel(
+  userId: string,
+  broadcasterId: string,
+): Promise<void> {
+  await helixMutate("DELETE", "channels/follows", {
+    user_id: userId,
+    broadcaster_id: broadcasterId,
+  });
 }
 
 function streamsQueryPairs(opts: {

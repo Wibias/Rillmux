@@ -42,6 +42,22 @@
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
 }
 
+/* Rendered in a portal so scroll containers with overflow:hidden cannot
+   clip the menu at the bottom edge of a page. */
+.stream-menu__panel--floating {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  max-height: calc(100vh - 1rem);
+  overflow-y: auto;
+  visibility: hidden;
+}
+
+.stream-menu__panel--floating[data-positioned="true"] {
+  visibility: visible;
+}
+
 .stream-menu__panel button,
 .stream-menu__panel a {
   appearance: none;
@@ -63,4 +79,50 @@
 .stream-menu__panel button:hover,
 .stream-menu__panel a:hover {
   background: var(--nav-hover);
+}
+
+.stream-menu__panel button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.stream-menu__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.35rem 0.45rem 0.45rem;
+}
+
+.stream-menu__confirm-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.stream-menu__confirm-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.stream-menu__confirm-actions button {
+  flex: 1 1 0;
+  width: auto;
+  justify-content: center;
+  text-align: center;
+}
+
+.stream-menu__panel button.stream-menu__danger {
+  color: #ff7b7b;
+}
+
+.stream-menu__panel button.stream-menu__danger:hover:not(:disabled) {
+  background: rgba(255, 80, 80, 0.14);
+}
+
+.stream-menu__error {
+  margin: 0.3rem 0.15rem 0.1rem;
+  color: #ff9a9a;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }

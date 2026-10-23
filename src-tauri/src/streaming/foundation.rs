@@ -33,8 +33,33 @@ static CHATTERINO_PATH_CACHE: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new()
 const MPV_MISSING_GRACE: Duration = Duration::from_secs(40);
 
 pub(crate) fn dock_watchdog_interval_ms(dock_active: bool, needs_fast_tick: bool) -> u64 {
+    dock_watchdog_interval_ms_with_idle(
+        dock_active,
+        needs_fast_tick,
+        dock_idle_watchdog_override_ms(),
+    )
+}
+
+const DOCK_IDLE_WATCHDOG_MS: u64 = 500;
+
+fn dock_idle_watchdog_override_ms() -> u64 {
+    static IDLE_MS: OnceLock<u64> = OnceLock::new();
+    *IDLE_MS.get_or_init(|| {
+        std::env::var("RILLMUX_DOCK_WATCHDOG_IDLE_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| (100..=5000).contains(value))
+            .unwrap_or(DOCK_IDLE_WATCHDOG_MS)
+    })
+}
+
+fn dock_watchdog_interval_ms_with_idle(
+    dock_active: bool,
+    needs_fast_tick: bool,
+    idle_ms: u64,
+) -> u64 {
     if !dock_active {
-        500
+        idle_ms
     } else if needs_fast_tick {
         100
     } else {

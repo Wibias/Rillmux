@@ -1068,6 +1068,17 @@ pub fn run() {
         ])
         .setup(|app| {
             migrate_legacy_app_data(app.handle());
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                std::thread::spawn(move || {
+                    let freed = streaming::cleanup_legacy_streamlink_resources(&resource_dir);
+                    if freed > 0 {
+                        diagnostics::log_line(&format!(
+                            "[streamlink] removed {:.1} MB of legacy bundled files",
+                            freed as f64 / (1024.0 * 1024.0)
+                        ));
+                    }
+                });
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_decorations(false);
                 let _ = window.set_shadow(true);

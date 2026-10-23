@@ -17,11 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Stream menus do not offer an in-app Follow action. Twitch decommissioned the Follow API in July 2021, so the request could only fail; use "Open in Twitch" to follow on the channel page.
+- The bundled Streamlink keeps its `bin/`, `Python/`, and `pkgs/` layout, so a clean install can launch it. Upgrades also remove duplicated legacy payloads, reclaiming roughly 480 MB on an existing install.
 
 ### Changed
 
 - Helix failures are written to the debug log with their HTTP status and response body.
 - The app no longer requests the unused `user:edit:follows` scope.
+- The installer no longer ships Streamlink's unused ffmpeg binary, cutting the NSIS setup from about 66 MiB to about 22 MiB and shrinking automatic updates.
+- Release builds use thin LTO, one codegen unit, and debuginfo stripping, reducing `Rillmux.exe` by about 14%.
+
+### Internal
+
+- Added release checks for the bundled Streamlink layout and native backtraces, plus `perf:release` and `perf:dock-ab` measurement commands.
+- Removed unused frontend image assets.
 
 ## [0.5.19] — 2026-10-23
 

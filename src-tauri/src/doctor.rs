@@ -153,7 +153,14 @@ fn streamlink_fallbacks() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            paths.push(
+                dir.join("resources")
+                    .join("streamlink")
+                    .join("bin")
+                    .join("streamlinkw.exe"),
+            );
             paths.push(dir.join("streamlink").join("streamlinkw.exe"));
+            paths.push(dir.join("streamlink").join("bin").join("streamlinkw.exe"));
             paths.push(
                 dir.join("resources")
                     .join("streamlink")

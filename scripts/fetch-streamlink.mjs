@@ -12,7 +12,7 @@
  * When bumping the tag, update PINNED_SHA256 below:
  *   curl -sL -o sl.zip <asset-url> && sha256sum sl.zip
  */
-import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createWriteStream, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { pipeline } from "node:stream/promises";
@@ -35,6 +35,8 @@ if (!expectedHash) {
 }
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "src-tauri", "resources", "streamlink");
+const readmePath = path.join(outDir, "README.md");
+const readme = await readFile(readmePath, "utf8").catch(() => null);
 const assetUrl = `https://github.com/streamlink/windows-builds/releases/download/${version}/streamlink-${version}-py314-x86_64.zip`;
 
 console.log(`Fetching Streamlink ${version}…`);
@@ -94,55 +96,160 @@ try {
 
 await rm(zipPath, { force: true });
 
-async function findExe(dir) {
+async function isFile(target) {
+  try {
+    return (await stat(target)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function isDir(target) {
+  try {
+    return (await stat(target)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The upstream Windows build has this layout:
+ *
+ *   streamlink-<version>/
+ *     bin/streamlink.exe
+ *     bin/streamlinkw.exe
+ *     Python/python.exe
+ *     pkgs/
+ *     ffmpeg/ffmpeg.exe
+ *
+ * The launcher resolves `..\Python\python.exe` relative to itself, so the
+ * bin/ directory must stay one level below Python and pkgs. Flattening only
+ * `bin/` (the previous behaviour) left the launcher unable to find Python on
+ * a clean install. Flatten the whole payload root instead and keep the
+ * upstream layout intact.
+ */
+async function findPayloadRoot(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
     const full = path.join(dir, entry.name);
-    if (entry.isFile() && /^streamlinkw?\.exe$/i.test(entry.name)) {
+    if (
+      (await isFile(path.join(full, "bin", "streamlink.exe"))) &&
+      (await isFile(path.join(full, "Python", "python.exe"))) &&
+      (await isDir(path.join(full, "pkgs")))
+    ) {
       return full;
     }
-    if (entry.isDirectory()) {
-      const nested = await findExe(full);
-      if (nested) return nested;
-    }
+    const nested = await findPayloadRoot(full);
+    if (nested) return nested;
   }
   return null;
 }
 
-const exe = await findExe(outDir);
-if (!exe) {
-  console.error("streamlinkw.exe / streamlink.exe not found after extract");
+async function dirSize(dir) {
+  let total = 0;
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await dirSize(full);
+    } else if (entry.isFile()) {
+      total += (await stat(full)).size;
+    }
+  }
+  return total;
+}
+
+async function findNamedDirs(dir, name) {
+  const found = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.name.toLowerCase() === name) {
+      found.push(full);
+    } else {
+      found.push(...(await findNamedDirs(full, name)));
+    }
+  }
+  return found;
+}
+
+const payloadRoot = await findPayloadRoot(outDir);
+if (!payloadRoot) {
+  console.error("Streamlink payload root (bin + Python + pkgs) not found after extract");
   process.exit(1);
 }
 
-const exeDir = path.dirname(exe);
-if (path.resolve(exeDir) !== path.resolve(outDir)) {
-  console.log(`Flattening nested extract from ${exeDir}`);
-  const nestedEntries = await readdir(exeDir);
-  for (const name of nestedEntries) {
-    const from = path.join(exeDir, name);
-    const to = path.join(outDir, name);
-    try {
+const ffmpegDirs = await findNamedDirs(outDir, "ffmpeg");
+let ffmpegBytes = 0;
+for (const ffmpegDir of ffmpegDirs) {
+  ffmpegBytes += await dirSize(ffmpegDir);
+  await rm(ffmpegDir, { recursive: true, force: true });
+}
+
+if (path.resolve(payloadRoot) !== path.resolve(outDir)) {
+  console.log(`Flattening payload from ${payloadRoot}`);
+  for (const entry of await readdir(payloadRoot, { withFileTypes: true })) {
+    if (entry.name.toLowerCase() === "ffmpeg") continue;
+    const from = path.join(payloadRoot, entry.name);
+    const to = path.join(outDir, entry.name);
+    if (existsSync(to)) {
+      await rm(to, { recursive: true, force: true });
+    }
+    // Node's rename() of extracted directories intermittently fails with
+    // EPERM on Windows (AV/indexer holding a handle). Copy then remove.
+    if (entry.isDirectory()) {
+      await cp(from, to, { recursive: true });
+      await rm(from, { recursive: true, force: true });
+    } else {
       await rename(from, to);
-    } catch {
-      // ignore collisions
     }
   }
-  // remove emptied nest if possible
-  try {
-    const left = await readdir(exeDir);
-    if (!left.length) await rm(exeDir, { recursive: true, force: true });
-  } catch {
-    // ignore
+  await rm(payloadRoot, { recursive: true, force: true });
+}
+
+for (const entry of await readdir(outDir, { withFileTypes: true })) {
+  if (entry.isFile() && /^ffmpeg\.exe$/i.test(entry.name)) {
+    const full = path.join(outDir, entry.name);
+    ffmpegBytes += (await stat(full)).size;
+    await rm(full, { force: true });
   }
 }
 
-const finalExe = (await findExe(outDir)) ?? exe;
-const info = await stat(finalExe);
-if (!info.isFile()) {
-  console.error("Extracted Streamlink executable missing");
+let pycacheBytes = 0;
+for (const pycacheDir of await findNamedDirs(outDir, "__pycache__")) {
+  pycacheBytes += await dirSize(pycacheDir);
+  await rm(pycacheDir, { recursive: true, force: true });
+}
+
+const finalLauncher = path.join(outDir, "bin", "streamlinkw.exe");
+const finalExe = path.join(outDir, "bin", "streamlink.exe");
+const finalPython = path.join(outDir, "Python", "python.exe");
+if (
+  !(await isFile(finalLauncher)) ||
+  !(await isFile(finalExe)) ||
+  !(await isFile(finalPython)) ||
+  !(await isDir(path.join(outDir, "pkgs")))
+) {
+  console.error("Bundled Streamlink layout is incomplete (expected bin/, Python/, pkgs/)");
+  process.exit(1);
+}
+
+const payloadBytes = await dirSize(outDir);
+const maxPayloadBytes = 120 * 1024 * 1024;
+if (payloadBytes > maxPayloadBytes) {
+  console.error(
+    `Bundled Streamlink payload is ${(payloadBytes / 1024 / 1024).toFixed(1)} MiB; limit is 120 MiB`,
+  );
   process.exit(1);
 }
 
 await writeFile(path.join(outDir, "VERSION"), `${version}\n`, "utf8");
-console.log(`Streamlink ${version} ready at ${finalExe}`);
+if (readme !== null) {
+  await writeFile(readmePath, readme, "utf8");
+}
+console.log(
+  `Streamlink ${version} ready at ${finalLauncher} ` +
+    `(${(payloadBytes / 1024 / 1024).toFixed(1)} MiB payload, ` +
+    `${(ffmpegBytes / 1024 / 1024).toFixed(1)} MiB ffmpeg removed, ` +
+    `${(pycacheBytes / 1024 / 1024).toFixed(1)} MiB bytecode cache removed)`,
+);

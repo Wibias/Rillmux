@@ -180,7 +180,11 @@ mod tests {
 
     #[test]
     fn dock_watchdog_idles_when_focus_and_layout_are_stable() {
-        assert_eq!(dock_watchdog_interval_ms(false, false), 500);
+        assert_eq!(dock_watchdog_interval_ms_with_idle(false, false, 500), 500);
+        assert_eq!(
+            dock_watchdog_interval_ms_with_idle(false, false, 1000),
+            1000
+        );
         assert_eq!(dock_watchdog_interval_ms(true, true), 100);
         assert_eq!(dock_watchdog_interval_ms(true, false), 400);
         assert!(dock_watchdog_needs_fast_tick(
@@ -192,6 +196,73 @@ mod tests {
         assert!(!dock_watchdog_needs_fast_tick(
             false, false, false, false, false, false
         ));
+    }
+
+    fn streamlink_cleanup_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "rillmux-streamlink-cleanup-{label}-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("create cleanup fixture");
+        root
+    }
+
+    fn write_fixture_file(path: &Path) {
+        fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
+        fs::write(path, b"fixture").expect("write fixture file");
+    }
+
+    #[test]
+    fn removes_legacy_streamlink_payloads_only_after_bin_layout_is_ready() {
+        let root = streamlink_cleanup_root("complete");
+        let streamlink = root.join("streamlink");
+        write_fixture_file(&streamlink.join("bin").join("streamlinkw.exe"));
+        write_fixture_file(&streamlink.join("Python").join("python.exe"));
+        write_fixture_file(
+            &streamlink
+                .join("pkgs")
+                .join("streamlink")
+                .join("__init__.py"),
+        );
+        write_fixture_file(&root.join("Python").join("python.exe"));
+        write_fixture_file(&root.join("pkgs").join("streamlink").join("__init__.py"));
+        write_fixture_file(&root.join("ffmpeg").join("ffmpeg.exe"));
+        write_fixture_file(&streamlink.join("streamlinkw.exe"));
+        write_fixture_file(
+            &streamlink
+                .join("streamlink-8.4.0-1-py314-x86_64")
+                .join("ffmpeg")
+                .join("ffmpeg.exe"),
+        );
+
+        let freed = cleanup_legacy_streamlink_resources(&root);
+
+        assert!(freed > 0, "cleanup should report reclaimed bytes");
+        assert!(streamlink.join("bin").join("streamlinkw.exe").is_file());
+        assert!(streamlink.join("Python").join("python.exe").is_file());
+        assert!(streamlink
+            .join("pkgs")
+            .join("streamlink")
+            .join("__init__.py")
+            .is_file());
+        assert!(!root.join("Python").exists());
+        assert!(!root.join("pkgs").exists());
+        assert!(!root.join("ffmpeg").exists());
+        assert!(!streamlink.join("streamlinkw.exe").exists());
+        assert!(!streamlink.join("streamlink-8.4.0-1-py314-x86_64").exists());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn keeps_legacy_streamlink_payloads_when_bin_layout_is_missing() {
+        let root = streamlink_cleanup_root("incomplete");
+        write_fixture_file(&root.join("Python").join("python.exe"));
+        write_fixture_file(&root.join("ffmpeg").join("ffmpeg.exe"));
+
+        assert_eq!(cleanup_legacy_streamlink_resources(&root), 0);
+        assert!(root.join("Python").join("python.exe").is_file());
+        assert!(root.join("ffmpeg").join("ffmpeg.exe").is_file());
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

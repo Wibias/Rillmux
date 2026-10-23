@@ -53,3 +53,8 @@ tauri-plugin-decorum = "1.1.1"
 # Keep full debug info for the workspace crate itself, none for dependencies.
 [profile.dev.package."*"]
 debug = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

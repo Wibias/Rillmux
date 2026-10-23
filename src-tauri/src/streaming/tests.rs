@@ -181,7 +181,10 @@ mod tests {
     #[test]
     fn dock_watchdog_idles_when_focus_and_layout_are_stable() {
         assert_eq!(dock_watchdog_interval_ms_with_idle(false, false, 500), 500);
-        assert_eq!(dock_watchdog_interval_ms_with_idle(false, false, 1000), 1000);
+        assert_eq!(
+            dock_watchdog_interval_ms_with_idle(false, false, 1000),
+            1000
+        );
         assert_eq!(dock_watchdog_interval_ms(true, true), 100);
         assert_eq!(dock_watchdog_interval_ms(true, false), 400);
         assert!(dock_watchdog_needs_fast_tick(
@@ -205,8 +208,7 @@ mod tests {
     }
 
     fn write_fixture_file(path: &Path) {
-        fs::create_dir_all(path.parent().expect("fixture parent"))
-            .expect("create fixture parent");
+        fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
         fs::write(path, b"fixture").expect("write fixture file");
     }
 
@@ -216,7 +218,12 @@ mod tests {
         let streamlink = root.join("streamlink");
         write_fixture_file(&streamlink.join("bin").join("streamlinkw.exe"));
         write_fixture_file(&streamlink.join("Python").join("python.exe"));
-        write_fixture_file(&streamlink.join("pkgs").join("streamlink").join("__init__.py"));
+        write_fixture_file(
+            &streamlink
+                .join("pkgs")
+                .join("streamlink")
+                .join("__init__.py"),
+        );
         write_fixture_file(&root.join("Python").join("python.exe"));
         write_fixture_file(&root.join("pkgs").join("streamlink").join("__init__.py"));
         write_fixture_file(&root.join("ffmpeg").join("ffmpeg.exe"));

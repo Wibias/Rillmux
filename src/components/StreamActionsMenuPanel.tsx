@@ -21,20 +21,9 @@ interface PanelProps {
   position: StreamMenuPosition | null;
   stream: HelixStream;
   pinned: boolean;
-  confirmingUnfollow: boolean;
-  pending: boolean;
-  actionError: boolean;
-  following: boolean;
-  followStatePending: boolean;
-  showFollowPermission: boolean;
-  showFollowAction: boolean;
   onWatch?: (stream: HelixStream) => void;
   onTogglePin?: (login: string) => void;
   onClose: () => void;
-  onStartLogin: () => void;
-  onFollowToggle: () => void;
-  onCancelUnfollow: () => void;
-  onConfirmUnfollow: () => void;
 }
 
 export function StreamActionsMenuPanel({
@@ -43,21 +32,11 @@ export function StreamActionsMenuPanel({
   position,
   stream,
   pinned,
-  confirmingUnfollow,
-  pending,
-  actionError,
-  following,
-  followStatePending,
-  showFollowPermission,
-  showFollowAction,
   onWatch,
   onTogglePin,
   onClose,
-  onStartLogin,
-  onFollowToggle,
-  onCancelUnfollow,
-  onConfirmUnfollow,
 }: PanelProps) {
+  const { t } = useTranslation(["common", "routes"]);
   return (
     <div
       id={menuId}
@@ -71,94 +50,6 @@ export function StreamActionsMenuPanel({
       }
       data-positioned={position ? "true" : "false"}
     >
-      {confirmingUnfollow ? (
-        <UnfollowConfirm
-          channel={stream.user_name}
-          pending={pending}
-          onCancel={onCancelUnfollow}
-          onConfirm={onConfirmUnfollow}
-        />
-      ) : (
-        <StreamMenuItems
-          stream={stream}
-          pinned={pinned}
-          pending={pending}
-          actionError={actionError}
-          following={following}
-          followStatePending={followStatePending}
-          showFollowPermission={showFollowPermission}
-          showFollowAction={showFollowAction}
-          onWatch={onWatch}
-          onTogglePin={onTogglePin}
-          onClose={onClose}
-          onStartLogin={onStartLogin}
-          onFollowToggle={onFollowToggle}
-        />
-      )}
-    </div>
-  );
-}
-
-function UnfollowConfirm({
-  channel,
-  pending,
-  onCancel,
-  onConfirm,
-}: {
-  channel: string;
-  pending: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const { t } = useTranslation(["common", "routes"]);
-  return (
-    <div className="stream-menu__confirm">
-      <p className="stream-menu__confirm-text">
-        {t("routes:streamUnfollowConfirm", { channel })}
-      </p>
-      <div className="stream-menu__confirm-actions">
-        <button type="button" onClick={onCancel} disabled={pending}>
-          {t("common:cancel")}
-        </button>
-        <button
-          type="button"
-          className="stream-menu__danger"
-          onClick={onConfirm}
-          disabled={pending}
-        >
-          {t("routes:streamUnfollow")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function StreamMenuItems({
-  stream,
-  pinned,
-  pending,
-  actionError,
-  following,
-  followStatePending,
-  showFollowPermission,
-  showFollowAction,
-  onWatch,
-  onTogglePin,
-  onClose,
-  onStartLogin,
-  onFollowToggle,
-}: Omit<
-  PanelProps,
-  | "menuId"
-  | "panelRef"
-  | "position"
-  | "confirmingUnfollow"
-  | "onCancelUnfollow"
-  | "onConfirmUnfollow"
->) {
-  const { t } = useTranslation(["common", "routes"]);
-  return (
-    <>
       {onWatch ? (
         <button
           type="button"
@@ -200,32 +91,6 @@ function StreamMenuItems({
       >
         {t("routes:streamCopyUrl")}
       </button>
-      {showFollowPermission ? (
-        <button
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            onClose();
-            onStartLogin();
-          }}
-        >
-          {t("routes:streamFollowPermission")}
-        </button>
-      ) : null}
-      {showFollowAction ? (
-        <button
-          type="button"
-          role="menuitem"
-          disabled={pending || followStatePending}
-          onClick={onFollowToggle}
-        >
-          {followStatePending
-            ? t("common:loading")
-            : following
-            ? t("routes:streamUnfollow")
-            : t("routes:streamFollow")}
-        </button>
-      ) : null}
       {onTogglePin ? (
         <button
           type="button"
@@ -238,13 +103,6 @@ function StreamMenuItems({
           {pinned ? t("routes:streamUnpin") : t("routes:streamPin")}
         </button>
       ) : null}
-      {actionError ? (
-        <p className="stream-menu__error" role="alert">
-          {following
-            ? t("routes:streamUnfollowFailed")
-            : t("routes:streamFollowFailed")}
-        </p>
-      ) : null}
-    </>
+    </div>
   );
 }

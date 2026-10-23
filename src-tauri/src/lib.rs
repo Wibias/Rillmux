@@ -437,17 +437,6 @@ async fn helix_fetch(
 }
 
 #[tauri::command]
-async fn helix_mutate(
-    method: String,
-    path: String,
-    query: Option<Vec<(String, String)>>,
-) -> Result<(), String> {
-    helix::mutate(&method, &path, &query.unwrap_or_default())
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 async fn stream_start(
     app: AppHandle,
     state: tauri::State<'_, SharedStreaming>,
@@ -1047,7 +1036,6 @@ pub fn run() {
             channel_points_vote_prediction,
             channel_points_redeem_reward,
             helix_fetch,
-            helix_mutate,
             stream_start,
             stream_list,
             stream_stop,

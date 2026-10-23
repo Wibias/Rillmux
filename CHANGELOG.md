@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.20] — 2026-10-23
+
+### Fixed
+
+- Stream menus do not offer an in-app Follow action. Twitch decommissioned the Follow API in July 2021, so the request could only fail; use "Open in Twitch" to follow on the channel page.
+
+### Changed
+
+- Helix failures are written to the debug log with their HTTP status and response body.
+- The app no longer requests the unused `user:edit:follows` scope.
+
 ## [0.5.19] — 2026-10-23
 
 ### Added

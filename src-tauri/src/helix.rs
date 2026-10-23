@@ -42,41 +42,8 @@ pub async fn fetch(path: &str, query: &[(String, String)]) -> Result<Value, Heli
     let status = res.status();
     if !status.is_success() {
         let body = res.text().await.unwrap_or_default();
+        crate::diagnostics::log_debug(&format!("[helix] GET {path} returned {status}: {body}"));
         return Err(HelixError::Message(format!("helix {status}: {body}")));
     }
     Ok(res.json().await?)
-}
-
-/// Proxy a token-bearing Helix mutation (POST/DELETE) without exposing the
-/// access token to the webview. Follow endpoints accept an empty JSON body.
-pub async fn mutate(
-    method: &str,
-    path: &str,
-    query: &[(String, String)],
-) -> Result<(), HelixError> {
-    let verb = match method {
-        "POST" => reqwest::Method::POST,
-        "DELETE" => reqwest::Method::DELETE,
-        other => {
-            return Err(HelixError::Message(format!(
-                "unsupported helix method '{other}'"
-            )))
-        }
-    };
-    let creds = auth::credentials_for_api().await?;
-    let url = helix_url(path, query)?;
-    let mut request = shared_client()
-        .request(verb, url)
-        .header("Client-Id", creds.client_id)
-        .bearer_auth(creds.access_token);
-    if method == "POST" {
-        request = request.json(&serde_json::json!({}));
-    }
-    let res = request.send().await.map_err(reset_on_transport)?;
-    let status = res.status();
-    if !status.is_success() {
-        let body = res.text().await.unwrap_or_default();
-        return Err(HelixError::Message(format!("helix {status}: {body}")));
-    }
-    Ok(())
 }

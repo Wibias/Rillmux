@@ -14,13 +14,9 @@ const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 const REVOKE_URL: &str = "https://id.twitch.tv/oauth2/revoke";
 const DEV_CLIENT_ID: &str = "phiay4sq36lfv9zu7cbqwz2ndnesfd8";
 
-/// Least privilege: read followed streams and manage follows from the UI.
+/// Least privilege: read followed streams and subscriptions for the UI.
 /// Blocked-user scopes were dropped — the app has no block/unblock feature.
-pub const DEFAULT_SCOPES: &[&str] = &[
-    "user:read:follows",
-    "user:edit:follows",
-    "user:read:subscriptions",
-];
+pub const DEFAULT_SCOPES: &[&str] = &["user:read:follows", "user:read:subscriptions"];
 
 #[derive(Debug, Error)]
 pub enum AuthError {

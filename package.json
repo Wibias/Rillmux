@@ -16,7 +16,10 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "streamlink:fetch": "node scripts/fetch-streamlink.mjs"
+    "streamlink:fetch": "node scripts/fetch-streamlink.mjs",
+    "streamlink:verify": "node scripts/verify-streamlink-payload.mjs",
+    "perf:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-release-perf.ps1",
+    "perf:dock-ab": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-dock-watchdog.ps1"
   },
   "dependencies": {
     "@sentry/react": "^11.8.0",

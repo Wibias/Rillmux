@@ -4,15 +4,99 @@ fn bundled_streamlink() -> Option<PathBuf> {
     let candidates = [
         dir.join("resources")
             .join("streamlink")
+            .join("bin")
             .join("streamlinkw.exe"),
+        dir.join("resources")
+            .join("streamlink")
+            .join("streamlinkw.exe"),
+        dir.join("streamlink").join("bin").join("streamlinkw.exe"),
         dir.join("streamlink").join("streamlinkw.exe"),
         // Dev: relative to src-tauri/resources
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("streamlink")
+            .join("bin")
+            .join("streamlinkw.exe"),
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("resources")
             .join("streamlink")
             .join("streamlinkw.exe"),
     ];
     candidates.into_iter().find(|p| p.is_file())
+}
+
+fn resource_path_size(path: &Path) -> u64 {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if metadata.file_type().is_symlink() {
+        return 0;
+    }
+    if metadata.is_file() {
+        return metadata.len();
+    }
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| resource_path_size(&entry.path()))
+        .sum()
+}
+
+fn remove_resource_path_no_follow(path: &Path) -> u64 {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if metadata.file_type().is_symlink() {
+        return 0;
+    }
+    let bytes = resource_path_size(path);
+    let removed = if metadata.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    };
+    if removed.is_ok() {
+        bytes
+    } else {
+        0
+    }
+}
+
+fn streamlink_layout_is_complete(resource_dir: &Path) -> bool {
+    let streamlink = resource_dir.join("streamlink");
+    streamlink.join("bin").join("streamlinkw.exe").is_file()
+        && streamlink.join("Python").join("python.exe").is_file()
+        && streamlink.join("pkgs").is_dir()
+}
+
+pub(crate) fn cleanup_legacy_streamlink_resources(resource_dir: &Path) -> u64 {
+    if !streamlink_layout_is_complete(resource_dir) {
+        return 0;
+    }
+    let streamlink = resource_dir.join("streamlink");
+
+    let mut freed = 0;
+    for name in ["ffmpeg", "Python", "pkgs"] {
+        freed += remove_resource_path_no_follow(&resource_dir.join(name));
+    }
+    for name in ["streamlink.exe", "streamlinkw.exe"] {
+        freed += remove_resource_path_no_follow(&streamlink.join(name));
+    }
+    if let Ok(entries) = fs::read_dir(&streamlink) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if name.starts_with("streamlink-") || name == "ffmpeg" {
+                freed += remove_resource_path_no_follow(&path);
+            }
+        }
+    }
+    freed
 }
 
 fn resolve_streamlink(

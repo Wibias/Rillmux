@@ -57,6 +57,12 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+      - name: Release backtrace contract
+        working-directory: src-tauri
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo test --release --test release_backtrace_contract
+
       - name: Install cargo-audit
         run: cargo install cargo-audit --version 0.22.2 --locked
 
@@ -66,6 +72,15 @@ jobs:
 
       - name: Fetch bundled Streamlink
         run: npm run streamlink:fetch
+
+      - name: Verify bundled Streamlink payload
+        run: npm run streamlink:verify
+
+      # Network smoke test for the exact playback arguments. Kept to manual
+      # dispatches so a live Twitch channel cannot fail a tag release.
+      - name: Verify bundled Streamlink playback (online)
+        if: github.event_name == 'workflow_dispatch'
+        run: npm run streamlink:verify -- --online
 
       # GitHub Actions rejects `secrets` in `if:` (parse error, workflow shows
       # as the file path instead of "Release"). Gate inside the step instead.

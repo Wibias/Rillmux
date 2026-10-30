@@ -45,6 +45,7 @@ describe("Tauri capability boundaries", () => {
     expect(build).toContain('"app_quit"');
     expect(build).toContain('"channel_points_redeem_reward"');
     expect(build).toContain('"points_hud_place_window"');
+    expect(build).toContain('"eventsub_status"');
     expect(build).toContain('"open_independent_chatterino_chat"');
     expect(build).toContain('"close_independent_chatterino_chat"');
   });
@@ -55,6 +56,7 @@ describe("Tauri capability boundaries", () => {
     expect(main.permissions).toContain("allow-app-quit");
     expect(main.permissions).toContain("allow-auth-logout");
     expect(main.permissions).toContain("allow-stream-start");
+    expect(main.permissions).toContain("allow-eventsub-status");
     expect(main.permissions).toContain("allow-points-hud-place-window");
     expect(main.permissions).toContain("allow-open-independent-chatterino-chat");
     expect(main.permissions).toContain("allow-close-independent-chatterino-chat");

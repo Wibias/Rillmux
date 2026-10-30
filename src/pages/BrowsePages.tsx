@@ -5,6 +5,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { DoctorPanel } from "../components/DoctorPanel";
+import { ConnectionHealth } from "../components/ConnectionHealth";
 import { ChangelogDialog } from "../components/ChangelogDialog";
 import { EmbeddedChat } from "../components/EmbeddedChat";
 import { LoadMore } from "../components/LoadMore";
@@ -762,6 +763,7 @@ export function AboutPage() {
           {error ? ` — ${error}` : ""}
         </p>
       ) : null}
+      <ConnectionHealth />
       <DoctorPanel />
       {showChangelog ? (
         <ChangelogDialog onClose={() => setShowChangelog(false)} />

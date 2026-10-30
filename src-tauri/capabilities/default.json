@@ -75,6 +75,7 @@
     "allow-diagnostics-open-logs",
     "allow-diagnostics-open-crashes",
     "allow-eventsub-sync",
+    "allow-eventsub-status",
     "allow-raid-overlay-place",
     "allow-channel-points-hud-place",
     "allow-points-hud-place-window",

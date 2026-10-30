@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::net::TcpStream;
@@ -55,6 +55,80 @@ fn eventsub_error_class(error: &str) -> &'static str {
     } else {
         "other"
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EventSubConnectionState {
+    #[default]
+    Idle,
+    Connecting,
+    Connected,
+    Retrying,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventSubStatus {
+    pub enabled: bool,
+    pub watched_channels: usize,
+    pub state: EventSubConnectionState,
+    pub last_error: Option<&'static str>,
+}
+
+#[derive(Default)]
+struct RuntimeStatus {
+    state: EventSubConnectionState,
+    last_error: Option<&'static str>,
+}
+
+fn runtime_status() -> &'static Mutex<RuntimeStatus> {
+    static S: OnceLock<Mutex<RuntimeStatus>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(RuntimeStatus::default()))
+}
+
+fn set_state(state: EventSubConnectionState) {
+    if let Ok(mut runtime) = runtime_status().lock() {
+        runtime.state = state;
+    }
+}
+
+fn set_error(reason: &'static str) {
+    if let Ok(mut runtime) = runtime_status().lock() {
+        runtime.state = EventSubConnectionState::Retrying;
+        runtime.last_error = Some(reason);
+    }
+}
+
+fn set_connected() {
+    if let Ok(mut runtime) = runtime_status().lock() {
+        runtime.state = EventSubConnectionState::Connected;
+        runtime.last_error = None;
+    }
+}
+
+fn sync_runtime(active: bool) {
+    if let Ok(mut runtime) = runtime_status().lock() {
+        if active {
+            if runtime.state == EventSubConnectionState::Idle {
+                runtime.state = EventSubConnectionState::Connecting;
+            }
+        } else {
+            runtime.state = EventSubConnectionState::Idle;
+            runtime.last_error = None;
+        }
+    }
+}
+
+pub fn status() -> Result<EventSubStatus, String> {
+    let config = state().lock().map_err(|error| error.to_string())?;
+    let runtime = runtime_status().lock().map_err(|error| error.to_string())?;
+    Ok(EventSubStatus {
+        enabled: config.enabled,
+        watched_channels: config.logins.len(),
+        state: runtime.state,
+        last_error: runtime.last_error,
+    })
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -120,6 +194,9 @@ pub fn sync(enabled: bool, logins: Vec<String>) {
                 g.logins.len()
             ),
         );
+        let active = g.enabled && !g.logins.is_empty();
+        drop(g);
+        sync_runtime(active);
     }
     wake().notify_waiters();
 }
@@ -134,6 +211,7 @@ async fn run_supervisor(app: AppHandle) {
     loop {
         let (enabled, logins) = desired_state().unwrap_or((false, HashSet::new()));
         if !enabled || logins.is_empty() {
+            set_state(EventSubConnectionState::Idle);
             debug_raid(
                 "eventsub.supervisor.idle",
                 &format!("enabled={enabled} target_count={}", logins.len()),
@@ -149,6 +227,7 @@ async fn run_supervisor(app: AppHandle) {
                 backoff.as_millis()
             ),
         );
+        set_state(EventSubConnectionState::Connecting);
         match run_session(app.clone(), logins).await {
             Ok(()) => {
                 debug_raid("eventsub.session.end", "reason=reconfigured");
@@ -156,6 +235,7 @@ async fn run_supervisor(app: AppHandle) {
             }
             Err(e) => {
                 let reason = eventsub_error_class(&e);
+                set_error(reason);
                 debug_raid(
                     "eventsub.session.error",
                     &format!("reason={reason} backoff_ms={}", backoff.as_millis()),
@@ -340,6 +420,7 @@ async fn run_session(app: AppHandle, initial_logins: HashSet<String>) -> Result<
         &id_cache,
     )
     .await?;
+    set_connected();
     debug_raid(
         "eventsub.subscription.ready",
         &format!(
@@ -836,6 +917,22 @@ mod tests {
             eventsub_error_class("EventSub connection timed out"),
             "connect"
         );
+    }
+
+    #[test]
+    fn status_payload_is_safe_and_shaped_for_the_ui() {
+        let status = EventSubStatus {
+            enabled: true,
+            watched_channels: 2,
+            state: EventSubConnectionState::Retrying,
+            last_error: Some("authentication"),
+        };
+        let value = serde_json::to_value(status).unwrap();
+        assert_eq!(value["enabled"], true);
+        assert_eq!(value["watchedChannels"], 2);
+        assert_eq!(value["state"], "retrying");
+        assert_eq!(value["lastError"], "authentication");
+        assert!(!value.to_string().to_ascii_lowercase().contains("token"));
     }
 
     #[tokio::test]

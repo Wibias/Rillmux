@@ -595,7 +595,7 @@ mod tests {
             height: 800,
         };
         assert_eq!(
-            caption_avoid_from_main(main.clone(), 1.0),
+            caption_avoid_from_main(main, 1.0),
             OverlayRect {
                 x: 100 + 1280 - 138,
                 y: 50,
@@ -673,7 +673,7 @@ mod tests {
             width: 120,
             height: 36,
         };
-        assert!(overlay_rects_overlap(covering, caption.clone()));
+        assert!(overlay_rects_overlap(covering, caption));
         assert!(!overlay_rects_overlap(below, caption));
     }
 

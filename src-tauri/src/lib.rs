@@ -696,6 +696,11 @@ fn eventsub_sync(enabled: bool, channels: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn eventsub_status() -> Result<eventsub::EventSubStatus, String> {
+    eventsub::status()
+}
+
+#[tauri::command]
 fn raid_overlay_place(from_channel: String) -> Option<OverlayRect> {
     let result = streaming::raid_overlay_host(&from_channel);
     diagnostics::log_event(
@@ -1056,6 +1061,7 @@ pub fn run() {
             diagnostics_open_logs,
             diagnostics_open_crashes,
             eventsub_sync,
+            eventsub_status,
             raid_overlay_place,
             channel_points_hud_place,
             points_hud_place_window,

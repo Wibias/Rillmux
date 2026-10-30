@@ -35,6 +35,7 @@ About includes **View changelog** and a setup check once Streamlink, mpv, and Ch
 - Auto-updater and `stg://` deep links
 - Optional Sentry crash reports (opt-out in Settings)
 - Optional category-filtered local Debug Mode diagnostics with bounded `rillmux.log` rotation and local crash files
+- About connection status for Twitch, playback auth, bonus claims, and raid notifications
 
 Release notes: [CHANGELOG.md](CHANGELOG.md).
 
@@ -71,18 +72,19 @@ npm run tauri:dev
 - `npm test` — unit tests
 - `npm run doctor` — full React Doctor scan (CI fails on any finding)
 - `npm run streamlink:fetch` — download a Windows Streamlink build into `src-tauri/resources/streamlink/` (gitignored binaries)
+- `npm run perf:baseline -- --runs 3` — repeat the release performance probe and report median startup, memory, and idle CPU values
 
 Twitch Client ID for local builds: set `TWITCH_CLIENT_ID` / `VITE_TWITCH_CLIENT_ID`, or use the documented env fallback for tryouts. Production releases need your own public Twitch application (Device Code / public client).
 
 ## Release (maintainers)
 
-Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.11**).
+Keep the version in sync in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (currently **0.5.21**).
 
 Pushes to `main` or `master` expect a PR with green CI (`frontend`, `rust`, and `react-doctor`). A local `pre-push` hook runs `npm run ci`. Skip it only with `SKIP_CI_HOOK=1`. The Release workflow runs the frontend and rust checks again before building installers.
 
 ```bash
-git tag v0.5.11
-git push origin v0.5.11
+git tag v0.5.21
+git push origin v0.5.21
 ```
 
 That runs [`.github/workflows/release.yml`](.github/workflows/release.yml): fetch Streamlink → `tauri build` (NSIS + MSI + updater signatures) → GitHub Release with auto-generated notes. Keep the narrative in [CHANGELOG.md](CHANGELOG.md) in sync when you cut a version.

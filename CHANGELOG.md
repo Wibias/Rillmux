@@ -18,10 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Website authentication and bonus-claim authentication can now be configured directly from About.
 - The first-run wizard adds an optional connections step and opens About's connection settings when completed.
+- The first launch after an update now shows the installed version's changelog once.
+- mpv volume can start from the last saved level, the configured maximum, or a custom percentage.
 
 ### Changed
 
 - Website-auth and bonus-claim chips no longer occupy the title bar; connection management now lives in About.
+- Hovering outside the changelog dialog no longer tints the full-window dismiss layer purple.
+
+### Internal
+
+- Release verification and installer builds run in parallel, cargo-audit uses a prebuilt binary, and Rust release codegen uses four units instead of one to reduce release wall time.
+- Rust CodeQL uses cached dependencies and a lighter `cargo check` extraction build.
 
 ## [0.5.21] — 2026-10-30
 

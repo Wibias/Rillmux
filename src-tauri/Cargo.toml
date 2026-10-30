@@ -56,5 +56,7 @@ debug = false
 
 [profile.release]
 lto = "thin"
-codegen-units = 1
+# Parallel codegen trades a little binary size for materially shorter release
+# builds. Thin LTO still removes most cross-unit overhead.
+codegen-units = 4
 strip = "debuginfo"

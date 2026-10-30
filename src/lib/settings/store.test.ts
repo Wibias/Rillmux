@@ -99,6 +99,14 @@ describe("migrateSettings", () => {
     expect(result.gui.onboardingDone).toBe(true);
   });
 
+  it("preserves the last seen changelog version across migrations", () => {
+    const result = migrateSettings({
+      schemaVersion: 23,
+      gui: { lastSeenChangelogVersion: "0.5.21" },
+    });
+    expect(result.gui.lastSeenChangelogVersion).toBe("0.5.21");
+  });
+
   it("keeps linked dock grips when the open mode is not multistream", () => {
     const result = migrateSettings({
       schemaVersion: 23,
@@ -246,18 +254,32 @@ describe("composeMpvPlayerArgs", () => {
     expect(args).not.toContain("--window-maximized=yes");
   });
 
-  it("only raises the mpv volume ceiling for an opt-in boost", () => {
+  it("applies the configured volume strategy within the saved ceiling", () => {
     const meta = { channel: "forsen", title: "Live", game: "Variety" };
-    const boosted = composeMpvPlayerArgs(
-      { ...defaultMpvPresets(), volumeBoost: 200 },
+    const maximum = composeMpvPlayerArgs(
+      { ...defaultMpvPresets(), volumeBoost: 200, volumeMode: "max" },
       "",
       meta,
     );
-    expect(boosted).toContain("--volume-max=200");
-    expect(boosted).toContain("--volume=200");
+    expect(maximum).toContain("--volume-max=200");
+    expect(maximum).toContain("--volume=200");
+
+    const custom = composeMpvPlayerArgs(
+      {
+        ...defaultMpvPresets(),
+        volumeBoost: 200,
+        volumeMode: "custom",
+        volumeCustom: 275,
+      },
+      "",
+      meta,
+    );
+    expect(custom).toContain("--volume-max=200");
+    expect(custom).toContain("--volume=200");
 
     const normal = composeMpvPlayerArgs(defaultMpvPresets(), "", meta);
-    expect(normal).not.toContain("--volume");
+    expect(normal).toContain("--volume-max=100");
+    expect(normal).toContain("--volume=100");
   });
 
   it("rejects an unknown stored volume boost", () => {
@@ -269,6 +291,13 @@ describe("composeMpvPlayerArgs", () => {
       migrateSettings({ player: { mpv: { volumeBoost: 150 } } }).player.mpv
         .volumeBoost,
     ).toBe(150);
+    const custom = migrateSettings({
+      player: {
+        mpv: { volumeMode: "custom", volumeBoost: 150, volumeCustom: 9000 },
+      },
+    }).player.mpv;
+    expect(custom.volumeMode).toBe("custom");
+    expect(custom.volumeCustom).toBe(150);
   });
 });
 

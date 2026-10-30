@@ -268,10 +268,16 @@ export function UpdateDialog({
                   : t("updateInstalling")}
               </strong>
               {phase === "downloading" ? (
-                <span className="update-dialog__bar">
+                <span
+                  className="update-dialog__bar"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progress}
+                >
                   <span
                     className="update-dialog__fill"
-                    style={{ width: `${progress}%` }}
+                    style={{ transform: `scaleX(${progress / 100})` }}
                   />
                 </span>
               ) : null}

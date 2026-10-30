@@ -12,10 +12,11 @@ export interface MpvPresetSettings {
   loopReload: boolean;
   /** --cache=yes --demuxer-max-back-bytes=250M */
   cacheRewind: boolean;
-  /**
-   * --volume=N --volume-max=N. 100 leaves mpv at its default ceiling (130),
-   * so nothing above 100 % happens unless the user opts in.
-   */
+  /** Initial stream volume policy. */
+  volumeMode: MpvVolumeMode;
+  /** Target volume for `custom`, clamped to `volumeBoost`. */
+  volumeCustom: number;
+  /** Hard ceiling passed as --volume-max. */
   volumeBoost: number;
   /**
    * Opt-in: when the stream falls behind the live edge, temporarily raise the
@@ -33,6 +34,28 @@ export interface MpvPresetSettings {
 export const MPV_VOLUME_BOOSTS = [100, 130, 150, 200, 300] as const;
 
 export const DEFAULT_MPV_VOLUME_BOOST = 100;
+export const DEFAULT_MPV_VOLUME_CUSTOM = 100;
+export type MpvVolumeMode = "last" | "max" | "custom";
+
+export function normalizeMpvVolumeMode(value: unknown): MpvVolumeMode {
+  return value === "max" || value === "custom" ? value : "last";
+}
+
+export function clampMpvVolume(value: unknown, maximum: number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_MPV_VOLUME_CUSTOM;
+  return Math.min(Math.max(1, Math.round(parsed)), maximum);
+}
+
+/** Initial --volume target before the backend restores a persisted last level. */
+export function initialMpvVolume(presets: MpvPresetSettings): number {
+  const maximum = normalizeMpvVolumeBoost(presets.volumeBoost);
+  if (presets.volumeMode === "max") return maximum;
+  if (presets.volumeMode === "custom") {
+    return clampMpvVolume(presets.volumeCustom, maximum);
+  }
+  return 100;
+}
 
 /** Playback speed mpv is raised to while auto catch-up is draining a lag. */
 export const MPV_CATCH_UP_SPEED = 1.1;
@@ -51,6 +74,8 @@ export const defaultMpvPresets = (): MpvPresetSettings => ({
   windowMaximized: true,
   loopReload: true,
   cacheRewind: true,
+  volumeMode: "last",
+  volumeCustom: DEFAULT_MPV_VOLUME_CUSTOM,
   volumeBoost: DEFAULT_MPV_VOLUME_BOOST,
   autoCatchUp: false,
 });
@@ -124,12 +149,9 @@ export function composeMpvPlayerArgs(
     // Catch-up drains a forward buffer; without one there is no lag to measure.
     parts.push("--cache=yes");
   }
-  if (presets.volumeBoost > 100) {
-    // Order matters: mpv clamps volume to volume-max, so raise the ceiling
-    // first (last-one-wins for repeated options).
-    parts.push(`--volume-max=${presets.volumeBoost}`);
-    parts.push(`--volume=${presets.volumeBoost}`);
-  }
+  // Pass the ceiling even at 100 so the saved setting is a hard cap.
+  parts.push(`--volume-max=${normalizeMpvVolumeBoost(presets.volumeBoost)}`);
+  parts.push(`--volume=${initialMpvVolume(presets)}`);
   parts.push(`--title="${label}"`);
   parts.push(`--force-media-title="${label}"`);
   const extras = customExtras.trim();
@@ -146,7 +168,7 @@ export function describeMpvPresets(presets: MpvPresetSettings): string[] {
   if (presets.loopReload) items.push("Enter reloads the stream");
   if (presets.cacheRewind) items.push("cache + rewind buffer");
   if (presets.volumeBoost > 100) {
-    items.push(`volume boost ${presets.volumeBoost}%`);
+    items.push(`maximum volume ${presets.volumeBoost}%`);
   }
   if (presets.autoCatchUp) {
     items.push(`auto catch-up to ${MPV_CATCH_UP_SPEED}x when behind`);

@@ -444,10 +444,19 @@ pub fn start_stream(
                         Duration::from_secs(3),
                     );
                 });
-                let effective_volume = inherited_or_initial(
-                    live_player_volume(state).or_else(remembered_volume),
-                    mpv_initial_volume(&preset_player_args),
-                );
+                let effective_volume = match req.volume_mode.as_deref() {
+                    Some(mode) => selected_player_volume(
+                        mode,
+                        req.volume_custom.unwrap_or(100.0),
+                        req.volume_max.unwrap_or(100.0),
+                        live_player_volume(state).or_else(remembered_volume),
+                        mpv_initial_volume(&preset_player_args),
+                    ),
+                    None => inherited_or_initial(
+                        live_player_volume(state).or_else(remembered_volume),
+                        mpv_initial_volume(&preset_player_args),
+                    ),
+                };
                 use_fast = true;
                 fast_ctx = Some(Arc::new(FastPlayerCtx {
                     pipe: pipe.clone(),

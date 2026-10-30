@@ -160,6 +160,8 @@ export interface AppSettings {
     debugMode: boolean;
     /** Category filters for local debug output. Retained while debug mode is off. */
     debugCategories: DebugCategories;
+    /** Last app version whose changelog was acknowledged after an update. */
+    lastSeenChangelogVersion: string | null;
   };
   notifications: {
     followedOnline: boolean;
@@ -176,7 +178,7 @@ export interface AppSettings {
   closeToTray?: boolean;
 }
 
-export const SETTINGS_SCHEMA_VERSION = 23;
+export const SETTINGS_SCHEMA_VERSION = 25;
 
 export const defaultDebugCategories = (): DebugCategories => ({
   windows: true,
@@ -251,6 +253,7 @@ export const defaultSettings = (): AppSettings => ({
     hideMatureFollowed: false,
     debugMode: false,
     debugCategories: defaultDebugCategories(),
+    lastSeenChangelogVersion: null,
   },
   notifications: {
     followedOnline: true,

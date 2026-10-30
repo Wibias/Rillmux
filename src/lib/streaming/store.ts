@@ -721,6 +721,9 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           playerNoClose: settings.streaming.playerNoClose,
           autoCatchUp:
             settings.player.mpv.autoCatchUp && launch.playerId === "mpv",
+          volumeMode: settings.player.mpv.volumeMode,
+          volumeCustom: settings.player.mpv.volumeCustom,
+          volumeMax: settings.player.mpv.volumeBoost,
           reserveChat: besideChat,
           replaceExisting,
           slotIndex: Math.max(0, plannedChannels.indexOf(channel)),
@@ -892,6 +895,9 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           playerNoClose: settings.streaming.playerNoClose,
           autoCatchUp:
             settings.player.mpv.autoCatchUp && launch.playerId === "mpv",
+          volumeMode: settings.player.mpv.volumeMode,
+          volumeCustom: settings.player.mpv.volumeCustom,
+          volumeMax: settings.player.mpv.volumeBoost,
           reserveChat: hasChatterino,
           replaceExisting: false,
           slotIndex: Math.max(0, plannedChannels.indexOf(toLogin)),

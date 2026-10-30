@@ -77,10 +77,16 @@ function ChangelogNotes({ blocks }: { blocks: NoteBlock[] }) {
   return <>{out}</>;
 }
 
-export function ChangelogDialog({ onClose }: { onClose: () => void }) {
+export function ChangelogDialog({
+  onClose,
+  limit = 5,
+}: {
+  onClose: () => void;
+  limit?: number;
+}) {
   const { t } = useTranslation(["routes", "common"]);
   const titleId = useId();
-  const [sections] = useState(() => recentChangelogSections(changelog, 5));
+  const [sections] = useState(() => recentChangelogSections(changelog, limit));
   const parsed = useMemo(
     () =>
       sections.map((section) => ({

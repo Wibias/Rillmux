@@ -7,6 +7,7 @@ import type { DoctorReport } from "../lib/doctor";
 import { useAuthStore } from "../lib/auth/store";
 import { useSettingsStore } from "../lib/settings/store";
 import { invoke, isTauri } from "../lib/tauri";
+import { normalizeAppVersion } from "../lib/updater/prompt";
 import "./OnboardingWizard.css";
 
 const STEPS = 4;
@@ -38,14 +39,28 @@ export function OnboardingWizard() {
     if (open) refresh();
   }, [open, refresh]);
 
-  const finish = () => {
+  const finish = async () => {
+    let seenVersion = settings.gui.lastSeenChangelogVersion;
+    if (isTauri()) {
+      try {
+        const { getVersion } = await import("@tauri-apps/api/app");
+        seenVersion = normalizeAppVersion(await getVersion()) || seenVersion;
+      } catch {
+        seenVersion =
+          normalizeAppVersion(import.meta.env.VITE_APP_VERSION) || seenVersion;
+      }
+    }
     setSettings({
-      gui: { ...settings.gui, onboardingDone: true },
+      gui: {
+        ...settings.gui,
+        onboardingDone: true,
+        lastSeenChangelogVersion: seenVersion,
+      },
     });
   };
 
-  const finishAndOpenConnections = () => {
-    finish();
+  const finishAndOpenConnections = async () => {
+    await finish();
     navigate("/about#connections");
   };
 
@@ -126,7 +141,11 @@ export function OnboardingWizard() {
         </div>
 
         <footer className="onboarding__footer">
-          <button type="button" className="button-secondary" onClick={finish}>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => void finish()}
+          >
             {t("onboarding:skip")}
           </button>
           <div className="onboarding__nav">
@@ -144,7 +163,10 @@ export function OnboardingWizard() {
                 {t("onboarding:next")}
               </button>
             ) : (
-              <button type="button" onClick={finishAndOpenConnections}>
+              <button
+                type="button"
+                onClick={() => void finishAndOpenConnections()}
+              >
                 {t("onboarding:openConnections")}
               </button>
             )}

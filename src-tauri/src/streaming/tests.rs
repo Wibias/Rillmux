@@ -1200,6 +1200,30 @@ mod tests {
     }
 
     #[test]
+    fn selected_volume_respects_mode_and_ceiling() {
+        assert_eq!(
+            selected_player_volume("max", 80.0, 150.0, Some(35.0), 100.0),
+            150.0
+        );
+        assert_eq!(
+            selected_player_volume("custom", 175.0, 200.0, Some(35.0), 100.0),
+            175.0
+        );
+        assert_eq!(
+            selected_player_volume("custom", 250.0, 200.0, Some(35.0), 100.0),
+            200.0
+        );
+        assert_eq!(
+            selected_player_volume("last", 100.0, 130.0, Some(180.0), 100.0),
+            130.0
+        );
+        assert_eq!(
+            selected_player_volume("last", 100.0, 200.0, Some(35.0), 100.0),
+            35.0
+        );
+    }
+
+    #[test]
     fn catch_up_uses_hysteresis_around_the_buffered_lead() {
         // Engage only once the lead clearly exceeds the enter threshold.
         assert!(!catch_up_should_engage(false, 5.9));

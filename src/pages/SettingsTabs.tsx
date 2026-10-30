@@ -19,8 +19,10 @@ import type {
 import {
   defaultMpvPresets,
   describeMpvPresets,
+  clampMpvVolume,
   MPV_VOLUME_BOOSTS,
   normalizeMpvVolumeBoost,
+  normalizeMpvVolumeMode,
 } from "../lib/settings/mpv";
 import { playerInstallGuide } from "../lib/settings/playerInstall";
 import { eventToHotkey, normalizeHotkey } from "../lib/hotkeys";
@@ -739,6 +741,126 @@ export function SettingsStreamingLayoutPanel() {
   );
 }
 
+function MpvVolumeSettings() {
+  const { t } = useTranslation(["settings"]);
+  const settings = useSettingsStore((state) => state.settings);
+  const setSettings = useSettingsStore((state) => state.setSettings);
+  const mpv = settings.player.mpv;
+
+  return (
+    <>
+      <div className="settings__row">
+        <div className="settings__label">
+          <span>{t("settings:playerMpvVolumeMode")}</span>
+          <small className="muted">
+            {t("settings:playerMpvVolumeModeHint")}
+          </small>
+        </div>
+        <div className="settings__control">
+          <select
+            value={mpv.volumeMode}
+            aria-label={t("settings:playerMpvVolumeMode")}
+            onChange={(event) =>
+              setSettings({
+                player: {
+                  ...settings.player,
+                  mpv: {
+                    ...mpv,
+                    volumeMode: normalizeMpvVolumeMode(event.target.value),
+                  },
+                },
+              })
+            }
+          >
+            <option value="last">
+              {t("settings:playerMpvVolumeModeLast")}
+            </option>
+            <option value="max">
+              {t("settings:playerMpvVolumeModeMax")}
+            </option>
+            <option value="custom">
+              {t("settings:playerMpvVolumeModeCustom")}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div className="settings__row">
+        <div className="settings__label">
+          <span>{t("settings:playerMpvVolumeBoost")}</span>
+          <small className="muted">
+            {t("settings:playerMpvVolumeBoostHint")}
+          </small>
+        </div>
+        <div className="settings__control">
+          <select
+            value={String(mpv.volumeBoost)}
+            aria-label={t("settings:playerMpvVolumeBoost")}
+            onChange={(event) =>
+              setSettings({
+                player: {
+                  ...settings.player,
+                  mpv: {
+                    ...mpv,
+                    volumeBoost: normalizeMpvVolumeBoost(
+                      Number(event.target.value),
+                    ),
+                  },
+                },
+              })
+            }
+          >
+            {MPV_VOLUME_BOOSTS.map((level) => (
+              <option key={level} value={level}>
+                {level === 100
+                  ? t("settings:playerMpvVolumeBoostOff")
+                  : t("settings:playerMpvVolumeBoostLevel", { level })}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {mpv.volumeMode === "custom" ? (
+        <div className="settings__row">
+          <div className="settings__label">
+            <span>{t("settings:playerMpvVolumeCustom")}</span>
+            <small className="muted">
+              {t("settings:playerMpvVolumeCustomHint", {
+                maximum: mpv.volumeBoost,
+              })}
+            </small>
+          </div>
+          <div className="settings__control">
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={mpv.volumeBoost}
+              value={mpv.volumeCustom}
+              aria-label={t("settings:playerMpvVolumeCustom")}
+              onChange={(event) =>
+                setSettings({
+                  player: {
+                    ...settings.player,
+                    mpv: {
+                      ...mpv,
+                      volumeCustom: clampMpvVolume(
+                        event.target.value,
+                        mpv.volumeBoost,
+                      ),
+                    },
+                  },
+                })
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function SettingsPlayerPanel() {
   const { t } = useTranslation(["settings"]);
   const settings = useSettingsStore((s) => s.settings);
@@ -873,43 +995,7 @@ export function SettingsPlayerPanel() {
           </div>
         ) : null}
 
-        {settings.player.id === "mpv" ? (
-          <div className="settings__row">
-            <div className="settings__label">
-              <span>{t("settings:playerMpvVolumeBoost")}</span>
-              <small className="muted">
-                {t("settings:playerMpvVolumeBoostHint")}
-              </small>
-            </div>
-            <div className="settings__control">
-              <select
-                value={String(settings.player.mpv.volumeBoost)}
-                aria-label={t("settings:playerMpvVolumeBoost")}
-                onChange={(e) =>
-                  setSettings({
-                    player: {
-                      ...settings.player,
-                      mpv: {
-                        ...settings.player.mpv,
-                        volumeBoost: normalizeMpvVolumeBoost(
-                          Number(e.target.value),
-                        ),
-                      },
-                    },
-                  })
-                }
-              >
-                {MPV_VOLUME_BOOSTS.map((level) => (
-                  <option key={level} value={level}>
-                    {level === 100
-                      ? t("settings:playerMpvVolumeBoostOff")
-                      : t("settings:playerMpvVolumeBoostLevel", { level })}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        ) : null}
+        {settings.player.id === "mpv" ? <MpvVolumeSettings /> : null}
 
         <div className="settings__row">
           <div className="settings__label">

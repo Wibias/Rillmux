@@ -18,6 +18,7 @@ import { HotkeyProvider } from "./components/HotkeyProvider";
 import { DeepLinkBootstrap } from "./components/DeepLinkAndUpdaterBootstrap";
 import { StreamingBootstrap } from "./components/StreamingBootstrap";
 import { OnboardingWizard } from "./components/OnboardingWizard";
+import { PostUpdateChangelog } from "./components/PostUpdateChangelog";
 import { LaunchErrorBanner } from "./components/LaunchErrorBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { RaidBanner } from "./components/RaidBanner";
@@ -187,6 +188,7 @@ export default function App() {
                     <DeepLinkBootstrap>
                       <StreamingBootstrap>
                         <OnboardingWizard />
+                        <PostUpdateChangelog />
                         <AppShell>
                           <DesktopChrome />
                           <TauriGuardBanner />

@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.22] — 2026-10-30
+
+### Added
+
+- Website authentication and bonus-claim authentication can now be configured directly from About.
+- The first-run wizard adds an optional connections step and opens About's connection settings when completed.
+
 ## [0.5.21] — 2026-10-30
 
 ### Added

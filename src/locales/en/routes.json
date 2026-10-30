@@ -97,6 +97,8 @@
   "connectionsRaidsConnecting": "Connecting…",
   "connectionsRaidsRetrying": "Reconnecting after a {{reason}} error",
   "connectionsRaidsIdle": "Waiting for an active stream",
+  "connectionsManage": "Manage connections",
+  "connectionsManageHint": "Connect, repair, or remove the Twitch sessions used for playback and bonus claims.",
   "chatTitle": "Chat — {{channel}}",
   "chatEmpty": "Watch a stream to open embedded chat.",
   "watchingStop": "Stop",

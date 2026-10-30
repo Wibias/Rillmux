@@ -38,6 +38,7 @@ const COMMANDS: &[&str] = &[
     "diagnostics_open_logs",
     "diagnostics_open_crashes",
     "eventsub_sync",
+    "eventsub_status",
     "raid_overlay_place",
     "channel_points_hud_place",
     "points_hud_place_window",

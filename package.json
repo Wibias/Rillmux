@@ -19,6 +19,7 @@
     "streamlink:fetch": "node scripts/fetch-streamlink.mjs",
     "streamlink:verify": "node scripts/verify-streamlink-payload.mjs",
     "perf:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-release-perf.ps1",
+    "perf:baseline": "node scripts/perf-baseline.mjs",
     "perf:dock-ab": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-dock-watchdog.ps1"
   },
   "dependencies": {

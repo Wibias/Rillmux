@@ -1,6 +1,12 @@
 {
   "$schema": "https://react.doctor/schema/config.json",
   "ignore": {
+    "files": [
+      "src-tauri/target/**",
+      "src-tauri/target-ci/**",
+      ".ci-target/**",
+      ".agents/skills/verify-rillmux/.runtime/**"
+    ],
     "overrides": [
       {
         // Twitch embed chat requires allow-scripts + allow-same-origin together.

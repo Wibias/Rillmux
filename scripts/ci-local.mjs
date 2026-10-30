@@ -28,6 +28,6 @@ run("npm", ["run", "build"]);
 run("npm", ["run", "doctor"]);
 run("node", ["scripts/audit-gate.mjs"]);
 run("cargo", ["fmt", "--check"], tauri);
-run("cargo", ["clippy", "--", "-D", "warnings"], tauri);
+run("cargo", ["clippy", "--all-targets", "--", "-D", "warnings"], tauri);
 run("cargo", ["test"], tauri);
 console.log("\nci-local: all CI checks passed.");

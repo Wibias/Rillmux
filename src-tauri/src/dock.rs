@@ -1220,6 +1220,92 @@ struct GripWindows {
 #[cfg(windows)]
 unsafe impl Send for GripWindows {}
 
+/// Place the dock grips directly above `anchor` in the normal window band.
+/// Kept separate from the grip registry so the Win32 Z-order behavior can be
+/// exercised with real windows instead of source-text assertions.
+#[cfg(windows)]
+pub(crate) unsafe fn restack_grip_windows(
+    anchor: *mut core::ffi::c_void,
+    hwnds: &[*mut core::ffi::c_void],
+) {
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+        fn GetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32) -> isize;
+        fn SetWindowPos(
+            hwnd: *mut core::ffi::c_void,
+            after: *mut core::ffi::c_void,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+    }
+    const WS_EX_TOPMOST: u32 = 0x0000_0008;
+    const HWND_NOTOPMOST: isize = -2;
+    const GWL_EXSTYLE: i32 = -20;
+    const GW_HWNDPREV: u32 = 3;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_SHOWWINDOW: u32 = 0x0040;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOSIZE: u32 = 0x0001;
+
+    if anchor.is_null() || IsWindow(anchor) == 0 {
+        return;
+    }
+
+    // Defensive migration: an older build may have left a regular grip in
+    // the TOPMOST band. Strip that state before doing relative restacking.
+    for &hwnd in hwnds {
+        if hwnd.is_null() || IsWindow(hwnd) == 0 {
+            continue;
+        }
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if style & WS_EX_TOPMOST != 0 {
+            SetWindowPos(
+                hwnd,
+                HWND_NOTOPMOST as *mut core::ffi::c_void,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+        }
+    }
+
+    // Put every grip in the normal band immediately above the topmost dock
+    // member. Any unrelated window already above the dock stays above it.
+    let mut after = GetWindow(anchor, GW_HWNDPREV);
+    while !after.is_null() && hwnds.contains(&after) {
+        after = GetWindow(after, GW_HWNDPREV);
+    }
+    if !after.is_null() {
+        let style = GetWindowLongPtrW(after, GWL_EXSTYLE) as u32;
+        if style & WS_EX_TOPMOST != 0 {
+            // A non-topmost grip cannot be inserted into the TOPMOST band.
+            // Null means HWND_TOP: top of the normal band.
+            after = std::ptr::null_mut();
+        }
+    }
+    for &hwnd in hwnds {
+        if hwnd.is_null() || IsWindow(hwnd) == 0 {
+            continue;
+        }
+        SetWindowPos(
+            hwnd,
+            after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        );
+    }
+}
+
 #[cfg(windows)]
 fn grip_thread_main() {
     #[link(name = "user32")]
@@ -1272,7 +1358,6 @@ fn grip_thread_main() {
         fn DeleteObject(obj: *mut core::ffi::c_void) -> i32;
         fn SetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32, value: isize) -> isize;
         fn GetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32) -> isize;
-        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
         fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
         fn PeekMessageW(
             msg: *mut Msg,
@@ -1404,9 +1489,7 @@ fn grip_thread_main() {
     const IDC_SIZEWE: usize = 32644;
     const IDC_SIZENS: usize = 32645;
     const IDC_HAND: usize = 32649;
-    const GWL_EXSTYLE: i32 = -20;
     const GWLP_USERDATA: i32 = -21;
-    const GW_HWNDPREV: u32 = 3;
     const PM_REMOVE: u32 = 0x0001;
     const LWA_ALPHA: u32 = 0x0000_0002;
     const TME_LEAVE: u32 = 0x0000_0002;
@@ -2129,55 +2212,7 @@ fn grip_thread_main() {
         if hwnds.is_empty() {
             return;
         }
-
-        // Defensive migration: an older build may have left a regular grip in
-        // the TOPMOST band. Strip that state before doing relative restacking.
-        for &hwnd in &hwnds {
-            if hwnd.is_null() || IsWindow(hwnd) == 0 {
-                continue;
-            }
-            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-            if style & WS_EX_TOPMOST != 0 {
-                SetWindowPos(
-                    hwnd,
-                    HWND_NOTOPMOST as *mut core::ffi::c_void,
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
-            }
-        }
-
-        // Put every grip in the normal band immediately above the topmost dock
-        // member. Any unrelated window already above the dock stays above it.
-        let mut after = GetWindow(anchor, GW_HWNDPREV);
-        while !after.is_null() && hwnds.contains(&after) {
-            after = GetWindow(after, GW_HWNDPREV);
-        }
-        if !after.is_null() {
-            let style = GetWindowLongPtrW(after, GWL_EXSTYLE) as u32;
-            if style & WS_EX_TOPMOST != 0 {
-                // A non-topmost grip cannot be inserted into the TOPMOST band.
-                // Null means HWND_TOP: top of the normal band.
-                after = std::ptr::null_mut();
-            }
-        }
-        for &hwnd in &hwnds {
-            if hwnd.is_null() || IsWindow(hwnd) == 0 {
-                continue;
-            }
-            SetWindowPos(
-                hwnd,
-                after,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-        }
+        restack_grip_windows(anchor, &hwnds);
     }
 
     fn place_existing_tiles(g: &GripWindows, video: Rect, cfg: &DockConfig) {
@@ -2642,6 +2677,172 @@ fn grip_thread_main() {
             5 | 6 => "3x2",
             _ => "4x2",
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod grip_zorder_behavior_tests {
+    use super::restack_grip_windows;
+    use std::collections::HashMap;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn CreateWindowExW(
+            ex: u32,
+            class: *const u16,
+            name: *const u16,
+            style: u32,
+            x: i32,
+            y: i32,
+            w: i32,
+            h: i32,
+            parent: *mut core::ffi::c_void,
+            menu: *mut core::ffi::c_void,
+            instance: *mut core::ffi::c_void,
+            param: *mut core::ffi::c_void,
+        ) -> *mut core::ffi::c_void;
+        fn DestroyWindow(hwnd: *mut core::ffi::c_void) -> i32;
+        fn SetWindowPos(
+            hwnd: *mut core::ffi::c_void,
+            after: *mut core::ffi::c_void,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+        fn GetTopWindow(hwnd: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+        fn GetWindow(hwnd: *mut core::ffi::c_void, cmd: u32) -> *mut core::ffi::c_void;
+        fn GetWindowLongPtrW(hwnd: *mut core::ffi::c_void, index: i32) -> isize;
+    }
+
+    const WS_POPUP: u32 = 0x8000_0000;
+    const WS_EX_TOPMOST: u32 = 0x0000_0008;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_SHOWWINDOW: u32 = 0x0040;
+    const HWND_TOP: isize = 0;
+    const GWL_EXSTYLE: i32 = -20;
+    const GW_HWNDNEXT: u32 = 2;
+
+    struct TestWindow(*mut core::ffi::c_void);
+
+    impl TestWindow {
+        fn new(ex_style: u32) -> Self {
+            let class: Vec<u16> = "STATIC".encode_utf16().chain(std::iter::once(0)).collect();
+            let title: Vec<u16> = "Rillmux dock test"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            let hwnd = unsafe {
+                CreateWindowExW(
+                    ex_style,
+                    class.as_ptr(),
+                    title.as_ptr(),
+                    WS_POPUP,
+                    0,
+                    0,
+                    1,
+                    1,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            };
+            assert!(!hwnd.is_null(), "could not create a Win32 test window");
+            Self(hwnd)
+        }
+
+        fn raise(&self) {
+            let ok = unsafe {
+                SetWindowPos(
+                    self.0,
+                    HWND_TOP as *mut core::ffi::c_void,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                )
+            };
+            assert_ne!(ok, 0, "could not arrange a Win32 test window");
+        }
+
+        fn is_topmost(&self) -> bool {
+            let style = unsafe { GetWindowLongPtrW(self.0, GWL_EXSTYLE) as u32 };
+            style & WS_EX_TOPMOST != 0
+        }
+    }
+
+    impl Drop for TestWindow {
+        fn drop(&mut self) {
+            unsafe {
+                DestroyWindow(self.0);
+            }
+        }
+    }
+
+    fn positions(windows: &[&TestWindow]) -> HashMap<usize, usize> {
+        let mut order = Vec::new();
+        let mut hwnd = unsafe { GetTopWindow(std::ptr::null_mut()) };
+        while !hwnd.is_null() {
+            order.push(hwnd as usize);
+            hwnd = unsafe { GetWindow(hwnd, GW_HWNDNEXT) };
+        }
+        windows
+            .iter()
+            .enumerate()
+            .map(|(index, window)| {
+                let position = order
+                    .iter()
+                    .position(|hwnd| *hwnd == window.0 as usize)
+                    .unwrap_or_else(|| panic!("window {index} disappeared from the Z-order"));
+                (index, position)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn restack_places_grips_above_the_dock_and_below_unrelated_windows() {
+        let anchor = TestWindow::new(0);
+        let seam = TestWindow::new(0);
+        let mover = TestWindow::new(0);
+        let unrelated = TestWindow::new(0);
+
+        anchor.raise();
+        seam.raise();
+        mover.raise();
+        unrelated.raise();
+        unsafe { restack_grip_windows(anchor.0, &[seam.0, mover.0]) };
+
+        let order = positions(&[&anchor, &seam, &mover, &unrelated]);
+        assert!(
+            order[&3] < order[&2],
+            "unrelated window must stay above the grip"
+        );
+        assert!(order[&2] < order[&1], "mover must stay above the seam grip");
+        assert!(
+            order[&1] < order[&0],
+            "seam grip must stay above the dock member"
+        );
+    }
+
+    #[test]
+    fn restack_demotes_legacy_topmost_grips_before_placing_them() {
+        let anchor = TestWindow::new(0);
+        let legacy_grip = TestWindow::new(WS_EX_TOPMOST);
+
+        anchor.raise();
+        legacy_grip.raise();
+        assert!(legacy_grip.is_topmost());
+
+        unsafe { restack_grip_windows(anchor.0, &[legacy_grip.0]) };
+
+        assert!(!legacy_grip.is_topmost());
+        let order = positions(&[&anchor, &legacy_grip]);
+        assert!(order[&1] < order[&0]);
     }
 }
 

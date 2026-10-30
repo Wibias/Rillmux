@@ -625,8 +625,8 @@ mod tests {
             loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(status_from(None))
         };
-        assert_eq!(runtime.get_status(&load).unwrap(), status_from(None));
-        assert_eq!(runtime.get_status(&load).unwrap(), status_from(None));
+        assert_eq!(runtime.get_status(load).unwrap(), status_from(None));
+        assert_eq!(runtime.get_status(load).unwrap(), status_from(None));
         assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
@@ -683,11 +683,11 @@ mod tests {
             loads.fetch_add(1, Ordering::SeqCst);
             Err(TwitchWebAuthError::Message("keyring busy".into()))
         };
-        assert!(runtime.get_status_at(t0, &fail).is_err());
+        assert!(runtime.get_status_at(t0, fail).is_err());
         assert_eq!(loads.load(Ordering::SeqCst), 1);
 
         assert!(runtime
-            .get_status_at(t0 + Duration::from_millis(500), &fail)
+            .get_status_at(t0 + Duration::from_millis(500), fail)
             .is_err());
         assert_eq!(loads.load(Ordering::SeqCst), 1);
 

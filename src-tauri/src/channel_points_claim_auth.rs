@@ -47,12 +47,61 @@ pub(crate) struct ChannelPointsClaimAuthSession {
     pub user_id: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelPointsClaimAuthStatus {
     pub configured: bool,
     pub login: Option<String>,
     pub user_id: Option<String>,
+}
+
+#[derive(Default)]
+struct ClaimStatusCache {
+    status: Option<ChannelPointsClaimAuthStatus>,
+}
+
+impl ClaimStatusCache {
+    fn get_or_load<F>(
+        &mut self,
+        load: F,
+    ) -> Result<ChannelPointsClaimAuthStatus, ChannelPointsClaimAuthError>
+    where
+        F: FnOnce() -> Result<ChannelPointsClaimAuthStatus, ChannelPointsClaimAuthError>,
+    {
+        if let Some(status) = &self.status {
+            return Ok(status.clone());
+        }
+        let status = load()?;
+        self.status = Some(status.clone());
+        Ok(status)
+    }
+
+    fn remember(&mut self, status: ChannelPointsClaimAuthStatus) {
+        self.status = Some(status);
+    }
+}
+
+fn status_cache() -> &'static Mutex<ClaimStatusCache> {
+    static VALUE: OnceLock<Mutex<ClaimStatusCache>> = OnceLock::new();
+    VALUE.get_or_init(|| Mutex::new(ClaimStatusCache::default()))
+}
+
+fn status_from(auth: Option<&StoredTvAuth>) -> ChannelPointsClaimAuthStatus {
+    ChannelPointsClaimAuthStatus {
+        configured: auth.is_some(),
+        login: auth.map(|value| value.login.clone()),
+        user_id: auth.map(|value| value.user_id.clone()),
+    }
+}
+
+fn remember_status(
+    status: ChannelPointsClaimAuthStatus,
+) -> Result<(), ChannelPointsClaimAuthError> {
+    status_cache()
+        .lock()
+        .map_err(|error| ChannelPointsClaimAuthError::Keyring(error.to_string()))?
+        .remember(status);
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,12 +260,10 @@ fn pending_device_code() -> &'static Mutex<Option<String>> {
 }
 
 pub fn get_status() -> Result<ChannelPointsClaimAuthStatus, ChannelPointsClaimAuthError> {
-    let auth = load_auth()?;
-    Ok(ChannelPointsClaimAuthStatus {
-        configured: auth.is_some(),
-        login: auth.as_ref().map(|value| value.login.clone()),
-        user_id: auth.as_ref().map(|value| value.user_id.clone()),
-    })
+    status_cache()
+        .lock()
+        .map_err(|error| ChannelPointsClaimAuthError::Keyring(error.to_string()))?
+        .get_or_load(|| Ok(status_from(load_auth()?.as_ref())))
 }
 
 pub(crate) fn load_session(
@@ -334,13 +381,9 @@ pub async fn poll_device_token(
     if let Ok(mut pending) = pending_device_code().lock() {
         *pending = None;
     }
-    Ok(TvDevicePoll::Done {
-        status: ChannelPointsClaimAuthStatus {
-            configured: true,
-            login: Some(stored.login),
-            user_id: Some(stored.user_id),
-        },
-    })
+    let status = status_from(Some(&stored));
+    remember_status(status.clone())?;
+    Ok(TvDevicePoll::Done { status })
 }
 
 pub fn clear() -> Result<ChannelPointsClaimAuthStatus, ChannelPointsClaimAuthError> {
@@ -348,11 +391,9 @@ pub fn clear() -> Result<ChannelPointsClaimAuthStatus, ChannelPointsClaimAuthErr
     if let Ok(mut pending) = pending_device_code().lock() {
         *pending = None;
     }
-    Ok(ChannelPointsClaimAuthStatus {
-        configured: false,
-        login: None,
-        user_id: None,
-    })
+    let status = status_from(None);
+    remember_status(status.clone())?;
+    Ok(status)
 }
 
 #[cfg(test)]
@@ -372,5 +413,43 @@ mod tests {
     fn bonus_claim_scopes_are_read_only() {
         assert_eq!(SCOPES, "user_read");
         assert!(!SCOPES.contains("_edit"));
+    }
+
+    #[test]
+    fn cached_status_skips_repeated_credential_reads() {
+        let mut cache = ClaimStatusCache::default();
+        let loads = std::sync::atomic::AtomicUsize::new(0);
+        let load = || {
+            loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(status_from(None))
+        };
+        assert_eq!(cache.get_or_load(load).unwrap(), status_from(None));
+        assert_eq!(cache.get_or_load(load).unwrap(), status_from(None));
+        assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn cached_status_updates_after_connect_and_clear() {
+        let mut cache = ClaimStatusCache::default();
+        let connected = ChannelPointsClaimAuthStatus {
+            configured: true,
+            login: Some("wibias".into()),
+            user_id: Some("123".into()),
+        };
+        cache.remember(connected.clone());
+        assert_eq!(
+            cache
+                .get_or_load(|| panic!("cached status must not reload"))
+                .unwrap(),
+            connected
+        );
+
+        cache.remember(status_from(None));
+        assert!(
+            !cache
+                .get_or_load(|| panic!("cleared status must not reload"))
+                .unwrap()
+                .configured
+        );
     }
 }

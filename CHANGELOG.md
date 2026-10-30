@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- About now shows live status for the Twitch account, playback authentication, bonus-claim authentication, and raid notifications, refreshing on focus and every 30 seconds.
+
 ### Planned
 
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
+
+### Internal
+
+- Added real Win32 Z-order tests for dock grips and made CI lint Rust test targets too.
+- Added a repeated performance baseline runner so startup, memory, and idle CPU are reported as medians instead of single measurements.
 
 ## [0.5.20] — 2026-10-23
 

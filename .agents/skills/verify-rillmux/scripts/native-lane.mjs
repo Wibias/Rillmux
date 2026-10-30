@@ -232,36 +232,24 @@ export function spawnTauriDev({
   cdpPort,
 }) {
   mkdirSync(appDataDir, { recursive: true });
-  const quoted = overlayPath.replace(/"/g, '\\"');
-  const cmdLine = `npx tauri dev --config "${quoted}"`;
+  const tauriCli = join(projectRoot, "node_modules", "@tauri-apps", "cli", "tauri.js");
+  if (!existsSync(tauriCli)) {
+    throw new Error(`Tauri CLI missing at ${tauriCli}. Run npm install first.`);
+  }
   const webviewLogPath = webviewLogPathFor(logPath);
-  const browserArgs =
-    `--remote-debugging-port=${cdpPort} --remote-allow-origins=*` +
-    " --enable-logging --log-file=" +
-    (webviewLogPath.includes(" ") ? '"' + webviewLogPath + '"' : webviewLogPath);
   const logFd = openSync(logPath, "w");
   const env = {
     ...process.env,
     APPDATA: appDataDir,
     RILLMUX_DEBUG: process.env.RILLMUX_DEBUG || "0",
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArgs,
   };
-  const child =
-    process.platform === "win32"
-      ? spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmdLine], {
-          cwd: projectRoot,
-          env,
-          stdio: ["ignore", logFd, logFd],
-          windowsHide: true,
-          windowsVerbatimArguments: true,
-          detached: true,
-        })
-      : spawn("npx", ["tauri", "dev", "--config", overlayPath], {
-          cwd: projectRoot,
-          env,
-          stdio: ["ignore", logFd, logFd],
-          detached: true,
-        });
+  const child = spawn(process.execPath, [tauriCli, "dev", "--config", overlayPath], {
+    cwd: projectRoot,
+    env,
+    stdio: ["ignore", logFd, logFd],
+    windowsHide: true,
+    detached: true,
+  });
   child.unref();
   closeSync(logFd);
   return child;

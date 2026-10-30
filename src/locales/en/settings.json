@@ -103,7 +103,7 @@
   "playerMpvVolumeBoostLevel": "{{level}}%",
   "playerMpvVolumeMode": "Initial stream volume",
   "playerMpvVolumeModeHint": "Choose the volume used when a stream starts. Later manual changes are remembered.",
-  "playerMpvVolumeModeLast": "Last saved volume (default)",
+  "playerMpvVolumeModeLast": "Last used volume (default)",
   "playerMpvVolumeModeMax": "Maximum volume",
   "playerMpvVolumeModeCustom": "Custom percentage",
   "playerMpvVolumeCustom": "Custom volume percentage",

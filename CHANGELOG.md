@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Website authentication and bonus-claim authentication can now be configured directly from About.
 - The first-run wizard adds an optional connections step and opens About's connection settings when completed.
 - The first launch after an update now shows the installed version's changelog once.
-- mpv volume can start from the last saved level, the configured maximum, or a custom percentage.
+- mpv volume can start from the last used level, the configured maximum, or a custom percentage.
 
 ### Changed
 

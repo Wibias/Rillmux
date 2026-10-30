@@ -313,7 +313,7 @@ fn mpv_get_property_f64(_pipe: &str, _property: &str) -> Option<f64> {
     None
 }
 
-/// Last mpv volume the user settled on, so switching streams (or following a
+/// Last used mpv volume, so switching streams (or following a
 /// raid) keeps their level instead of resetting to the configured default.
 static LAST_MPV_VOLUME: OnceLock<Mutex<Option<f64>>> = OnceLock::new();
 

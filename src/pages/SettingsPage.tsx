@@ -12,10 +12,12 @@ import {
   SettingsHotkeysPanel,
   SettingsInterfacePanel,
   SettingsNotificationsPanel,
-  SettingsPlayerPanel,
+} from "./SettingsTabs";
+import { SettingsPlayerPanel } from "./SettingsPlayerPanel";
+import {
   SettingsStreamingLayoutPanel,
   SettingsStreamingPlaybackPanel,
-} from "./SettingsTabs";
+} from "./SettingsStreamingPanels";
 import "./SettingsPage.css";
 import "../components/SetupHelp.css";
 

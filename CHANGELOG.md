@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- Split the 1,437-line settings panel into focused player, streaming, and remaining panel modules under 500 lines each.
 - Release verification and installer builds run in parallel, cargo-audit uses a prebuilt binary, and Rust release codegen uses four units instead of one to reduce release wall time.
 - Rust CodeQL uses cached dependencies and a lighter `cargo check` extraction build.
 

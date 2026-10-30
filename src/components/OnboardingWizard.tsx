@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
 import { AuthBar } from "./AuthBar";
 import { PlayerSetupHelp, StreamlinkSetupHelp } from "./SetupHelp";
 import type { DoctorReport } from "../lib/doctor";
@@ -8,10 +9,11 @@ import { useSettingsStore } from "../lib/settings/store";
 import { invoke, isTauri } from "../lib/tauri";
 import "./OnboardingWizard.css";
 
-const STEPS = 3;
+const STEPS = 4;
 
 export function OnboardingWizard() {
   const { t } = useTranslation(["onboarding", "common"]);
+  const navigate = useNavigate();
   const hydrated = useSettingsStore((s) => s.hydrated);
   const onboardingDone = useSettingsStore((s) => s.settings.gui.onboardingDone);
   const setSettings = useSettingsStore((s) => s.setSettings);
@@ -40,6 +42,11 @@ export function OnboardingWizard() {
     setSettings({
       gui: { ...settings.gui, onboardingDone: true },
     });
+  };
+
+  const finishAndOpenConnections = () => {
+    finish();
+    navigate("/about#connections");
   };
 
   if (!open) return null;
@@ -109,6 +116,13 @@ export function OnboardingWizard() {
               </label>
             </section>
           ) : null}
+          {step === 3 ? (
+            <section>
+              <h3>{t("onboarding:stepConnections")}</h3>
+              <p className="muted">{t("onboarding:connectionsBody")}</p>
+              <AuthBar />
+            </section>
+          ) : null}
         </div>
 
         <footer className="onboarding__footer">
@@ -130,8 +144,8 @@ export function OnboardingWizard() {
                 {t("onboarding:next")}
               </button>
             ) : (
-              <button type="button" onClick={finish}>
-                {t("onboarding:finish")}
+              <button type="button" onClick={finishAndOpenConnections}>
+                {t("onboarding:openConnections")}
               </button>
             )}
           </div>

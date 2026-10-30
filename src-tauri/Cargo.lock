@@ -3678,7 +3678,7 @@ dependencies = [
 
 [[package]]
 name = "rillmux"
-version = "0.5.21"
+version = "0.5.22"
 dependencies = [
  "futures-util",
  "keyring",

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
   useInfiniteQuery,
@@ -692,6 +693,7 @@ export function WatchingPage() {
 
 export function AboutPage() {
   const { t } = useTranslation("routes");
+  const location = useLocation();
   const { status, version, error, check, install } = useUpdaterCheck();
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -717,6 +719,14 @@ export function AboutPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (location.hash !== "#connections") return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("connections")?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.hash]);
 
   return (
     <section className="page">

@@ -7,6 +7,7 @@ import {
   type TwitchWebsiteAuthStatus,
 } from "../lib/auth/website";
 import { invoke, isTauri } from "../lib/tauri";
+import { AuthBar } from "./AuthBar";
 import "./ConnectionHealth.css";
 
 interface EventSubStatus {
@@ -204,7 +205,11 @@ export function ConnectionHealth() {
   const raids = eventSubSummary();
 
   return (
-    <section className="connections" aria-labelledby="connections-title">
+    <section
+      id="connections"
+      className="connections"
+      aria-labelledby="connections-title"
+    >
       <div className="connections__header">
         <div>
           <h2 id="connections-title">{t("connectionsTitle")}</h2>
@@ -270,6 +275,11 @@ export function ConnectionHealth() {
           </div>
         </li>
       </ul>
+      <div className="connections__manage">
+        <h3>{t("connectionsManage")}</h3>
+        <p className="muted">{t("connectionsManageHint")}</p>
+        <AuthBar />
+      </div>
     </section>
   );
 }

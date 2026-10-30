@@ -80,6 +80,23 @@
   background: var(--danger, #ef4444);
 }
 
+.connections__manage {
+  margin-top: 0.8rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.connections__manage h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.connections__manage > p {
+  margin: 0.18rem 0 0.55rem;
+  font-size: 0.82rem;
+}
+
 @media (max-width: 720px) {
   .connections__header {
     align-items: stretch;

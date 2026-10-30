@@ -7,19 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- About now shows live status for the Twitch account, playback authentication, bonus-claim authentication, and raid notifications, refreshing on focus and every 30 seconds.
-
 ### Planned
 
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.21] — 2026-10-30
+
+### Added
+
+- About now shows live status for the Twitch account, playback authentication, bonus-claim authentication, and raid notifications, refreshing on focus and every 30 seconds.
+
+### Fixed
+
+- Bonus-claim status is cached after its first credential lookup, so automatic connection-health refreshes do not repeatedly reopen the Windows credential store.
+
 ### Internal
 
 - Added real Win32 Z-order tests for dock grips and made CI lint Rust test targets too.
 - Added a repeated performance baseline runner so startup, memory, and idle CPU are reported as medians instead of single measurements.
+- The native verifier launches the Tauri CLI directly so startup failures are written to its log.
 
 ## [0.5.20] — 2026-10-23
 

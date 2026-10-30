@@ -8,7 +8,6 @@ import {
 import { createPortal } from "react-dom";
 import { NavLink } from "react-router";
 import { useTranslation } from "react-i18next";
-import { AuthBar } from "./AuthBar";
 import { NavAccount } from "./NavAccount";
 import { TitlebarControls } from "./TitlebarControls";
 import {
@@ -109,7 +108,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
           <span className="shell__titlebar-title">{tc("appName")}</span>
         </div>
-        <AuthBar compact />
         <TitlebarControls />
       </header>
       <div className="shell__brand">

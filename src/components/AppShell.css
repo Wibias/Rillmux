@@ -413,13 +413,6 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
   pointer-events: none;
 }
 
-.shell__titlebar .authbar--compact {
-  flex: 0 0 auto;
-  flex-wrap: nowrap;
-  align-self: center;
-  padding: 0;
-}
-
 /*
  * decorum injects its frameless titlebar chrome at page load. Its geometry
  * arrives as a <style> tag plus inline styles, and production CSP is
@@ -427,12 +420,12 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
  * Rillmux keeps its own caption buttons (.shell__win-controls): they follow the
  * theme palette and close through app_quit, where decorum's own close button
  * uses win.close(). The injected strip stays inert so the titlebar's own drag
- * region and chips keep receiving clicks.
+ * region keeps receiving clicks.
  */
 div[data-tauri-decorum-tb] {
   --title-bar-height: 38px;
   height: var(--title-bar-height) !important; /* decorum inlines 32px */
-  z-index: 10 !important; /* under .shell__titlebar, so chips stay clickable */
+  z-index: 10 !important; /* under .shell__titlebar, so controls stay clickable */
   pointer-events: none;
   -webkit-user-select: none;
   user-select: none;

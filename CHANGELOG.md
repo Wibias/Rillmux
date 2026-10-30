@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Website authentication and bonus-claim authentication can now be configured directly from About.
 - The first-run wizard adds an optional connections step and opens About's connection settings when completed.
 
+### Changed
+
+- Website-auth and bonus-claim chips no longer occupy the title bar; connection management now lives in About.
+
 ## [0.5.21] — 2026-10-30
 
 ### Added

@@ -22,6 +22,8 @@
 
 .connections__list {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
   gap: 0.55rem;
   margin: 0;
   padding: 0;
@@ -105,5 +107,9 @@
 
   .connections__header button {
     align-self: flex-start;
+  }
+
+  .connections__list {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

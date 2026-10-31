@@ -29,5 +29,7 @@ function dismissSplash() {
 // Fade the boot splash after the first commit; it covered the WebView while
 // the JS bundle loaded (noticeable in dev mode).
 requestAnimationFrame(() => {
-  requestAnimationFrame(dismissSplash);
+  requestAnimationFrame(() => {
+    dismissSplash();
+  });
 });

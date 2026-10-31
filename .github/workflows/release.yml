@@ -196,6 +196,28 @@ jobs:
           name: windows-installers
           path: installers
 
+      # The artifact keeps the bundle layout (nsis/, msi/), so a flat
+      # installers/*.exe glob silently matches nothing and ships a release with
+      # only latest.json. Fail loudly instead.
+      - name: Verify installer payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=$(find installers -type f -name '*.exe' | wc -l)
+          msi=$(find installers -type f -name '*.msi' | wc -l)
+          sig=$(find installers -type f -name '*.sig' | wc -l)
+          echo "exe=$exe msi=$msi sig=$sig"
+          find installers -type f
+          if [ "$exe" -lt 1 ] || [ "$msi" -lt 1 ] || [ "$sig" -lt 2 ] || [ ! -f installers/latest.json ]; then
+            echo "::error::Release payload incomplete; refusing to publish without installers"
+            exit 1
+          fi
+          # Publish checksums next to the signed bundles so a download can be
+          # verified independently of the updater manifest.
+          ( cd installers && find . -type f \( -name '*.exe' -o -name '*.msi' \) -print0 \
+              | sort -z | xargs -0 sha256sum > SHA256SUMS )
+          cat installers/SHA256SUMS
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -203,9 +225,10 @@ jobs:
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: |
-            installers/*.exe
-            installers/*.msi
-            installers/*.sig
+            installers/**/*.exe
+            installers/**/*.msi
+            installers/**/*.sig
             installers/latest.json
+            installers/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,24 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
+const DOCK_SHARDS = [
+  "geometry",
+  "config",
+  "session",
+  "win32_monitors",
+  "grip_thread",
+  "grip_api",
+  "grip_model",
+  "grip_proc",
+  "grip_windows",
+  "grip_sync",
+];
+
+const readDock = () =>
+  DOCK_SHARDS.map((shard) =>
+    readFileSync(`src-tauri/src/dock/${shard}.rs`, "utf8"),
+  ).join("\n");
+
 function blockBody(source: string, signature: string): string {
   const start = source.indexOf(signature);
   if (start < 0) throw new Error(`missing block: ${signature}`);
@@ -19,7 +37,7 @@ function blockBody(source: string, signature: string): string {
 
 describe("monitor picker divider relocation", () => {
   test("queues grip sync immediately after dispatching the selected monitor apply", () => {
-    const source = readFileSync("src-tauri/src/dock.rs", "utf8");
+    const source = readDock();
     const mouseDown = blockBody(source, "WM_LBUTTONDOWN => {");
     const body = blockBody(mouseDown, "if let GripKind::Identify(idx) = kind {");
 

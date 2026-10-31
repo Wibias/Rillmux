@@ -3,7 +3,7 @@ mod sources;
 
 #[test]
 fn regular_dock_grips_never_enter_global_topmost_band() {
-    let dock = include_str!("../src/dock.rs");
+    let dock = sources::DOCK;
     let streaming = include_str!("../src/streaming/dock.rs");
     let windows_layout = sources::WINDOWS_LAYOUT;
 
@@ -57,7 +57,7 @@ fn raising_dock_windows_restacks_channel_points_huds() {
 
 #[test]
 fn monitor_identify_overlay_remains_the_only_permanent_topmost_grip() {
-    let dock = include_str!("../src/dock.rs");
+    let dock = sources::DOCK;
     assert!(dock.contains("if is_identify { WS_EX_TOPMOST } else { 0 }"));
 }
 

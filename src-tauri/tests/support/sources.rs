@@ -22,3 +22,25 @@ pub const WINDOWS_LAYOUT: &str = concat!(
     "\n",
     include_str!("../../src/streaming/windows_layout/process_ownership.rs"),
 );
+
+pub const DOCK: &str = concat!(
+    include_str!("../../src/dock/geometry.rs"),
+    "\n",
+    include_str!("../../src/dock/config.rs"),
+    "\n",
+    include_str!("../../src/dock/session.rs"),
+    "\n",
+    include_str!("../../src/dock/win32_monitors.rs"),
+    "\n",
+    include_str!("../../src/dock/grip_thread.rs"),
+    "\n",
+    include_str!("../../src/dock/grip_api.rs"),
+    "\n",
+    include_str!("../../src/dock/grip_model.rs"),
+    "\n",
+    include_str!("../../src/dock/grip_proc.rs"),
+    "\n",
+    include_str!("../../src/dock/grip_windows.rs"),
+    "\n",
+    include_str!("../../src/dock/grip_sync.rs"),
+);

@@ -21,7 +21,25 @@
         "minWidth": 1024,
         "minHeight": 700,
         "decorations": false,
-        "shadow": true
+        "shadow": true,
+        "backgroundColor": "#181818",
+        "visible": false
+      },
+      {
+        "label": "splash",
+        "url": "splash.html",
+        "title": "Rillmux",
+        "width": 460,
+        "height": 300,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "shadow": true,
+        "center": true,
+        "focus": false,
+        "skipTaskbar": true,
+        "backgroundColor": "#181818"
       }
     ],
     "security": {

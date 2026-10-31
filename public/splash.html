@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Rillmux</title>
+    <style>
+      /* Native pre-paint splash: shown while the main window's webview is still
+       * loading the full app bundle. Same visual language as the in-app splash. */
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #181818;
+        color: #efeff1;
+        font-family: "Segoe UI", "Noto Sans", Tahoma, sans-serif;
+        user-select: none;
+        cursor: default;
+        overflow: hidden;
+      }
+      body {
+        display: grid;
+        place-items: center;
+      }
+      .splash {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+      }
+      .splash__glow {
+        position: absolute;
+        left: 50%;
+        top: 42%;
+        width: 24rem;
+        height: 16rem;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(
+          ellipse at center,
+          rgba(145, 71, 255, 0.42) 0%,
+          rgba(145, 71, 255, 0.12) 40%,
+          transparent 72%
+        );
+        animation: breathe 2.8s ease-in-out infinite;
+        pointer-events: none;
+      }
+      .splash__orb {
+        position: relative;
+        width: 5.5rem;
+        height: 5.5rem;
+        margin-bottom: 1.35rem;
+      }
+      .splash__ring {
+        position: absolute;
+        inset: -0.6rem;
+        border-radius: 50%;
+        background: conic-gradient(
+          from 0deg,
+          transparent 0 68%,
+          #bf94ff 86%,
+          #9147ff 100%
+        );
+        -webkit-mask: radial-gradient(
+          farthest-side,
+          transparent calc(100% - 2px),
+          #000 calc(100% - 2px)
+        );
+        mask: radial-gradient(
+          farthest-side,
+          transparent calc(100% - 2px),
+          #000 calc(100% - 2px)
+        );
+        animation: spin 1.05s linear infinite;
+      }
+      .splash__mark {
+        position: absolute;
+        inset: 0;
+        width: 5.5rem;
+        height: 5.5rem;
+        display: block;
+        border-radius: 1.2rem;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+      }
+      .splash__word {
+        margin: 0;
+        font-size: 2.1rem;
+        font-weight: 400;
+        letter-spacing: -0.03em;
+        line-height: 1.05;
+      }
+      .splash__tag {
+        margin: 0.4rem 0 0;
+        color: rgba(239, 239, 241, 0.62);
+        font-size: 0.9rem;
+        letter-spacing: 0.04em;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes breathe {
+        0%,
+        100% {
+          opacity: 0.72;
+          transform: translate(-50%, -50%) scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1.06);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .splash__glow,
+        .splash__ring {
+          animation: none;
+        }
+        .splash__ring {
+          opacity: 0.35;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="splash">
+      <div class="splash__glow" aria-hidden="true"></div>
+      <div class="splash__orb" aria-hidden="true">
+        <div class="splash__ring"></div>
+        <img class="splash__mark" src="/app-icon.png" width="88" height="88" alt="" />
+      </div>
+      <p class="splash__word">Rillmux</p>
+      <p class="splash__tag">for Streamlink</p>
+    </div>
+  </body>
+</html>
+

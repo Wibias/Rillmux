@@ -1,7 +1,21 @@
 // Application bootstrap and Tauri builder wiring.
 
+static BOOT_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// Logs a startup stage with milliseconds since process start so a slow first
+/// paint can be attributed to a specific phase from the diagnostics log.
+pub(crate) fn boot_log(stage: &str) {
+    let start = *BOOT_START.get_or_init(std::time::Instant::now);
+    diagnostics::log_line(&format!(
+        "[boot] stage={stage} ms={}",
+        start.elapsed().as_millis()
+    ));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    BOOT_START.get_or_init(std::time::Instant::now);
+    boot_log("run");
     install_rustls_crypto_provider();
     diagnostics::install_hooks();
     let streaming = Arc::new(StreamingState::new());
@@ -77,6 +91,7 @@ pub fn run() {
             enable_title_bar_overlay
         ])
         .setup(|app| {
+            boot_log("setup");
             migrate_legacy_app_data(app.handle());
             if let Ok(resource_dir) = app.path().resource_dir() {
                 std::thread::spawn(move || {
@@ -101,22 +116,25 @@ pub fn run() {
             viewer_presence::init(app.handle().clone());
             let state = app.state::<SharedStreaming>().inner().clone();
             streaming::start_session_watchdog(app.handle().clone(), state);
-            // Warm Streamlink so the first watch doesn't pay Python/plugin cold-start.
-            std::thread::spawn(|| {
-                if let Some(path) = doctor::find_streamlink_path() {
-                    let mut cmd = std::process::Command::new(path);
-                    cmd.arg("--version")
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null());
-                    #[cfg(windows)]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        cmd.creation_flags(0x0800_0000);
+            // The main window stays hidden behind the native splash until the
+            // frontend reports its first frame. Never leave users staring at a
+            // splash if that signal is lost.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(12));
+                    let hidden = handle
+                        .get_webview_window("main")
+                        .and_then(|window| window.is_visible().ok())
+                        .map(|visible| !visible)
+                        .unwrap_or(false);
+                    if hidden {
+                        boot_log("frontend_ready_timeout");
+                        reveal_main_window(&handle);
                     }
-                    let _ = cmd.status();
-                }
-            });
+                });
+            }
+            boot_log("setup_done");
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -129,6 +147,18 @@ pub fn run() {
                     #[cfg(debug_assertions)]
                     exit_after_overlays_close(window.app_handle());
                 }
+            }
+        })
+        .on_page_load(|webview, payload| {
+            // The main window starts hidden behind the native splash. Reveal it
+            // as soon as its page has loaded, independent of any frontend hook.
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+            {
+                boot_log("page_load_finished");
+                let handle = webview.app_handle().clone();
+                reveal_main_window(&handle);
+                warm_streamlink_once();
             }
         })
         .build({
@@ -146,6 +176,9 @@ pub fn run() {
         })
         .expect("error while building tauri application")
         .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Ready) {
+                boot_log("run_ready");
+            }
             if matches!(
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit

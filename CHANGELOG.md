@@ -14,9 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.24] — 2026-10-31
 
+### Added
+
+- A native splash window shows the Rillmux logo while the main window loads.
+
 ### Changed
 
 - About lists the four connection statuses in a two-column grid instead of one long stack.
+- The main window no longer flashes white on startup; it appears once its page has loaded.
+- The Streamlink warm-up starts after the first page load instead of during the app setup.
 
 ## [0.5.23] — 2026-10-31
 

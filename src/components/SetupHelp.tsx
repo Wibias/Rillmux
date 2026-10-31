@@ -16,6 +16,32 @@ import {
 import { isTauri } from "../lib/tauri";
 import "./SetupHelp.css";
 
+interface SetupHelpProps {
+  status?: ToolStatus | null;
+  onRecheck?: () => void;
+  checking?: boolean;
+}
+
+interface SetupCommand {
+  label: string;
+  command: string;
+}
+
+interface SetupAction {
+  label: string;
+  url: string;
+}
+
+interface ToolSetupViewProps extends SetupHelpProps {
+  foundText: string;
+  foundPathText?: string | null;
+  missingTitle: string;
+  bodyBeforeCommands: string[];
+  commands: SetupCommand[];
+  bodyAfterCommands?: string[];
+  actions: SetupAction[];
+}
+
 async function openExternal(url: string) {
   if (isTauri()) {
     await openUrl(url);
@@ -73,174 +99,178 @@ function RecheckActions({
   );
 }
 
-export function StreamlinkSetupHelp({
+function FoundTool({ text, pathText }: { text: string; pathText?: string | null }) {
+  return (
+    <>
+      <p className="setup-help__status">{text}</p>
+      {pathText ? <p className="setup-help__path muted">{pathText}</p> : null}
+    </>
+  );
+}
+
+function SetupCommands({ commands }: { commands: SetupCommand[] }) {
+  return (
+    <div className="setup-help__cmds">
+      {commands.map((item) => (
+        <div key={item.command}>
+          <span className="muted">{item.label}</span>
+          <code>{item.command}</code>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SetupActions({ actions }: { actions: SetupAction[] }) {
+  return (
+    <div className="setup-help__actions">
+      {actions.map((action) => (
+        <button
+          key={action.url}
+          type="button"
+          className="button-secondary"
+          onClick={() => void openExternal(action.url)}
+        >
+          {action.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MissingTool({
+  title,
+  bodyBeforeCommands,
+  commands,
+  bodyAfterCommands = [],
+  actions,
+}: {
+  title: string;
+  bodyBeforeCommands: string[];
+  commands: SetupCommand[];
+  bodyAfterCommands?: string[];
+  actions: SetupAction[];
+}) {
+  return (
+    <>
+      <p className="setup-help__title">{title}</p>
+      {bodyBeforeCommands.map((text) => (
+        <p key={text} className="setup-help__body muted">
+          {text}
+        </p>
+      ))}
+      <SetupCommands commands={commands} />
+      {bodyAfterCommands.map((text) => (
+        <p key={text} className="setup-help__body muted">
+          {text}
+        </p>
+      ))}
+      <SetupActions actions={actions} />
+    </>
+  );
+}
+
+function toolSetupHelpView({
   status,
   onRecheck,
   checking = false,
-}: {
-  status?: ToolStatus | null;
-  onRecheck?: () => void;
-  checking?: boolean;
-}) {
-  const { t } = useTranslation("onboarding");
+  foundText,
+  foundPathText,
+  missingTitle,
+  bodyBeforeCommands,
+  commands,
+  bodyAfterCommands,
+  actions,
+}: ToolSetupViewProps) {
   const found = Boolean(status?.found);
-
   return (
     <div className={`setup-help${found ? " setup-help--ok" : ""}`}>
       {found ? (
-        <>
-          <p className="setup-help__status">
-            {t("streamlinkFound", {
-              version: status?.version ?? "?",
-            })}
-          </p>
-          {status?.path ? (
-            <p className="setup-help__path muted">
-              {t("streamlinkFoundPath", { path: status.path })}
-            </p>
-          ) : null}
-        </>
+        <FoundTool text={foundText} pathText={foundPathText} />
       ) : (
-        <>
-          <p className="setup-help__title">{t("streamlinkMissingTitle")}</p>
-          <p className="setup-help__body muted">{t("streamlinkMissingBody")}</p>
-          <div className="setup-help__cmds">
-            <div>
-              <span className="muted">{t("streamlinkWinget")}</span>
-              <code>{STREAMLINK_WINGET}</code>
-            </div>
-            <div>
-              <span className="muted">{t("streamlinkScoop")}</span>
-              <code>{STREAMLINK_SCOOP}</code>
-            </div>
-          </div>
-          <div className="setup-help__actions">
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => void openExternal(STREAMLINK_INSTALL_URL)}
-            >
-              {t("streamlinkDocs")}
-            </button>
-          </div>
-        </>
+        <MissingTool
+          title={missingTitle}
+          bodyBeforeCommands={bodyBeforeCommands}
+          commands={commands}
+          bodyAfterCommands={bodyAfterCommands}
+          actions={actions}
+        />
       )}
       <RecheckActions found={found} onRecheck={onRecheck} checking={checking} />
     </div>
   );
+}
+
+export function StreamlinkSetupHelp({
+  status,
+  onRecheck,
+  checking = false,
+}: SetupHelpProps) {
+  const { t } = useTranslation("onboarding");
+  return toolSetupHelpView({
+    status,
+    onRecheck,
+    checking,
+    foundText: t("streamlinkFound", { version: status?.version ?? "?" }),
+    foundPathText: status?.path
+      ? t("streamlinkFoundPath", { path: status.path })
+      : null,
+    missingTitle: t("streamlinkMissingTitle"),
+    bodyBeforeCommands: [t("streamlinkMissingBody")],
+    commands: [
+      { label: t("streamlinkWinget"), command: STREAMLINK_WINGET },
+      { label: t("streamlinkScoop"), command: STREAMLINK_SCOOP },
+    ],
+    actions: [{ label: t("streamlinkDocs"), url: STREAMLINK_INSTALL_URL }],
+  });
 }
 
 export function PlayerSetupHelp({
   status,
   onRecheck,
   checking = false,
-}: {
-  status?: ToolStatus | null;
-  onRecheck?: () => void;
-  checking?: boolean;
-}) {
+}: SetupHelpProps) {
   const { t } = useTranslation("onboarding");
-  const found = Boolean(status?.found);
-
-  return (
-    <div className={`setup-help${found ? " setup-help--ok" : ""}`}>
-      {found ? (
-        <>
-          <p className="setup-help__status">{t("playerFound")}</p>
-          {status?.path ? (
-            <p className="setup-help__path muted">
-              {t("playerFoundPath", { path: status.path })}
-            </p>
-          ) : null}
-        </>
-      ) : (
-        <>
-          <p className="setup-help__title">{t("playerMissingTitle")}</p>
-          <p className="setup-help__body muted">{t("playerMissingBody")}</p>
-          <p className="setup-help__body muted">{t("playerOpenShell")}</p>
-          <div className="setup-help__cmds">
-            <div>
-              <span className="muted">{t("playerWinget")}</span>
-              <code>{MPV_WINGET}</code>
-            </div>
-            <div>
-              <span className="muted">{t("playerScoop")}</span>
-              <code>{MPV_SCOOP}</code>
-            </div>
-          </div>
-          <p className="setup-help__body muted">{t("playerPortableBody")}</p>
-          <div className="setup-help__actions">
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => void openExternal(MPV_INSTALL_URL)}
-            >
-              {t("playerDocs")}
-            </button>
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => void openExternal(MPV_PORTABLE_URL)}
-            >
-              {t("playerPortable")}
-            </button>
-          </div>
-        </>
-      )}
-      <RecheckActions found={found} onRecheck={onRecheck} checking={checking} />
-    </div>
-  );
+  return toolSetupHelpView({
+    status,
+    onRecheck,
+    checking,
+    foundText: t("playerFound"),
+    foundPathText: status?.path ? t("playerFoundPath", { path: status.path }) : null,
+    missingTitle: t("playerMissingTitle"),
+    bodyBeforeCommands: [t("playerMissingBody"), t("playerOpenShell")],
+    commands: [
+      { label: t("playerWinget"), command: MPV_WINGET },
+      { label: t("playerScoop"), command: MPV_SCOOP },
+    ],
+    bodyAfterCommands: [t("playerPortableBody")],
+    actions: [
+      { label: t("playerDocs"), url: MPV_INSTALL_URL },
+      { label: t("playerPortable"), url: MPV_PORTABLE_URL },
+    ],
+  });
 }
 
 export function ChatterinoSetupHelp({
   status,
   onRecheck,
   checking = false,
-}: {
-  status?: ToolStatus | null;
-  onRecheck?: () => void;
-  checking?: boolean;
-}) {
+}: SetupHelpProps) {
   const { t } = useTranslation("onboarding");
-  const found = Boolean(status?.found);
-
-  return (
-    <div className={`setup-help${found ? " setup-help--ok" : ""}`}>
-      {found ? (
-        <>
-          <p className="setup-help__status">{t("chatterinoFound")}</p>
-          {status?.path ? (
-            <p className="setup-help__path muted">
-              {t("chatterinoFoundPath", { path: status.path })}
-            </p>
-          ) : null}
-        </>
-      ) : (
-        <>
-          <p className="setup-help__title">{t("chatterinoMissingTitle")}</p>
-          <p className="setup-help__body muted">{t("chatterinoMissingBody")}</p>
-          <div className="setup-help__cmds">
-            <div>
-              <span className="muted">{t("chatterinoWinget")}</span>
-              <code>{CHATTERINO_WINGET}</code>
-            </div>
-            <div>
-              <span className="muted">{t("chatterinoChoco")}</span>
-              <code>{CHATTERINO_CHOCO}</code>
-            </div>
-          </div>
-          <div className="setup-help__actions">
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => void openExternal(CHATTERINO_INSTALL_URL)}
-            >
-              {t("chatterinoDocs")}
-            </button>
-          </div>
-        </>
-      )}
-      <RecheckActions found={found} onRecheck={onRecheck} checking={checking} />
-    </div>
-  );
+  return toolSetupHelpView({
+    status,
+    onRecheck,
+    checking,
+    foundText: t("chatterinoFound"),
+    foundPathText: status?.path
+      ? t("chatterinoFoundPath", { path: status.path })
+      : null,
+    missingTitle: t("chatterinoMissingTitle"),
+    bodyBeforeCommands: [t("chatterinoMissingBody")],
+    commands: [
+      { label: t("chatterinoWinget"), command: CHATTERINO_WINGET },
+      { label: t("chatterinoChoco"), command: CHATTERINO_CHOCO },
+    ],
+    actions: [{ label: t("chatterinoDocs"), url: CHATTERINO_INSTALL_URL }],
+  });
 }

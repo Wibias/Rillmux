@@ -1,9 +1,12 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn channel_points_uses_website_session_for_watch_and_context() {
     let lib = include_str!("../src/lib.rs");
     let presence = include_str!("../src/viewer_presence.rs");
     let realtime = include_str!("../src/channel_points_realtime.rs");
-    let points = include_str!("../src/channel_points.rs");
+    let points = sources::CHANNEL_POINTS;
     let auth_bar = include_str!("../../src/components/AuthBar.tsx");
     let website_auth = include_str!("../../src/components/TwitchWebsiteAuth.tsx");
 

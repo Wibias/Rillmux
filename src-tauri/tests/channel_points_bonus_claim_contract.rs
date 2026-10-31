@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn bonus_claim_uses_tv_identity_without_browser_integrity() {
-    let source = include_str!("../src/channel_points.rs");
+    let source = sources::CHANNEL_POINTS;
     let operations = include_str!("../src/twitch_gql_operations.rs");
 
     assert!(source.contains("ClaimCommunityPoints"));

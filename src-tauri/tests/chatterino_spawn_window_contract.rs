@@ -1,3 +1,6 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn expected_channels_are_published_before_spawn_placement_starts() {
     let source = include_str!("../src/streaming/tools_process.rs");
@@ -23,7 +26,7 @@ fn expected_channels_are_published_before_spawn_placement_starts() {
 
 #[test]
 fn an_empty_expected_channel_list_is_never_treated_as_a_verified_split() {
-    let source = include_str!("../src/streaming/windows_layout.rs");
+    let source = sources::WINDOWS_LAYOUT;
     let start = source
         .find("fn chatterino_pid_has_split_window(pid: u32) -> bool")
         .expect("missing Windows split-window detector");
@@ -88,7 +91,7 @@ fn current_chatterino_version_title_is_accepted_as_the_expected_main_window() {
         "the existing HWND selector/readiness path must recognize current version-titled main windows"
     );
 
-    let windows = include_str!("../src/streaming/windows_layout.rs");
+    let windows = sources::WINDOWS_LAYOUT;
     assert!(
         windows.matches("chatterino_title_matches_channels").count() >= 2,
         "both HWND selection and split readiness must use the corrected matcher"

@@ -1,3 +1,6 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn streaming_is_composed_from_ordered_focused_shards() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -30,7 +33,7 @@ fn streaming_is_composed_from_ordered_focused_shards() {
 
 #[test]
 fn win32_version_info_pointer_is_never_dereferenced() {
-    let source = include_str!("../src/streaming/windows_layout.rs");
+    let source = sources::WINDOWS_LAYOUT;
     let query = source
         .find("VerQueryValueW")
         .expect("missing Win32 version-info query");

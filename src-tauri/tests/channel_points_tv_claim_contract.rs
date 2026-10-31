@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn bonus_claim_uses_tv_identity_without_changing_watch_identity() {
-    let points = include_str!("../src/channel_points.rs");
+    let points = sources::CHANNEL_POINTS;
     let claim_auth = include_str!("../src/channel_points_claim_auth.rs");
     let lib = include_str!("../src/lib.rs");
     let presence = include_str!("../src/viewer_presence.rs");

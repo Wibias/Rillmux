@@ -1,3 +1,6 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn channel_points_uses_authenticated_hermes_without_gating_watch_credit() {
     let realtime = include_str!("../src/channel_points_realtime.rs");
@@ -28,7 +31,7 @@ fn channel_points_uses_authenticated_hermes_without_gating_watch_credit() {
 
 #[test]
 fn bonus_claim_falls_back_to_polled_context_without_realtime_gate() {
-    let channel_points = include_str!("../src/channel_points.rs");
+    let channel_points = sources::CHANNEL_POINTS;
     let start = channel_points
         .find("pub async fn refresh")
         .expect("Channel Points refresh");

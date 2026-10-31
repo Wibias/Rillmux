@@ -212,6 +212,11 @@ jobs:
             echo "::error::Release payload incomplete; refusing to publish without installers"
             exit 1
           fi
+          # Publish checksums next to the signed bundles so a download can be
+          # verified independently of the updater manifest.
+          ( cd installers && find . -type f \( -name '*.exe' -o -name '*.msi' \) -print0 \
+              | sort -z | xargs -0 sha256sum > SHA256SUMS )
+          cat installers/SHA256SUMS
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -224,5 +229,6 @@ jobs:
             installers/**/*.msi
             installers/**/*.sig
             installers/latest.json
+            installers/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

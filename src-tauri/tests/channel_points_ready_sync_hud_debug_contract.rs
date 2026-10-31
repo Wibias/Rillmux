@@ -3,7 +3,7 @@ mod sources;
 
 #[test]
 fn ready_transition_resyncs_channel_points_presence() {
-    let store = include_str!("../../src/lib/streaming/store.ts");
+    let store = sources::STREAMING_STORE_TS;
     let start = store
         .find("applyStatus: (payload) =>")
         .expect("stream status handler");

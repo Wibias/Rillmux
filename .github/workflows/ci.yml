@@ -178,6 +178,11 @@ jobs:
           src/streaming/dock/focus.rs
           src/streaming/dock/members.rs
           src/streaming/dock/commands.rs
+          src/streaming/tests/chatterino_and_player.rs
+          src/streaming/tests/status_and_dock.rs
+          src/streaming/tests/overlays_and_hud.rs
+          src/channel_points/tests/context_and_votes.rs
+          src/channel_points/tests/claims_and_predictions.rs
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings

@@ -160,3 +160,21 @@ pub const STREAMING_DOCK: &str = concat!(
     "\n",
     include_str!("../../src/streaming/dock/commands.rs"),
 );
+
+pub const STREAMING_STORE_TS: &str = concat!(
+    include_str!("../../../src/lib/streaming/store.ts"),
+    "\n",
+    include_str!("../../../src/lib/streaming/store/types.ts"),
+    "\n",
+    include_str!("../../../src/lib/streaming/store/state.ts"),
+    "\n",
+    include_str!("../../../src/lib/streaming/store/presenceSync.ts"),
+    "\n",
+    include_str!("../../../src/lib/streaming/store/layoutChannels.ts"),
+    "\n",
+    include_str!("../../../src/lib/streaming/store/chatterinoStoreSync.ts"),
+    "\n",
+    include_str!("../../../src/lib/streaming/store/layoutSchedule.ts"),
+    "\n",
+    include_str!("../../../src/lib/streaming/store/listeners.ts"),
+);

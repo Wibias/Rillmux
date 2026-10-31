@@ -34,16 +34,16 @@ import { SentryBootstrap } from "./lib/sentry";
 import "./styles/global.css";
 
 const FollowedPage = lazy(() =>
-  import("./pages/BrowsePages").then((module) => ({ default: module.FollowedPage })),
+  import("./pages/browse/FollowedPage").then((module) => ({ default: module.FollowedPage })),
 );
 const StreamsPage = lazy(() =>
-  import("./pages/BrowsePages").then((module) => ({ default: module.StreamsPage })),
+  import("./pages/browse/StreamsPage").then((module) => ({ default: module.StreamsPage })),
 );
 const WatchingPage = lazy(() =>
-  import("./pages/BrowsePages").then((module) => ({ default: module.WatchingPage })),
+  import("./pages/browse/WatchingPage").then((module) => ({ default: module.WatchingPage })),
 );
 const AboutPage = lazy(() =>
-  import("./pages/BrowsePages").then((module) => ({ default: module.AboutPage })),
+  import("./pages/browse/AboutPage").then((module) => ({ default: module.AboutPage })),
 );
 const ChannelPage = lazy(() =>
   import("./pages/BrowseExtraPages").then((module) => ({ default: module.ChannelPage })),

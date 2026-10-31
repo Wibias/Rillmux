@@ -79,10 +79,10 @@ describe("full-review regression gates", () => {
   });
 
   test("Channel Points HUD geometry uses one native placement path", () => {
-    const source = read("src/components/ChannelPointsHud.tsx");
+    const source = read("src/components/channelPointsHud/model.tsx");
     const flushBody = source.slice(
       source.indexOf("async function flushOverlayRect"),
-      source.indexOf("export function ChannelPointsHud"),
+      source.indexOf("export function useChannelPointsHudModel"),
     );
     expect(flushBody).toContain('invoke("overlay_place_hud"');
     expect(flushBody).not.toContain("PhysicalPosition");

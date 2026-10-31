@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split `lib.rs` into the app command and lifecycle shards, and `streaming/runtime.rs` into status, start, sessions, teardown, and player-window shards.
 - Split `eventsub.rs`, `twitch_web_auth.rs`, and `streaming/overlays.rs` into status, session, storage, and overlay-placement shards.
 - Split the remaining large streaming shards (`streaming/dock.rs`, the mpv window/title helpers) so no production Rust file exceeds about 450 lines.
+- Split the frontend page, multistream, Channel Points HUD/poll overlay, and streaming store modules into focused components; the largest production source file is now under 580 lines.
 - Release verification and installer builds run in parallel, cargo-audit uses a prebuilt binary, and Rust release codegen uses four units instead of one to reduce release wall time.
 - Rust CodeQL uses cached dependencies and a lighter `cargo check` extraction build.
 

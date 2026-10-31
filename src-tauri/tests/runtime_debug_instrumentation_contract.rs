@@ -29,7 +29,7 @@ fn settings_exposes_and_syncs_debug_categories() {
 
 #[test]
 fn stream_and_window_lifecycle_is_instrumented() {
-    let frontend = include_str!("../../src/lib/streaming/store.ts");
+    let frontend = sources::STREAMING_STORE_TS;
     for event in [
         "watch.start",
         "chatterino.open.request",
@@ -146,6 +146,6 @@ fn polls_predictions_and_raids_are_instrumented() {
     let raid = include_str!("../../src/components/RaidBanner.tsx");
     assert!(raid.contains("raid.received"));
 
-    let frontend = include_str!("../../src/lib/streaming/store.ts");
+    let frontend = sources::STREAMING_STORE_TS;
     assert!(frontend.contains("raid.follow"));
 }

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Website-auth and bonus-claim chips no longer occupy the title bar; connection management now lives in About.
 - Hovering outside the changelog dialog no longer tints the full-window dismiss layer purple.
+- Settings tabs use the same subtle active background as the main navigation instead of a colored side bar.
 
 ### Internal
 

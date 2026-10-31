@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../lib/auth/store";
 import type { ChannelPointsClaimAuthStatus } from "../lib/auth/claimAuth";
@@ -23,9 +24,148 @@ type LoadState<T> =
   | { kind: "error"; message: string };
 
 type Tone = "ok" | "pending" | "warning" | "off" | "error";
+type Summary = { tone: Tone; text: string };
+type AuthSession = ReturnType<typeof useAuthStore.getState>["session"];
 
 function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
+}
+
+function accountSummary(
+  authLoading: boolean,
+  authError: string | null,
+  session: AuthSession,
+  t: TFunction,
+): Summary {
+  if (authLoading) {
+    return { tone: "pending", text: t("connectionsChecking") };
+  }
+  if (session?.loggedIn) {
+    return {
+      tone: "ok",
+      text: t("connectionsAccountConnected", {
+        name: session.displayName ?? session.login,
+      }),
+    };
+  }
+  if (authError) {
+    return { tone: "error", text: t("connectionsAccountError") };
+  }
+  return { tone: "off", text: t("connectionsNotConnected") };
+}
+
+function playbackSummary(
+  website: LoadState<TwitchWebsiteAuthStatus>,
+  t: TFunction,
+): Summary {
+  if (website.kind === "checking") {
+    return { tone: "pending", text: t("connectionsChecking") };
+  }
+  if (website.kind === "error") {
+    return { tone: "error", text: website.message };
+  }
+  if (!website.value.configured) {
+    return { tone: "off", text: t("connectionsNotConnected") };
+  }
+  if (!website.value.playbackReady) {
+    return { tone: "warning", text: t("connectionsNeedsRepair") };
+  }
+  return {
+    tone: "ok",
+    text: t("connectionsPlaybackReady", {
+      account: website.value.login ?? t("connectionsCurrentAccount"),
+    }),
+  };
+}
+
+function claimSummary(
+  claims: LoadState<ChannelPointsClaimAuthStatus>,
+  t: TFunction,
+): Summary {
+  if (claims.kind === "checking") {
+    return { tone: "pending", text: t("connectionsChecking") };
+  }
+  if (claims.kind === "error") {
+    return { tone: "error", text: claims.message };
+  }
+  if (!claims.value.configured) {
+    return { tone: "off", text: t("connectionsNotConnected") };
+  }
+  return {
+    tone: "ok",
+    text: t("connectionsClaimConnected", {
+      account: claims.value.login ?? t("connectionsCurrentAccount"),
+    }),
+  };
+}
+
+function eventSubSummary(
+  eventSub: LoadState<EventSubStatus>,
+  t: TFunction,
+): Summary {
+  if (eventSub.kind === "checking") {
+    return { tone: "pending", text: t("connectionsChecking") };
+  }
+  if (eventSub.kind === "error") {
+    return { tone: "error", text: eventSub.message };
+  }
+
+  const status = eventSub.value;
+  if (!status.enabled) {
+    return { tone: "off", text: t("connectionsRaidsDisabled") };
+  }
+  if (status.state === "connected") {
+    return {
+      tone: "ok",
+      text: t("connectionsRaidsConnected", { count: status.watchedChannels }),
+    };
+  }
+  if (status.state === "retrying") {
+    return {
+      tone: "warning",
+      text: t("connectionsRaidsRetrying", {
+        reason: status.lastError ?? "other",
+      }),
+    };
+  }
+  if (status.state === "connecting") {
+    return { tone: "pending", text: t("connectionsRaidsConnecting") };
+  }
+  return { tone: "off", text: t("connectionsRaidsIdle") };
+}
+
+function isChecking(
+  manualRefresh: boolean,
+  refreshId: number,
+  website: LoadState<TwitchWebsiteAuthStatus>,
+  claims: LoadState<ChannelPointsClaimAuthStatus>,
+  eventSub: LoadState<EventSubStatus>,
+) {
+  if (manualRefresh) return true;
+  if (refreshId !== 0) return false;
+  return [website, claims, eventSub].some((state) => state.kind === "checking");
+}
+
+function ConnectionRow({
+  label,
+  summary,
+}: {
+  label: string;
+  summary: Summary;
+}) {
+  return (
+    <li className="connections__row">
+      <span
+        className="connections__dot"
+        data-tone={summary.tone}
+        aria-hidden="true"
+      />
+      <div>
+        <strong>{label}</strong>
+        <span>{summary.text}</span>
+      </div>
+    </li>
+  );
 }
 
 export function ConnectionHealth() {
@@ -45,12 +185,13 @@ export function ConnectionHealth() {
   const [eventSub, setEventSub] = useState<LoadState<EventSubStatus>>({
     kind: "checking",
   });
-  const checking =
-    manualRefresh ||
-    (refreshId === 0 &&
-      (website.kind === "checking" ||
-        claims.kind === "checking" ||
-        eventSub.kind === "checking"));
+  const checking = isChecking(
+    manualRefresh,
+    refreshId,
+    website,
+    claims,
+    eventSub,
+  );
 
   useEffect(() => {
     if (!isTauri()) {
@@ -113,96 +254,10 @@ export function ConnectionHealth() {
     };
   }, []);
 
-  const accountTone: Tone = authLoading
-    ? "pending"
-    : session?.loggedIn
-      ? "ok"
-      : authError
-        ? "error"
-        : "off";
-  const accountText = authLoading
-    ? t("connectionsChecking")
-    : session?.loggedIn
-      ? t("connectionsAccountConnected", {
-          name: session.displayName ?? session.login,
-        })
-      : authError
-        ? t("connectionsAccountError")
-        : t("connectionsNotConnected");
-
-  function playbackSummary(): { tone: Tone; text: string } {
-    if (website.kind === "checking") {
-      return { tone: "pending", text: t("connectionsChecking") };
-    }
-    if (website.kind === "error") {
-      return { tone: "error", text: website.message };
-    }
-    if (!website.value.configured) {
-      return { tone: "off", text: t("connectionsNotConnected") };
-    }
-    return website.value.playbackReady
-      ? {
-          tone: "ok",
-          text: t("connectionsPlaybackReady", {
-            account: website.value.login ?? t("connectionsCurrentAccount"),
-          }),
-        }
-      : { tone: "warning", text: t("connectionsNeedsRepair") };
-  }
-
-  function claimSummary(): { tone: Tone; text: string } {
-    if (claims.kind === "checking") {
-      return { tone: "pending", text: t("connectionsChecking") };
-    }
-    if (claims.kind === "error") {
-      return { tone: "error", text: claims.message };
-    }
-    return claims.value.configured
-      ? {
-          tone: "ok",
-          text: t("connectionsClaimConnected", {
-            account: claims.value.login ?? t("connectionsCurrentAccount"),
-          }),
-        }
-      : { tone: "off", text: t("connectionsNotConnected") };
-  }
-
-  function eventSubSummary(): { tone: Tone; text: string } {
-    if (eventSub.kind === "checking") {
-      return { tone: "pending", text: t("connectionsChecking") };
-    }
-    if (eventSub.kind === "error") {
-      return { tone: "error", text: eventSub.message };
-    }
-    const status = eventSub.value;
-    if (!status.enabled) {
-      return { tone: "off", text: t("connectionsRaidsDisabled") };
-    }
-    if (status.state === "connected") {
-      return {
-        tone: "ok",
-        text: t("connectionsRaidsConnected", {
-          count: status.watchedChannels,
-        }),
-      };
-    }
-    if (status.state === "retrying") {
-      return {
-        tone: "warning",
-        text: t("connectionsRaidsRetrying", {
-          reason: status.lastError ?? "other",
-        }),
-      };
-    }
-    if (status.state === "connecting") {
-      return { tone: "pending", text: t("connectionsRaidsConnecting") };
-    }
-    return { tone: "off", text: t("connectionsRaidsIdle") };
-  }
-
-  const playback = playbackSummary();
-  const claim = claimSummary();
-  const raids = eventSubSummary();
+  const account = accountSummary(authLoading, authError, session, t);
+  const playback = playbackSummary(website, t);
+  const claim = claimSummary(claims, t);
+  const raids = eventSubSummary(eventSub, t);
 
   return (
     <section
@@ -230,50 +285,10 @@ export function ConnectionHealth() {
         </button>
       </div>
       <ul className="connections__list" aria-live="polite">
-        <li className="connections__row">
-          <span
-            className="connections__dot"
-            data-tone={accountTone}
-            aria-hidden="true"
-          />
-          <div>
-            <strong>{t("connectionsTwitch")}</strong>
-            <span>{accountText}</span>
-          </div>
-        </li>
-        <li className="connections__row">
-          <span
-            className="connections__dot"
-            data-tone={playback.tone}
-            aria-hidden="true"
-          />
-          <div>
-            <strong>{t("connectionsPlayback")}</strong>
-            <span>{playback.text}</span>
-          </div>
-        </li>
-        <li className="connections__row">
-          <span
-            className="connections__dot"
-            data-tone={claim.tone}
-            aria-hidden="true"
-          />
-          <div>
-            <strong>{t("connectionsClaims")}</strong>
-            <span>{claim.text}</span>
-          </div>
-        </li>
-        <li className="connections__row">
-          <span
-            className="connections__dot"
-            data-tone={raids.tone}
-            aria-hidden="true"
-          />
-          <div>
-            <strong>{t("connectionsRaids")}</strong>
-            <span>{raids.text}</span>
-          </div>
-        </li>
+        <ConnectionRow label={t("connectionsTwitch")} summary={account} />
+        <ConnectionRow label={t("connectionsPlayback")} summary={playback} />
+        <ConnectionRow label={t("connectionsClaims")} summary={claim} />
+        <ConnectionRow label={t("connectionsRaids")} summary={raids} />
       </ul>
       <div className="connections__manage">
         <h3>{t("connectionsManage")}</h3>

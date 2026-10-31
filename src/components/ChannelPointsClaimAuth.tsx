@@ -21,6 +21,108 @@ type TvDevicePoll =
   | { state: "slowDown" }
   | { state: "done"; status: ChannelPointsClaimAuthStatus };
 
+function ClaimAuthPanelBody({
+  status,
+  device,
+  connected,
+  busy,
+  onCancel,
+  onDisconnect,
+  onStart,
+}: {
+  status: ChannelPointsClaimAuthStatus | null;
+  device: TvDeviceCodeResponse | null;
+  connected: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onDisconnect: () => void;
+  onStart: () => void;
+}) {
+  const { t } = useTranslation("common");
+
+  if (device) {
+    return (
+      <>
+        <p className="muted">{t("bonusClaimsDevicePrompt")}</p>
+        <CopyableDeviceCode code={device.userCode} />
+        <button type="button" className="button-secondary" onClick={onCancel}>
+          {t("cancel")}
+        </button>
+      </>
+    );
+  }
+
+  if (connected) {
+    return (
+      <>
+        <p className="muted">
+          {t("bonusClaimsConnectedHint", {
+            login: status?.login ?? t("playbackAuthCurrentAccount"),
+          })}
+        </p>
+        <button
+          type="button"
+          className="button-secondary"
+          disabled={busy}
+          onClick={onDisconnect}
+        >
+          {busy ? t("bonusClaimsRemoving") : t("bonusClaimsRemove")}
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p className="muted">{t("bonusClaimsExplanation")}</p>
+      <button type="button" disabled={busy} onClick={onStart}>
+        {busy ? t("bonusClaimsConnecting") : t("bonusClaimsConnect")}
+      </button>
+    </>
+  );
+}
+
+function ClaimAuthPanel({
+  visible,
+  status,
+  device,
+  connected,
+  busy,
+  error,
+  onCancel,
+  onDisconnect,
+  onStart,
+}: {
+  visible: boolean;
+  status: ChannelPointsClaimAuthStatus | null;
+  device: TvDeviceCodeResponse | null;
+  connected: boolean;
+  busy: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onDisconnect: () => void;
+  onStart: () => void;
+}) {
+  const { t } = useTranslation("common");
+  if (!visible) return null;
+
+  return (
+    <div className="authbar__playback-panel">
+      <strong>{t("bonusClaimsTitle")}</strong>
+      <ClaimAuthPanelBody
+        status={status}
+        device={device}
+        connected={connected}
+        busy={busy}
+        onCancel={onCancel}
+        onDisconnect={onDisconnect}
+        onStart={onStart}
+      />
+      {error ? <p className="authbar__error">{error}</p> : null}
+    </div>
+  );
+}
+
 export function ChannelPointsClaimAuth({
   compact = false,
 }: {
@@ -124,11 +226,12 @@ export function ChannelPointsClaimAuth({
   }
 
   const connected = Boolean(status?.configured);
+  const className = compact
+    ? "authbar__playback authbar__playback--compact"
+    : "authbar__playback";
 
   return (
-    <div
-      className={`authbar__playback${compact ? " authbar__playback--compact" : ""}`}
-    >
+    <div className={className}>
       <button
         type="button"
         className="button-secondary authbar__playback-toggle"
@@ -150,56 +253,21 @@ export function ChannelPointsClaimAuth({
         {connected ? t("bonusClaimsConnected") : t("bonusClaimsSetup")}
       </button>
 
-      {expanded ? (
-        <div className="authbar__playback-panel">
-          <strong>{t("bonusClaimsTitle")}</strong>
-          {device ? (
-            <>
-              <p className="muted">{t("bonusClaimsDevicePrompt")}</p>
-              <CopyableDeviceCode code={device.userCode} />
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => {
-                  clearPoll();
-                  setDevice(null);
-                  setBusy(false);
-                }}
-              >
-                {t("cancel")}
-              </button>
-            </>
-          ) : connected ? (
-            <>
-              <p className="muted">
-                {t("bonusClaimsConnectedHint", {
-                  login: status?.login ?? t("playbackAuthCurrentAccount"),
-                })}
-              </p>
-              <button
-                type="button"
-                className="button-secondary"
-                disabled={busy}
-                onClick={() => void disconnect()}
-              >
-                {busy ? t("bonusClaimsRemoving") : t("bonusClaimsRemove")}
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="muted">{t("bonusClaimsExplanation")}</p>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void startLogin()}
-              >
-                {busy ? t("bonusClaimsConnecting") : t("bonusClaimsConnect")}
-              </button>
-            </>
-          )}
-          {error ? <p className="authbar__error">{error}</p> : null}
-        </div>
-      ) : null}
+      <ClaimAuthPanel
+        visible={expanded}
+        status={status}
+        device={device}
+        connected={connected}
+        busy={busy}
+        error={error}
+        onCancel={() => {
+          clearPoll();
+          setDevice(null);
+          setBusy(false);
+        }}
+        onDisconnect={() => void disconnect()}
+        onStart={() => void startLogin()}
+      />
     </div>
   );
 }

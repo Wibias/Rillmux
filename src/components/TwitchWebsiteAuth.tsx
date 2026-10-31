@@ -9,6 +9,127 @@ import {
   type TwitchWebsiteAuthStatus,
 } from "../lib/auth/website";
 
+function ConnectedWebsiteAuth({
+  status,
+  busy,
+  onDisconnect,
+}: {
+  status: TwitchWebsiteAuthStatus | null;
+  busy: boolean;
+  onDisconnect: () => void;
+}) {
+  const { t } = useTranslation("common");
+  return (
+    <>
+      <p className="muted">
+        {t("playbackAuthConnectedHint", {
+          login: status?.login ?? t("playbackAuthCurrentAccount"),
+        })}
+      </p>
+      <button
+        type="button"
+        className="button-secondary"
+        disabled={busy}
+        onClick={onDisconnect}
+      >
+        {busy ? t("playbackAuthRemoving") : t("playbackAuthRemove")}
+      </button>
+    </>
+  );
+}
+
+function WebsiteAuthSetup({
+  token,
+  busy,
+  onTokenChange,
+  onSave,
+}: {
+  token: string;
+  busy: boolean;
+  onTokenChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  const { t } = useTranslation("common");
+  return (
+    <>
+      <p className="muted">{t("playbackAuthExplanation")}</p>
+      <p className="authbar__playback-warning">{t("playbackAuthWarning")}</p>
+      <label className="authbar__playback-field">
+        <span>{t("playbackAuthToken")}</span>
+        <input
+          className="input"
+          type="password"
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={token}
+          onChange={(event) => onTokenChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onSave();
+            }
+          }}
+        />
+      </label>
+      <button type="button" disabled={busy || !token.trim()} onClick={onSave}>
+        {busy ? t("playbackAuthSaving") : t("playbackAuthSave")}
+      </button>
+    </>
+  );
+}
+
+function WebsiteAuthPanel({
+  visible,
+  connected,
+  status,
+  token,
+  busy,
+  error,
+  onTokenChange,
+  onSave,
+  onDisconnect,
+}: {
+  visible: boolean;
+  connected: boolean;
+  status: TwitchWebsiteAuthStatus | null;
+  token: string;
+  busy: boolean;
+  error: string | null;
+  onTokenChange: (value: string) => void;
+  onSave: () => void;
+  onDisconnect: () => void;
+}) {
+  const { t } = useTranslation("common");
+  if (!visible) return null;
+
+  const label = status
+    ? websiteAuthLabel(status)
+    : t("playbackAuthChecking");
+
+  return (
+    <div className="authbar__playback-panel">
+      <strong>{t("playbackAuthTitle")}</strong>
+      <p className="muted">{label}</p>
+      {connected ? (
+        <ConnectedWebsiteAuth
+          status={status}
+          busy={busy}
+          onDisconnect={onDisconnect}
+        />
+      ) : (
+        <WebsiteAuthSetup
+          token={token}
+          busy={busy}
+          onTokenChange={onTokenChange}
+          onSave={onSave}
+        />
+      )}
+      {error ? <p className="authbar__error">{error}</p> : null}
+    </div>
+  );
+}
+
 export function TwitchWebsiteAuth({ compact = false }: { compact?: boolean }) {
   const { t } = useTranslation("common");
   const [status, setStatus] = useState<TwitchWebsiteAuthStatus | null>(null);
@@ -70,14 +191,12 @@ export function TwitchWebsiteAuth({ compact = false }: { compact?: boolean }) {
   }
 
   const connected = Boolean(status?.configured && status.playbackReady);
-  const label = status
-    ? websiteAuthLabel(status)
-    : t("playbackAuthChecking");
+  const className = compact
+    ? "authbar__playback authbar__playback--compact"
+    : "authbar__playback";
 
   return (
-    <div
-      className={`authbar__playback${compact ? " authbar__playback--compact" : ""}`}
-    >
+    <div className={className}>
       <button
         type="button"
         className="button-secondary authbar__playback-toggle"
@@ -91,64 +210,17 @@ export function TwitchWebsiteAuth({ compact = false }: { compact?: boolean }) {
         {connected ? t("playbackAuthConnected") : t("playbackAuthSetup")}
       </button>
 
-      {expanded ? (
-        <div className="authbar__playback-panel">
-          <strong>{t("playbackAuthTitle")}</strong>
-          <p className="muted">{label}</p>
-
-          {connected ? (
-            <>
-              <p className="muted">
-                {t("playbackAuthConnectedHint", {
-                  login: status?.login ?? t("playbackAuthCurrentAccount"),
-                })}
-              </p>
-              <button
-                type="button"
-                className="button-secondary"
-                disabled={busy}
-                onClick={() => void disconnect()}
-              >
-                {busy ? t("playbackAuthRemoving") : t("playbackAuthRemove")}
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="muted">{t("playbackAuthExplanation")}</p>
-              <p className="authbar__playback-warning">
-                {t("playbackAuthWarning")}
-              </p>
-              <label className="authbar__playback-field">
-                <span>{t("playbackAuthToken")}</span>
-                <input
-                  className="input"
-                  type="password"
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void save();
-                    }
-                  }}
-                />
-              </label>
-              <button
-                type="button"
-                disabled={busy || !token.trim()}
-                onClick={() => void save()}
-              >
-                {busy ? t("playbackAuthSaving") : t("playbackAuthSave")}
-              </button>
-            </>
-          )}
-
-          {error ? <p className="authbar__error">{error}</p> : null}
-        </div>
-      ) : null}
+      <WebsiteAuthPanel
+        visible={expanded}
+        connected={connected}
+        status={status}
+        token={token}
+        busy={busy}
+        error={error}
+        onTokenChange={setToken}
+        onSave={() => void save()}
+        onDisconnect={() => void disconnect()}
+      />
     </div>
   );
 }

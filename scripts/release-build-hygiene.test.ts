@@ -26,7 +26,7 @@ describe("release build hygiene", () => {
     const source = await readRepo(".github/workflows/ci.yml");
     const pkg = await readRepo("package.json");
 
-    expect(pkg).toContain("react-doctor@0.9.12");
+    expect(pkg).toContain("react-doctor@0.9.18");
     expect(pkg).toContain("--scope full");
     expect(pkg).toContain("--blocking warning");
     expect(source).toContain("run: npm run doctor");

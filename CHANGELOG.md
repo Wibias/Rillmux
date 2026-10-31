@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.24] — 2026-10-31
+
+### Changed
+
+- About lists the four connection statuses in a two-column grid instead of one long stack.
+
 ## [0.5.23] — 2026-10-31
 
 ### Fixed

@@ -5,7 +5,7 @@ mod sources;
 fn bonus_claim_uses_tv_identity_without_changing_watch_identity() {
     let points = sources::CHANNEL_POINTS;
     let claim_auth = include_str!("../src/channel_points_claim_auth.rs");
-    let lib = include_str!("../src/lib.rs");
+    let lib = sources::LIB;
     let presence = sources::VIEWER_PRESENCE;
     let realtime = sources::CHANNEL_POINTS_REALTIME;
 

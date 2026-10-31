@@ -4,7 +4,7 @@ mod sources;
 #[test]
 fn channel_points_uses_authenticated_hermes_without_gating_watch_credit() {
     let realtime = sources::CHANNEL_POINTS_REALTIME;
-    let lib = include_str!("../src/lib.rs");
+    let lib = sources::LIB;
 
     assert!(realtime.contains("wss://hermes.twitch.tv/v1?clientId="));
     assert!(realtime.contains("https://www.twitch.tv"));

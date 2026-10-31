@@ -3,7 +3,7 @@ mod sources;
 
 #[test]
 fn channel_points_uses_website_session_for_watch_and_context() {
-    let lib = include_str!("../src/lib.rs");
+    let lib = sources::LIB;
     let presence = sources::VIEWER_PRESENCE;
     let realtime = sources::CHANNEL_POINTS_REALTIME;
     let points = sources::CHANNEL_POINTS;

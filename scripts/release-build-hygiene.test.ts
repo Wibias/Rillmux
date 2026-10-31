@@ -7,7 +7,7 @@ async function readRepo(path: string): Promise<string> {
 
 describe("release build hygiene", () => {
   it("does not require unconditional mutable Tauri context in release builds", async () => {
-    const source = await readRepo("src-tauri/src/lib.rs");
+    const source = await readRepo("src-tauri/src/app/run.rs");
 
     expect(source).not.toContain("let mut ctx = tauri::generate_context!();");
     expect(source).toContain("let ctx = tauri::generate_context!();");

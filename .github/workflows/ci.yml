@@ -134,6 +134,21 @@ jobs:
           src/viewer_presence/worker.rs
           src/viewer_presence/playback.rs
           src/viewer_presence/telemetry.rs
+          src/streaming/runtime.rs
+          src/streaming/runtime/status.rs
+          src/streaming/runtime/handoff.rs
+          src/streaming/runtime/start.rs
+          src/streaming/runtime/sessions.rs
+          src/streaming/runtime/teardown.rs
+          src/streaming/runtime/player_windows.rs
+          src/lib.rs
+          src/app/commands_account.rs
+          src/app/commands_channel_points.rs
+          src/app/commands_stream.rs
+          src/app/commands_diagnostics.rs
+          src/app/overlays.rs
+          src/app/lifecycle.rs
+          src/app/run.rs
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings

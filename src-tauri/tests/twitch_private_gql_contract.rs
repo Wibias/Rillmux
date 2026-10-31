@@ -4,7 +4,7 @@ mod sources;
 #[test]
 fn private_gql_operations_live_in_registry_and_vote_poll_has_no_fake_hash() {
     let channel_points = sources::CHANNEL_POINTS;
-    let lib = include_str!("../src/lib.rs");
+    let lib = sources::LIB;
 
     assert!(lib.contains("mod twitch_gql_operations;"));
     assert!(channel_points.contains("twitch_gql_operations"));

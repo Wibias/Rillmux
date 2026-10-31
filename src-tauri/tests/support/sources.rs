@@ -68,3 +68,35 @@ pub const VIEWER_PRESENCE: &str = concat!(
     "\n",
     include_str!("../../src/viewer_presence/telemetry.rs"),
 );
+
+pub const STREAMING_RUNTIME: &str = concat!(
+    include_str!("../../src/streaming/runtime/status.rs"),
+    "\n",
+    include_str!("../../src/streaming/runtime/handoff.rs"),
+    "\n",
+    include_str!("../../src/streaming/runtime/start.rs"),
+    "\n",
+    include_str!("../../src/streaming/runtime/sessions.rs"),
+    "\n",
+    include_str!("../../src/streaming/runtime/teardown.rs"),
+    "\n",
+    include_str!("../../src/streaming/runtime/player_windows.rs"),
+);
+
+pub const LIB: &str = concat!(
+    include_str!("../../src/lib.rs"),
+    "\n",
+    include_str!("../../src/app/commands_account.rs"),
+    "\n",
+    include_str!("../../src/app/commands_channel_points.rs"),
+    "\n",
+    include_str!("../../src/app/commands_stream.rs"),
+    "\n",
+    include_str!("../../src/app/commands_diagnostics.rs"),
+    "\n",
+    include_str!("../../src/app/overlays.rs"),
+    "\n",
+    include_str!("../../src/app/lifecycle.rs"),
+    "\n",
+    include_str!("../../src/app/run.rs"),
+);

@@ -20,7 +20,7 @@ mod tests {
             chatterino_launch_plan(true, "t:forsen;t:xqc", "t:forsen"),
             ChatterinoLaunchPlan::RestartOwned
         );
-        let runtime = include_str!("runtime.rs");
+        let runtime = include_str!("runtime/teardown.rs");
         assert!(
             runtime.contains("relaunch_dock_chatterino(&remaining)"),
             "closing one multistream must restart owned Chatterino onto the remaining split"

@@ -42,7 +42,7 @@ fn stream_and_window_lifecycle_is_instrumented() {
         );
     }
 
-    let native = include_str!("../src/lib.rs");
+    let native = sources::LIB;
     for event in [
         "chatterino.open.native",
         "chatterino.close.native.result",
@@ -73,7 +73,7 @@ fn stream_and_window_lifecycle_is_instrumented() {
 
 #[test]
 fn channel_points_credit_claim_and_rewards_are_instrumented() {
-    let native = include_str!("../src/lib.rs");
+    let native = sources::LIB;
     for event in [
         "presence.sync",
         "worker.start",
@@ -110,7 +110,7 @@ fn channel_points_credit_claim_and_rewards_are_instrumented() {
 
 #[test]
 fn polls_predictions_and_raids_are_instrumented() {
-    let native = include_str!("../src/lib.rs");
+    let native = sources::LIB;
     for event in [
         "poll.subscription",
         "poll.vote",

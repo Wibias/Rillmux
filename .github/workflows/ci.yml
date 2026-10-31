@@ -122,6 +122,18 @@ jobs:
           src/dock/grip_proc.rs
           src/dock/grip_windows.rs
           src/dock/grip_sync.rs
+          src/channel_points_realtime.rs
+          src/channel_points_realtime/state.rs
+          src/channel_points_realtime/sync_api.rs
+          src/channel_points_realtime/session.rs
+          src/channel_points_realtime/raids.rs
+          src/channel_points_realtime/socket.rs
+          src/viewer_presence.rs
+          src/viewer_presence/state.rs
+          src/viewer_presence/sync.rs
+          src/viewer_presence/worker.rs
+          src/viewer_presence/playback.rs
+          src/viewer_presence/telemetry.rs
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings

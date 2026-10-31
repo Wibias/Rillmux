@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn viewer_presence_matches_known_good_web_watch_contract() {
-    let presence = include_str!("../src/viewer_presence.rs");
+    let presence = sources::VIEWER_PRESENCE;
 
     assert!(presence.contains("\"playerType\": \"picture-by-picture\""));
     assert!(presence.contains(".append_pair(\"cdm\", \"wv\")"));

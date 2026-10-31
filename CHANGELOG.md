@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split the 1,437-line settings panel into focused player, streaming, and remaining panel modules under 500 lines each.
 - Split the legacy `windows_layout.rs` and `channel_points.rs` modules into focused responsibility shards; their former 1,900- and 2,400-line bodies are now separate modules with the largest production shard under 750 lines.
 - Split the 3,000-line `dock.rs` into geometry, configuration, session, monitor, and grip-window shards; the largest shard is now under 430 lines.
+- Split `channel_points_realtime.rs` and `viewer_presence.rs` into state, session, and telemetry shards so each file stays under 350 lines.
 - Release verification and installer builds run in parallel, cargo-audit uses a prebuilt binary, and Rust release codegen uses four units instead of one to reduce release wall time.
 - Rust CodeQL uses cached dependencies and a lighter `cargo check` extraction build.
 

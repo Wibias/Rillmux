@@ -44,3 +44,27 @@ pub const DOCK: &str = concat!(
     "\n",
     include_str!("../../src/dock/grip_sync.rs"),
 );
+
+pub const CHANNEL_POINTS_REALTIME: &str = concat!(
+    include_str!("../../src/channel_points_realtime/state.rs"),
+    "\n",
+    include_str!("../../src/channel_points_realtime/sync_api.rs"),
+    "\n",
+    include_str!("../../src/channel_points_realtime/session.rs"),
+    "\n",
+    include_str!("../../src/channel_points_realtime/raids.rs"),
+    "\n",
+    include_str!("../../src/channel_points_realtime/socket.rs"),
+);
+
+pub const VIEWER_PRESENCE: &str = concat!(
+    include_str!("../../src/viewer_presence/state.rs"),
+    "\n",
+    include_str!("../../src/viewer_presence/sync.rs"),
+    "\n",
+    include_str!("../../src/viewer_presence/worker.rs"),
+    "\n",
+    include_str!("../../src/viewer_presence/playback.rs"),
+    "\n",
+    include_str!("../../src/viewer_presence/telemetry.rs"),
+);

@@ -1,3 +1,6 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn settings_exposes_and_syncs_debug_categories() {
     let app = include_str!("../../src/App.tsx");
@@ -92,7 +95,7 @@ fn channel_points_credit_claim_and_rewards_are_instrumented() {
     assert!(native.contains("delta={balance_delta:?}"));
     assert!(native.contains("diagnostics::redact_hash(hash)"));
 
-    let realtime = include_str!("../src/channel_points_realtime.rs");
+    let realtime = sources::CHANNEL_POINTS_REALTIME;
     for event in [
         "hermes.connect.attempt",
         "hermes.auth.ack",
@@ -117,7 +120,7 @@ fn polls_predictions_and_raids_are_instrumented() {
         assert!(native.contains(event), "missing poll/raid event {event}");
     }
 
-    let realtime = include_str!("../src/channel_points_realtime.rs");
+    let realtime = sources::CHANNEL_POINTS_REALTIME;
     for event in [
         "poll.subscription.request",
         "poll.subscription.ack",

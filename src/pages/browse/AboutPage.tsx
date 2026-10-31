@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import { DoctorPanel } from "../../components/DoctorPanel";
+import { PageSubbar } from "../../components/AppShell";
 import { ConnectionHealth } from "../../components/ConnectionHealth";
 import { ChangelogDialog } from "../../components/ChangelogDialog";
 import { useUpdaterCheck } from "../../components/DeepLinkAndUpdaterBootstrap";
@@ -46,24 +47,19 @@ export function AboutPage() {
 
   return (
     <section className="page">
-      <header className="page__header">
-        <div>
-          <h1>{t("aboutTitle")}</h1>
-          <p className="page__lede">{t("aboutBlurb")}</p>
-          {appVersion ? (
-            <p className="muted about-version" style={{ marginTop: "0.35rem" }}>
-              {t("aboutVersion", { version: appVersion })}
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => setShowChangelog(true)}
-              >
-                {t("viewChangelog")}
-              </button>
-            </p>
-          ) : null}
-        </div>
-      </header>
+      <PageSubbar title={t("aboutTitle")} lede={t("aboutBlurb")} />
+      {appVersion ? (
+        <p className="muted about-version">
+          {t("aboutVersion", { version: appVersion })}
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => setShowChangelog(true)}
+          >
+            {t("viewChangelog")}
+          </button>
+        </p>
+      ) : null}
       <div className="channel-header__actions" style={{ marginBottom: "1rem" }}>
         <button
           type="button"

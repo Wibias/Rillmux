@@ -6,20 +6,6 @@
   min-height: 100%;
 }
 
-.settings > .page__header {
-  flex-shrink: 0;
-  margin: 0 0 1.35rem;
-  padding: 0 0 0.7rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings > .page__header h1 {
-  font-weight: 700;
-  font-size: 1.7rem;
-  letter-spacing: -0.02em;
-  text-wrap: balance;
-}
-
 .settings__layout {
   display: grid;
   grid-template-columns: 12.25rem minmax(0, 1fr);
@@ -560,10 +546,6 @@ html[data-theme="light"] .settings__help-menu {
 @media (max-width: 720px) {
   .settings {
     min-height: 0;
-  }
-
-  .settings > .page__header {
-    padding: 0 0 0.65rem;
   }
 
   .settings__layout {

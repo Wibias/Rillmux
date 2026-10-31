@@ -399,4 +399,3 @@ fn ignores_completed_or_expired_polls_on_stream_load() {
     });
     assert!(parse_viewable_poll_body(&untitled_status).is_none());
 }
-

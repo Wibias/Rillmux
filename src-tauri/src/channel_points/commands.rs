@@ -334,4 +334,3 @@ pub async fn redeem_reward(
     }
     refresh(&channel_login, true).await
 }
-

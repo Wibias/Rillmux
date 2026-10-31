@@ -451,4 +451,3 @@ fn mark_prediction_gql_miss(channel_login: &str) {
         cache.insert(channel_login.to_string(), Instant::now());
     }
 }
-

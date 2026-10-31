@@ -336,4 +336,3 @@ fn claim_payload(channel_id: &str, claim_id: &str) -> Value {
         }
     })
 }
-

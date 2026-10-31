@@ -565,4 +565,3 @@ fn mpv_geometry_for_dock(
 ) -> Option<String> {
     None
 }
-

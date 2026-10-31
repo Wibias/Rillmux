@@ -6,4 +6,3 @@ mod tests {
     include!("tests/status_and_dock.rs");
     include!("tests/overlays_and_hud.rs");
 }
-

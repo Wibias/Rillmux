@@ -524,4 +524,3 @@ async fn claim_bonus(
 
     Ok(status.as_u16())
 }
-

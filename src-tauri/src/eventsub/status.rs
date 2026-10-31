@@ -1,6 +1,5 @@
 // Twitch EventSub WebSocket - outgoing channel.raid for watched channels.
 
-
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};

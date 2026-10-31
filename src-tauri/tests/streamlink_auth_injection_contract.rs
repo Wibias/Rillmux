@@ -3,7 +3,7 @@ mod sources;
 
 #[test]
 fn website_token_is_passed_via_ephemeral_config_not_process_command_line() {
-    let auth = include_str!("../src/twitch_web_auth.rs");
+    let auth = sources::TWITCH_WEB_AUTH;
     let streaming = sources::STREAMING_RUNTIME;
 
     assert!(auth.contains("streamlink_auth_config"));

@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn eventsub_uses_server_reconnect_url_and_keepalive_timeout() {
-    let source = include_str!("../src/eventsub.rs");
+    let source = sources::EVENTSUB;
     assert!(source.contains("reconnect_url"));
     assert!(source.contains("keepalive_timeout_seconds"));
     assert!(source.contains("connect_eventsub"));
@@ -11,7 +14,7 @@ fn eventsub_uses_server_reconnect_url_and_keepalive_timeout() {
 
 #[test]
 fn eventsub_auth_rejection_restarts_session_for_fresh_token() {
-    let source = include_str!("../src/eventsub.rs");
+    let source = sources::EVENTSUB;
     assert!(source.contains("subscription_auth_rejected"));
     let auth_arm_start = source
         .find("Err(CreateSubscriptionError::Auth(error)) => {")

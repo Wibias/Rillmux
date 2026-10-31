@@ -149,6 +149,25 @@ jobs:
           src/app/overlays.rs
           src/app/lifecycle.rs
           src/app/run.rs
+          src/eventsub.rs
+          src/eventsub/status.rs
+          src/eventsub/state.rs
+          src/eventsub/supervisor.rs
+          src/eventsub/session.rs
+          src/eventsub/subscriptions.rs
+          src/eventsub/wire.rs
+          src/twitch_web_auth.rs
+          src/twitch_web_auth/model.rs
+          src/twitch_web_auth/runtime.rs
+          src/twitch_web_auth/store.rs
+          src/twitch_web_auth/streamlink.rs
+          src/twitch_web_auth/status.rs
+          src/streaming/overlays/rect.rs
+          src/streaming/overlays/caption.rs
+          src/streaming/overlays/policy.rs
+          src/streaming/overlays/hud.rs
+          src/streaming/overlays/window.rs
+          src/streaming/overlays/layout_watch.rs
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings

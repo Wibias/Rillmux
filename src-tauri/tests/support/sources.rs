@@ -100,3 +100,43 @@ pub const LIB: &str = concat!(
     "\n",
     include_str!("../../src/app/run.rs"),
 );
+
+pub const OVERLAYS: &str = concat!(
+    include_str!("../../src/streaming/overlays/rect.rs"),
+    "\n",
+    include_str!("../../src/streaming/overlays/caption.rs"),
+    "\n",
+    include_str!("../../src/streaming/overlays/policy.rs"),
+    "\n",
+    include_str!("../../src/streaming/overlays/hud.rs"),
+    "\n",
+    include_str!("../../src/streaming/overlays/window.rs"),
+    "\n",
+    include_str!("../../src/streaming/overlays/layout_watch.rs"),
+);
+
+pub const EVENTSUB: &str = concat!(
+    include_str!("../../src/eventsub/status.rs"),
+    "\n",
+    include_str!("../../src/eventsub/state.rs"),
+    "\n",
+    include_str!("../../src/eventsub/supervisor.rs"),
+    "\n",
+    include_str!("../../src/eventsub/session.rs"),
+    "\n",
+    include_str!("../../src/eventsub/subscriptions.rs"),
+    "\n",
+    include_str!("../../src/eventsub/wire.rs"),
+);
+
+pub const TWITCH_WEB_AUTH: &str = concat!(
+    include_str!("../../src/twitch_web_auth/model.rs"),
+    "\n",
+    include_str!("../../src/twitch_web_auth/runtime.rs"),
+    "\n",
+    include_str!("../../src/twitch_web_auth/store.rs"),
+    "\n",
+    include_str!("../../src/twitch_web_auth/streamlink.rs"),
+    "\n",
+    include_str!("../../src/twitch_web_auth/status.rs"),
+);

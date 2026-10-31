@@ -570,7 +570,7 @@ mod tests {
                 height: 450,
             })
         );
-        let overlays = include_str!("overlays.rs");
+        let overlays = include_str!("overlays/hud.rs");
         assert!(
             overlays.contains("if is_hwnd_iconic(player)"),
             "HUD restack must hide the chip when the player is minimized"

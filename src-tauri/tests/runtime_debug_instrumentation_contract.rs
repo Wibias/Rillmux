@@ -133,7 +133,7 @@ fn polls_predictions_and_raids_are_instrumented() {
         );
     }
 
-    let eventsub = include_str!("../src/eventsub.rs");
+    let eventsub = sources::EVENTSUB;
     for event in [
         "eventsub.welcome",
         "eventsub.subscription.created",

@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn channel_points_hud_rejects_transient_offscreen_player_windows() {
-    let overlays = include_str!("../src/streaming/overlays.rs");
+    let overlays = sources::OVERLAYS;
     let start = overlays
         .find("pub fn channel_points_hud_host")
         .expect("channel points HUD host function");

@@ -1,3 +1,6 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 fn function_body<'a>(source: &'a str, signature: &str, next_signature: &str) -> &'a str {
     let start = source.find(signature).expect("function signature");
     let rest = &source[start..];
@@ -29,7 +32,7 @@ fn other_shared_http_entry_points_recover_transport_failures() {
     let helix = include_str!("../src/helix.rs");
     assert!(helix.contains(".map_err(reset_on_transport)?;"));
 
-    let website_auth = include_str!("../src/twitch_web_auth.rs");
+    let website_auth = sources::TWITCH_WEB_AUTH;
     let validate = function_body(
         website_auth,
         "async fn validate_token(token: &str)",
@@ -43,7 +46,7 @@ fn other_shared_http_entry_points_recover_transport_failures() {
         3
     );
 
-    let eventsub = include_str!("../src/eventsub.rs");
+    let eventsub = sources::EVENTSUB;
     let supervisor = function_body(
         eventsub,
         "async fn run_supervisor(app: AppHandle)",
@@ -71,7 +74,7 @@ fn helix_and_eventsub_use_token_bound_credentials() {
     let helix = include_str!("../src/helix.rs");
     assert!(helix.contains("credentials_for_api"));
 
-    let eventsub = include_str!("../src/eventsub.rs");
+    let eventsub = sources::EVENTSUB;
     let session = function_body(
         eventsub,
         "async fn run_session(app: AppHandle, initial_logins: HashSet<String>)",

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
@@ -161,8 +161,107 @@ export function GameStreamsPage() {
   );
 }
 
-export function SearchPage() {
+type SearchChannelData = Awaited<ReturnType<typeof searchChannels>>["data"];
+type SearchCategoryData = Awaited<ReturnType<typeof searchCategories>>["data"];
+
+function SearchForm({
+  q,
+  setQ,
+  loggedIn,
+  onSubmit,
+}: {
+  q: string;
+  setQ: (value: string) => void;
+  loggedIn: boolean;
+  onSubmit: () => void;
+}) {
   const { t } = useTranslation(["routes", "common"]);
+  return (
+    <form
+      className="search-hero"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <input
+        type="search"
+        className="search-hero__input"
+        value={q}
+        onChange={(event) => setQ(event.target.value)}
+        placeholder={t("routes:searchPlaceholder")}
+        aria-label={t("common:search")}
+        // Search is this page's primary control; focusing it is the landing action.
+        // react-doctor-disable-next-line react-doctor/no-autofocus
+        autoFocus
+      />
+      <button type="submit" disabled={!loggedIn || !q.trim()}>
+        {t("common:search")}
+      </button>
+    </form>
+  );
+}
+
+function SearchIdleState() {
+  const { t } = useTranslation("routes");
+  return (
+    <div className="empty-panel empty-panel--hero">
+      <span className="empty-panel__icon" aria-hidden>
+        <SearchIcon size={48} />
+      </span>
+      <div>
+        <strong>{t("searchIdleTitle")}</strong>
+        <p className="muted">{t("searchIdleBody")}</p>
+      </div>
+    </div>
+  );
+}
+
+function SearchResultsPanels({
+  channels,
+  categories,
+  channelsError,
+  busy,
+}: {
+  channels?: SearchChannelData;
+  categories?: SearchCategoryData;
+  channelsError: string | null;
+  busy: boolean;
+}) {
+  const { t } = useTranslation(["routes", "common"]);
+  return (
+    <div className="search-layout">
+      <section className="search-panel">
+        <div className="search-panel__head">
+          <h2>{t("routes:searchChannels")}</h2>
+          {busy ? <span className="muted">{t("common:loading")}</span> : null}
+        </div>
+        {channelsError ? <p className="muted">{channelsError}</p> : null}
+        {channels ? (
+          <ChannelResults channels={channels} />
+        ) : busy ? (
+          <LoadingGrid count={4} />
+        ) : null}
+      </section>
+
+      <section className="search-panel">
+        <div className="search-panel__head">
+          <h2>{t("routes:searchCategories")}</h2>
+        </div>
+        {categories?.length ? (
+          <GameGrid games={categories} />
+        ) : busy ? (
+          <LoadingGrid count={6} />
+        ) : (
+          <p className="muted">{t("routes:searchEmpty")}</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+export function SearchPage() {
+  const { t } = useTranslation("routes");
   const loggedIn = useLoggedIn();
   const [q, setQ] = useState("");
   const [submitted, setSubmitted] = useState("");
@@ -177,85 +276,26 @@ export function SearchPage() {
     enabled: loggedIn && submitted.length > 0,
     queryFn: () => searchCategories(submitted),
   });
-
   const busy = channels.isFetching || categories.isFetching;
 
   return (
     <section className="page">
-      <PageSubbar
-        title={t("routes:searchTitle")}
-        lede={t("routes:searchLede")}
+      <PageSubbar title={t("searchTitle")} lede={t("searchLede")} />
+      <SearchForm
+        q={q}
+        setQ={setQ}
+        loggedIn={loggedIn}
+        onSubmit={() => setSubmitted(q.trim())}
       />
-
-      <form
-        className="search-hero"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setSubmitted(q.trim());
-        }}
-      >
-        <input
-          type="search"
-          className="search-hero__input"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={t("routes:searchPlaceholder")}
-          aria-label={t("common:search")}
-          // Search is this page's primary control; focusing it is the landing action.
-          // react-doctor-disable-next-line react-doctor/no-autofocus
-          autoFocus
-        />
-        <button type="submit" disabled={!loggedIn || !q.trim()}>
-          {t("common:search")}
-        </button>
-      </form>
-
-      {!loggedIn ? (
-        <p className="muted">{t("routes:followedLoginRequired")}</p>
-      ) : null}
-
-      {!submitted && loggedIn ? (
-        <div className="empty-panel empty-panel--hero">
-          <span className="empty-panel__icon" aria-hidden>
-            <SearchIcon size={48} />
-          </span>
-          <div>
-            <strong>{t("routes:searchIdleTitle")}</strong>
-            <p className="muted">{t("routes:searchIdleBody")}</p>
-          </div>
-        </div>
-      ) : null}
-
+      {!loggedIn ? <p className="muted">{t("followedLoginRequired")}</p> : null}
+      {!submitted && loggedIn ? <SearchIdleState /> : null}
       {submitted ? (
-        <div className="search-layout">
-          <section className="search-panel">
-            <div className="search-panel__head">
-              <h2>{t("routes:searchChannels")}</h2>
-              {busy ? <span className="muted">{t("common:loading")}</span> : null}
-            </div>
-            {channels.isError ? (
-              <p className="muted">{(channels.error as Error).message}</p>
-            ) : null}
-            {channels.data ? (
-              <ChannelResults channels={channels.data.data} />
-            ) : busy ? (
-              <LoadingGrid count={4} />
-            ) : null}
-          </section>
-
-          <section className="search-panel">
-            <div className="search-panel__head">
-              <h2>{t("routes:searchCategories")}</h2>
-            </div>
-            {categories.data?.data?.length ? (
-              <GameGrid games={categories.data.data} />
-            ) : !busy ? (
-              <p className="muted">{t("routes:searchEmpty")}</p>
-            ) : (
-              <LoadingGrid count={6} />
-            )}
-          </section>
-        </div>
+        <SearchResultsPanels
+          channels={channels.data?.data}
+          categories={categories.data?.data}
+          channelsError={channels.isError ? (channels.error as Error).message : null}
+          busy={busy}
+        />
       ) : null}
     </section>
   );

@@ -4,7 +4,7 @@ mod sources;
 #[test]
 fn regular_dock_grips_never_enter_global_topmost_band() {
     let dock = sources::DOCK;
-    let streaming = include_str!("../src/streaming/dock.rs");
+    let streaming = sources::STREAMING_DOCK;
     let windows_layout = sources::WINDOWS_LAYOUT;
 
     assert!(
@@ -63,7 +63,7 @@ fn monitor_identify_overlay_remains_the_only_permanent_topmost_grip() {
 
 #[test]
 fn stream_switch_layout_restacks_chat_above_the_new_player() {
-    let layout = include_str!("../src/streaming/dock.rs");
+    let layout = sources::STREAMING_DOCK;
     let windows = sources::WINDOWS_LAYOUT;
     let launch = include_str!("../src/streaming/tools_process.rs");
 

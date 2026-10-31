@@ -1,6 +1,21 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
+const STREAMING_DOCK_SHARDS = [
+  "layout",
+  "apply",
+  "watchdog",
+  "focus",
+  "members",
+  "commands",
+];
+
+function readStreamingDock(): string {
+  return STREAMING_DOCK_SHARDS.map((shard) =>
+    readFileSync(`src-tauri/src/streaming/dock/${shard}.rs`, "utf8"),
+  ).join("\n");
+}
+
 function functionBody(source: string, signature: string): string {
   const start = source.indexOf(signature);
   if (start < 0) throw new Error(`missing function: ${signature}`);
@@ -19,7 +34,7 @@ function functionBody(source: string, signature: string): string {
 
 describe("multistream layout synchronization", () => {
   test("does not route ordinary layout refreshes through immediate-apply dock setters", () => {
-    const source = readFileSync("src-tauri/src/streaming/dock.rs", "utf8");
+    const source = readStreamingDock();
     const body = functionBody(source, "pub fn layout_watching(");
 
     // `set_chat_fraction` is the interactive setter: it synchronously calls

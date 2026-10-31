@@ -18,7 +18,13 @@ pub const CHANNEL_POINTS: &str = concat!(
 pub const WINDOWS_LAYOUT: &str = concat!(
     include_str!("../../src/streaming/windows_layout/chatterino_spawn.rs"),
     "\n",
-    include_str!("../../src/streaming/windows_layout/mpv_and_layout.rs"),
+    include_str!("../../src/streaming/windows_layout/mpv/args.rs"),
+    "\n",
+    include_str!("../../src/streaming/windows_layout/mpv/player_window.rs"),
+    "\n",
+    include_str!("../../src/streaming/windows_layout/mpv/window_move.rs"),
+    "\n",
+    include_str!("../../src/streaming/windows_layout/mpv/raise.rs"),
     "\n",
     include_str!("../../src/streaming/windows_layout/process_ownership.rs"),
 );
@@ -139,4 +145,18 @@ pub const TWITCH_WEB_AUTH: &str = concat!(
     include_str!("../../src/twitch_web_auth/streamlink.rs"),
     "\n",
     include_str!("../../src/twitch_web_auth/status.rs"),
+);
+
+pub const STREAMING_DOCK: &str = concat!(
+    include_str!("../../src/streaming/dock/layout.rs"),
+    "\n",
+    include_str!("../../src/streaming/dock/apply.rs"),
+    "\n",
+    include_str!("../../src/streaming/dock/watchdog.rs"),
+    "\n",
+    include_str!("../../src/streaming/dock/focus.rs"),
+    "\n",
+    include_str!("../../src/streaming/dock/members.rs"),
+    "\n",
+    include_str!("../../src/streaming/dock/commands.rs"),
 );

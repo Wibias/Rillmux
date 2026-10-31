@@ -579,7 +579,7 @@ mod tests {
             overlays.contains("hidden: true"),
             "minimized players must be reported as hidden so the frontend skips the miss grace"
         );
-        let dock = include_str!("dock.rs");
+        let dock = include_str!("dock/watchdog.rs");
         assert!(
             dock.contains("restack_all_points_huds(app)"),
             "minimizing a stream must restack/hide Channel Points HUDs with the dock group"

@@ -103,6 +103,10 @@ jobs:
           src/streaming/windows_layout.rs
           src/streaming/windows_layout/chatterino_spawn.rs
           src/streaming/windows_layout/mpv_and_layout.rs
+          src/streaming/windows_layout/mpv/args.rs
+          src/streaming/windows_layout/mpv/player_window.rs
+          src/streaming/windows_layout/mpv/window_move.rs
+          src/streaming/windows_layout/mpv/raise.rs
           src/streaming/windows_layout/process_ownership.rs
           src/streaming/runtime.rs
           src/streaming/tests.rs
@@ -168,6 +172,12 @@ jobs:
           src/streaming/overlays/hud.rs
           src/streaming/overlays/window.rs
           src/streaming/overlays/layout_watch.rs
+          src/streaming/dock/layout.rs
+          src/streaming/dock/apply.rs
+          src/streaming/dock/watchdog.rs
+          src/streaming/dock/focus.rs
+          src/streaming/dock/members.rs
+          src/streaming/dock/commands.rs
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings

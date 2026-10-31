@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.23] — 2026-10-31
+
+### Fixed
+
+- The in-app updater works again: `v0.5.22` shipped without installer assets, so every download attempt failed with `404 Not Found`.
+
+### Internal
+
+- Release publishing attaches the installers from the nested bundle artifact again and aborts when the payload is incomplete.
+
 ## [0.5.22] — 2026-10-31
 
 ### Added
@@ -40,7 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split the frontend page, multistream, Channel Points HUD/poll overlay, and streaming store modules into focused components; the largest production source file is now under 580 lines.
 - Release verification and installer builds run in parallel, cargo-audit uses a prebuilt binary, and Rust release codegen uses four units instead of one to reduce release wall time.
 - Rust CodeQL relies on buildless extraction, which current CodeQL releases require in place of a manual build step.
-
 ## [0.5.21] — 2026-10-30
 
 ### Added

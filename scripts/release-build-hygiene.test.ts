@@ -57,4 +57,19 @@ describe("release build hygiene", () => {
     expect(source).not.toContain("src-tauri/target/release/bundle/msi/*.json");
     expect(source).toContain("src-tauri/target/release/bundle/latest.json");
   });
+
+  it("attaches the installers from the nested bundle artifact", async () => {
+    const source = await readRepo(".github/workflows/release.yml");
+    const publishStep = source.slice(source.indexOf("- name: Publish GitHub Release"));
+
+    // The artifact keeps the nsis/ and msi/ folders, so a flat
+    // installers/*.exe glob ships a release with only latest.json.
+    expect(publishStep).toContain("installers/**/*.exe");
+    expect(publishStep).toContain("installers/**/*.msi");
+    expect(publishStep).toContain("installers/**/*.sig");
+    expect(source).toContain("- name: Verify installer payload");
+    expect(source).toContain(
+      "Release payload incomplete; refusing to publish without installers",
+    );
+  });
 });

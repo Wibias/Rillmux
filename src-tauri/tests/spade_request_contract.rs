@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn spade_post_does_not_send_referer_header() {
-    let source = include_str!("../src/viewer_presence.rs");
+    let source = sources::VIEWER_PRESENCE;
     let start = source
         .find("async fn send_minute_watched(")
         .expect("send_minute_watched exists");

@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn spade_transport_avoids_stale_idle_connections_and_preserves_error_cause() {
-    let source = include_str!("../src/viewer_presence.rs");
+    let source = sources::VIEWER_PRESENCE;
     let start = source
         .find("async fn send_minute_watched(")
         .expect("send_minute_watched exists");

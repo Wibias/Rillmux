@@ -98,16 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="shell">
       <header className="shell__titlebar">
-        <div className="shell__titlebar-drag" data-tauri-drag-region>
-          <img
-            className="shell__titlebar-icon"
-            src="/app-icon.png"
-            width={19}
-            height={19}
-            alt=""
-          />
-          <span className="shell__titlebar-title">{tc("appName")}</span>
-        </div>
+        <div className="shell__titlebar-drag" data-tauri-drag-region />
         <TitlebarControls />
       </header>
       <div className="shell__brand">

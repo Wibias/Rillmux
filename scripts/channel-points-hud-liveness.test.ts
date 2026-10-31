@@ -15,7 +15,10 @@ function effectCleanup(source: string): string {
 
 describe("Channel Points HUD liveness", () => {
   test("keeps the last valid player geometry across a transient placement miss", () => {
-    const source = readFileSync("src/components/ChannelPointsHud.tsx", "utf8");
+    const source = readFileSync(
+      "src/components/channelPointsHud/model.tsx",
+      "utf8",
+    );
 
     expect(source).not.toContain("setHost(next?.player ?? null)");
     expect(source).not.toContain("if (!next?.player) setCatalogOpen(false)");
@@ -41,7 +44,10 @@ describe("Channel Points HUD liveness", () => {
     expect(pass).toContain("hudKeepOnPlayerMiss");
     expect(pass).toContain("nextPlace?.hidden");
     expect(pass).toContain('hudKeepOnPlayerMiss("missing"');
-    const hud = readFileSync("src/components/ChannelPointsHud.tsx", "utf8");
+    const hud = readFileSync(
+      "src/components/channelPointsHud/model.tsx",
+      "utf8",
+    );
     expect(hud).toContain("if (next.hidden)");
     expect(hud).toContain("setHostHidden(true)");
     expect(hud).toContain("if (!overlay || hostHidden) return");

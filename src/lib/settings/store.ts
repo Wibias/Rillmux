@@ -18,7 +18,11 @@ import {
   isFollowedSort,
   isFollowedView,
 } from "../browse/followedList";
-import { normalizeMpvVolumeBoost } from "./mpv";
+import {
+  clampMpvVolume,
+  normalizeMpvVolumeBoost,
+  normalizeMpvVolumeMode,
+} from "./mpv";
 
 interface SettingsState {
   settings: AppSettings;
@@ -84,6 +88,11 @@ export function migrateSettings(raw: unknown): AppSettings {
         ...base.player.mpv,
         ...input.player?.mpv,
         volumeBoost: normalizeMpvVolumeBoost(input.player?.mpv?.volumeBoost),
+        volumeMode: normalizeMpvVolumeMode(input.player?.mpv?.volumeMode),
+        volumeCustom: clampMpvVolume(
+          input.player?.mpv?.volumeCustom,
+          normalizeMpvVolumeBoost(input.player?.mpv?.volumeBoost),
+        ),
         autoCatchUp: Boolean(
           input.player?.mpv?.autoCatchUp ?? base.player.mpv.autoCatchUp,
         ),
@@ -161,6 +170,10 @@ export function migrateSettings(raw: unknown): AppSettings {
         input.gui?.hideMatureFollowed ?? base.gui.hideMatureFollowed,
       ),
       debugMode: Boolean(input.gui?.debugMode ?? base.gui.debugMode),
+      lastSeenChangelogVersion:
+        typeof input.gui?.lastSeenChangelogVersion === "string"
+          ? input.gui.lastSeenChangelogVersion.trim() || null
+          : base.gui.lastSeenChangelogVersion,
       debugCategories: (() => {
         const defaults = defaultDebugCategories();
         const raw = input.gui?.debugCategories;

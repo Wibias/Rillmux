@@ -90,18 +90,99 @@ jobs:
       - name: Cargo fmt
         working-directory: src-tauri
         run: cargo fmt --check
-      - name: Rustfmt streaming shards
+      - name: Rustfmt include shards
         working-directory: src-tauri
         run: >-
           rustfmt --edition 2021 --check
           src/streaming/foundation.rs
           src/streaming/types_player.rs
           src/streaming/tools_process.rs
+          src/streaming/debug_observability.rs
           src/streaming/dock.rs
           src/streaming/overlays.rs
           src/streaming/windows_layout.rs
+          src/streaming/windows_layout/chatterino_spawn.rs
+          src/streaming/windows_layout/mpv_and_layout.rs
+          src/streaming/windows_layout/mpv/args.rs
+          src/streaming/windows_layout/mpv/player_window.rs
+          src/streaming/windows_layout/mpv/window_move.rs
+          src/streaming/windows_layout/mpv/raise.rs
+          src/streaming/windows_layout/process_ownership.rs
           src/streaming/runtime.rs
           src/streaming/tests.rs
+          src/channel_points.rs
+          src/channel_points/types_cache.rs
+          src/channel_points/gql_parse.rs
+          src/channel_points/realtime_fetch.rs
+          src/channel_points/commands.rs
+          src/dock.rs
+          src/dock/geometry.rs
+          src/dock/config.rs
+          src/dock/session.rs
+          src/dock/win32_monitors.rs
+          src/dock/grip_thread.rs
+          src/dock/grip_api.rs
+          src/dock/grip_model.rs
+          src/dock/grip_proc.rs
+          src/dock/grip_windows.rs
+          src/dock/grip_sync.rs
+          src/channel_points_realtime.rs
+          src/channel_points_realtime/state.rs
+          src/channel_points_realtime/sync_api.rs
+          src/channel_points_realtime/session.rs
+          src/channel_points_realtime/raids.rs
+          src/channel_points_realtime/socket.rs
+          src/viewer_presence.rs
+          src/viewer_presence/state.rs
+          src/viewer_presence/sync.rs
+          src/viewer_presence/worker.rs
+          src/viewer_presence/playback.rs
+          src/viewer_presence/telemetry.rs
+          src/streaming/runtime.rs
+          src/streaming/runtime/status.rs
+          src/streaming/runtime/handoff.rs
+          src/streaming/runtime/start.rs
+          src/streaming/runtime/sessions.rs
+          src/streaming/runtime/teardown.rs
+          src/streaming/runtime/player_windows.rs
+          src/lib.rs
+          src/app/commands_account.rs
+          src/app/commands_channel_points.rs
+          src/app/commands_stream.rs
+          src/app/commands_diagnostics.rs
+          src/app/overlays.rs
+          src/app/lifecycle.rs
+          src/app/run.rs
+          src/eventsub.rs
+          src/eventsub/status.rs
+          src/eventsub/state.rs
+          src/eventsub/supervisor.rs
+          src/eventsub/session.rs
+          src/eventsub/subscriptions.rs
+          src/eventsub/wire.rs
+          src/twitch_web_auth.rs
+          src/twitch_web_auth/model.rs
+          src/twitch_web_auth/runtime.rs
+          src/twitch_web_auth/store.rs
+          src/twitch_web_auth/streamlink.rs
+          src/twitch_web_auth/status.rs
+          src/streaming/overlays/rect.rs
+          src/streaming/overlays/caption.rs
+          src/streaming/overlays/policy.rs
+          src/streaming/overlays/hud.rs
+          src/streaming/overlays/window.rs
+          src/streaming/overlays/layout_watch.rs
+          src/streaming/dock/layout.rs
+          src/streaming/dock/apply.rs
+          src/streaming/dock/watchdog.rs
+          src/streaming/dock/focus.rs
+          src/streaming/dock/members.rs
+          src/streaming/dock/commands.rs
+          src/streaming/tests/chatterino_and_player.rs
+          src/streaming/tests/status_and_dock.rs
+          src/streaming/tests/overlays_and_hud.rs
+          src/channel_points/tests/context_and_votes.rs
+          src/channel_points/tests/claims_and_predictions.rs
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings

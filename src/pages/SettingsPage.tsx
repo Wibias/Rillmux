@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
+import { PageSubbar } from "../components/AppShell";
 import {
   SETTINGS_TABS,
   settingsTabFromPath,
@@ -12,10 +13,12 @@ import {
   SettingsHotkeysPanel,
   SettingsInterfacePanel,
   SettingsNotificationsPanel,
-  SettingsPlayerPanel,
+} from "./SettingsTabs";
+import { SettingsPlayerPanel } from "./SettingsPlayerPanel";
+import {
   SettingsStreamingLayoutPanel,
   SettingsStreamingPlaybackPanel,
-} from "./SettingsTabs";
+} from "./SettingsStreamingPanels";
 import "./SettingsPage.css";
 import "../components/SetupHelp.css";
 
@@ -27,9 +30,7 @@ export function SettingsPage() {
 
   return (
     <section className="settings">
-      <header className="page__header">
-        <h1>{t("routes:settingsTitle")}</h1>
-      </header>
+      <PageSubbar title={t("routes:settingsTitle")} />
 
       <div className="settings__layout">
         <div

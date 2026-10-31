@@ -1,6 +1,17 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
+function readChannelPointsSource(): string {
+  return [
+    "src-tauri/src/channel_points/types_cache.rs",
+    "src-tauri/src/channel_points/gql_parse.rs",
+    "src-tauri/src/channel_points/realtime_fetch.rs",
+    "src-tauri/src/channel_points/commands.rs",
+  ]
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+}
+
 function blockBody(source: string, signature: string): string {
   const start = source.indexOf(signature);
   if (start < 0) throw new Error(`missing block: ${signature}`);
@@ -23,7 +34,7 @@ describe("prediction initial hydration", () => {
       "src-tauri/src/twitch_gql_operations.rs",
       "utf8",
     );
-    const channelPoints = readFileSync("src-tauri/src/channel_points.rs", "utf8");
+    const channelPoints = readChannelPointsSource();
 
     expect(operations).toContain("CHANNEL_POINTS_PREDICTION_CONTEXT_HASH");
     expect(operations).toContain(
@@ -36,7 +47,7 @@ describe("prediction initial hydration", () => {
   });
 
   test("parses active and locked predictions from the community channel snapshot", () => {
-    const source = readFileSync("src-tauri/src/channel_points.rs", "utf8");
+    const source = readChannelPointsSource();
     const parsePrediction = blockBody(source, "fn parse_prediction(body: &Value)");
 
     expect(parsePrediction).toContain(

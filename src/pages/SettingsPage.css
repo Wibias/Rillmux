@@ -6,20 +6,6 @@
   min-height: 100%;
 }
 
-.settings > .page__header {
-  flex-shrink: 0;
-  margin: 0 0 1.35rem;
-  padding: 0 0 0.7rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings > .page__header h1 {
-  font-weight: 700;
-  font-size: 1.7rem;
-  letter-spacing: -0.02em;
-  text-wrap: balance;
-}
-
 .settings__layout {
   display: grid;
   grid-template-columns: 12.25rem minmax(0, 1fr);
@@ -66,24 +52,13 @@
 }
 
 .settings__tab.is-active {
-  color: var(--accent);
+  color: var(--text);
   font-weight: 600;
-  background: transparent;
+  background: var(--nav-active);
 }
 
 .settings__tab.is-active:hover {
   background: var(--nav-hover);
-}
-
-.settings__tab.is-active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0.45rem;
-  bottom: 0.45rem;
-  width: 3px;
-  background: var(--accent);
-  border-radius: 2px;
 }
 
 .settings__main {
@@ -573,10 +548,6 @@ html[data-theme="light"] .settings__help-menu {
     min-height: 0;
   }
 
-  .settings > .page__header {
-    padding: 0 0 0.65rem;
-  }
-
   .settings__layout {
     grid-template-columns: 1fr;
     row-gap: 1rem;
@@ -599,10 +570,6 @@ html[data-theme="light"] .settings__help-menu {
     width: auto;
     min-height: 2.25rem;
     padding: 0.4rem 0.7rem;
-  }
-
-  .settings__tab.is-active::before {
-    display: none;
   }
 
   .settings__tab.is-active {

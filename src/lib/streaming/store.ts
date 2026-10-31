@@ -1,547 +1,22 @@
 import { create } from "zustand";
-import { listen } from "@tauri-apps/api/event";
 import { invoke, isTauri } from "../tauri";
-import { createOwnedListenerSet } from "../tauri/ownedListenerSet";
 import type { HelixStream } from "../twitch/helix";
 import { getChannelStreams, getUsersByLogin } from "../twitch/helix";
 import { useSettingsStore } from "../settings/store";
 import { resolveChannelLaunch } from "../settings/types";
 import { captureAppError } from "../sentryCapture";
 import { debugRuntimeEvent } from "../diagnostics/runtimeDebug";
-import {
-  DEFAULT_MULTISTREAM_LAYOUT,
-  isMultistreamLayout,
-  layoutCapacity,
-  type MultistreamLayout,
-} from "./layout";
+import { layoutCapacity } from "./layout";
 import { nextSessionStatus, sessionStatusPatch } from "./status";
-import type { RaidOutgoingEvent } from "./raid";
-import {
-  chatterinoShouldCloseOnEmpty,
-  chatterinoShouldSkipSync,
-  chatterinoSyncKey,
-} from "./chatterinoSync";
-import {
-  buildPresenceTargets,
-  presenceSourceFromStream,
-  prunePresenceMetadata,
-  type PresenceMetadata,
-} from "./presence";
+import { prunePresenceMetadata } from "./presence";
+import type { StreamSession, WatchingState } from "./store/types";
+import { ensurePresenceMetadata, syncViewerPresence } from "./store/presenceSync";
+import { currentLayout, runningChannels, chatterinoChannels, syncIndependentChatterino } from "./store/layoutChannels";
+import { syncSlotsFromSessions, syncChatterino } from "./store/chatterinoStoreSync";
+import { scheduleLayoutAfterReady, afterSessionsChanged } from "./store/layoutSchedule";
+import { syncEventSub, stubHelixStream } from "./store/listeners";
+import { chatSyncState, presenceState } from "./store/state";
 
-export interface StreamSession {
-  id: string;
-  channel: string;
-  quality: string;
-  title?: string | null;
-  game?: string | null;
-  running: boolean;
-  status?: string;
-  phase?: string;
-  ready?: boolean;
-  muted?: boolean;
-}
-
-export interface StreamStatusEvent {
-  id: string;
-  channel: string;
-  line: string;
-  status: string;
-  phase: string;
-  ready: boolean;
-}
-
-interface WatchingState {
-  sessions: StreamSession[];
-  /** Ordered Multistream slots (lowercase logins); empty in other modes. */
-  slotChannels: string[];
-  activeChatChannel: string | null;
-  error: string | null;
-  refresh: () => Promise<void>;
-  watchStream: (stream: HelixStream) => Promise<void>;
-  /** Replace the raiding session without killing unrelated sessions. */
-  followRaid: (raid: RaidOutgoingEvent) => Promise<void>;
-  stopSession: (id: string) => Promise<void>;
-  stopAll: () => Promise<void>;
-  toggleMute: (id: string) => Promise<void>;
-  moveSlot: (channel: string, direction: -1 | 1) => void;
-  /** Drag & drop reorder: replace the slot order outright (same channels). */
-  reorderSlots: (channels: string[]) => void;
-  /** Retile + resync chat after mode/layout changes. */
-  applyLayout: () => void;
-  setActiveChat: (channel: string | null) => void;
-  applyStatus: (payload: StreamStatusEvent) => void;
-}
-
-let lastChatSyncKey = "";
-let chatSyncInflight = "";
-let chatSyncGeneration = 0;
-const independentChatChannels = new Set<string>();
-let layoutTimer: ReturnType<typeof setTimeout> | null = null;
-let presenceMetadata: PresenceMetadata = {};
-let lastPresenceSyncKey = "";
-
-function rememberPresence(sessionId: string, stream: HelixStream) {
-  const source = presenceSourceFromStream(stream);
-  if (!source) {
-    delete presenceMetadata[sessionId];
-    return;
-  }
-  presenceMetadata[sessionId] = source;
-}
-
-async function ensurePresenceMetadata(
-  sessionId: string,
-  stream: HelixStream,
-) {
-  rememberPresence(sessionId, stream);
-  if (presenceMetadata[sessionId]) {
-    debugRuntimeEvent("points-credit", "presence.metadata.ready", {
-      channel: stream.user_login.toLowerCase(),
-      session: sessionId,
-      source: "launch",
-    });
-    syncViewerPresence(true);
-    return;
-  }
-  debugRuntimeEvent("points-credit", "presence.metadata.lookup", {
-    channel: stream.user_login.toLowerCase(),
-    session: sessionId,
-  });
-  try {
-    const page = await getChannelStreams(stream.user_login);
-    const live = page.data[0];
-    if (live) {
-      rememberPresence(sessionId, live);
-      debugRuntimeEvent("points-credit", "presence.metadata.ready", {
-        channel: stream.user_login.toLowerCase(),
-        session: sessionId,
-        source: "helix",
-      });
-    } else {
-      debugRuntimeEvent("points-credit", "presence.metadata.missing", {
-        channel: stream.user_login.toLowerCase(),
-        session: sessionId,
-      });
-    }
-  } catch (reason) {
-    debugRuntimeEvent("points-credit", "presence.metadata.failed", {
-      channel: stream.user_login.toLowerCase(),
-      session: sessionId,
-      reason: reason instanceof Error ? reason.message : String(reason),
-    });
-    // Presence stays omitted until a later refresh can resolve IDs.
-  }
-  syncViewerPresence(true);
-}
-
-export function syncViewerPresence(force = false) {
-  if (!isTauri()) return;
-  const state = useWatchingStore.getState();
-  const settings = useSettingsStore.getState().settings;
-  const preferredSessionIds =
-    settings.streaming.streamOpenMode === "multistream"
-      ? state.slotChannels
-          .map(
-            (channel) =>
-              state.sessions.find(
-                (session) => session.channel.toLowerCase() === channel,
-              )?.id,
-          )
-          .filter((sessionId): sessionId is string => Boolean(sessionId))
-      : [];
-  const enabled = settings.streaming.channelPoints;
-  const targets = buildPresenceTargets(
-    state.sessions,
-    presenceMetadata,
-    preferredSessionIds,
-  );
-  const key = JSON.stringify({ enabled, targets });
-  if (!force && key === lastPresenceSyncKey) return;
-  lastPresenceSyncKey = key;
-  debugRuntimeEvent("points-credit", "presence.sync", {
-    enabled,
-    force,
-    targetCount: targets.length,
-    channels: targets.map((target) => target.channelLogin).join(","),
-    sessions: targets.map((target) => target.sessionId).join(","),
-  });
-  void invoke("viewer_presence_sync", { enabled, targets })
-    .then(() => {
-      debugRuntimeEvent("points-credit", "presence.sync.result", {
-        enabled,
-        targetCount: targets.length,
-        ok: true,
-      });
-    })
-    .catch((reason) => {
-      debugRuntimeEvent("points-credit", "presence.sync.result", {
-        enabled,
-        targetCount: targets.length,
-        ok: false,
-        reason: reason instanceof Error ? reason.message : String(reason),
-      });
-      if (lastPresenceSyncKey === key) {
-        lastPresenceSyncKey = "";
-      }
-    });
-}
-
-function currentLayout(): MultistreamLayout {
-  const raw = useSettingsStore.getState().settings.streaming.multistreamLayout;
-  return isMultistreamLayout(raw) ? raw : DEFAULT_MULTISTREAM_LAYOUT;
-}
-
-function runningChannels(): string[] {
-  return useWatchingStore.getState().sessions.flatMap((session) => {
-    if (!session.running) return [];
-    const channel = session.channel.toLowerCase();
-    return channel ? [channel] : [];
-  });
-}
-
-/** Only channels owned by the coordinated native layout. */
-function layoutChannels(): string[] {
-  const state = useWatchingStore.getState();
-  const mode = useSettingsStore.getState().settings.streaming.streamOpenMode;
-  if (mode === "independent") return [];
-  if (mode === "seamless") return runningChannels();
-
-  const running = new Set(runningChannels());
-  return state.slotChannels.filter((channel) => running.has(channel));
-}
-
-function chatterinoChannels(): string[] {
-  const mode = useSettingsStore.getState().settings.streaming.streamOpenMode;
-  return mode === "multistream" ? layoutChannels() : runningChannels();
-}
-
-async function syncIndependentChatterino(channels: string[]) {
-  if (!isTauri()) return;
-  const settings = useSettingsStore.getState().settings;
-  if (settings.chat.provider !== "chatterino") return;
-  const desired = new Set(
-    channels.flatMap((channel) => {
-      const key = channel.trim().toLowerCase();
-      return key ? [key] : [];
-    }),
-  );
-  const opens: Promise<unknown>[] = [];
-  for (const channel of desired) {
-    if (independentChatChannels.has(channel)) continue;
-    opens.push(
-      invoke("open_independent_chatterino_chat", { channel })
-        .then(() => independentChatChannels.add(channel))
-        .catch((reason) => {
-          useWatchingStore.setState({
-            error:
-              reason instanceof Error
-                ? reason.message
-                : `Chatterino7 failed to open: ${String(reason)}`,
-          });
-        }),
-    );
-  }
-  const closes: Promise<unknown>[] = [];
-  for (const channel of [...independentChatChannels]) {
-    if (desired.has(channel)) continue;
-    independentChatChannels.delete(channel);
-    closes.push(
-      invoke("close_independent_chatterino_chat", { channel }).catch(
-        () => undefined,
-      ),
-    );
-  }
-  await Promise.allSettled([...opens, ...closes]);
-}
-
-function syncSlotsFromSessions(sessions: StreamSession[]) {
-  const mode = useSettingsStore.getState().settings.streaming.streamOpenMode;
-  if (mode !== "multistream") {
-    useWatchingStore.setState({ slotChannels: [] });
-    return;
-  }
-  const running = [
-    ...new Set(
-      sessions.flatMap((session) => {
-        if (!session.running) return [];
-        const channel = session.channel.toLowerCase();
-        return channel ? [channel] : [];
-      }),
-    ),
-  ];
-  const prev = useWatchingStore.getState().slotChannels;
-  const runningSet = new Set(running);
-  const kept = prev.filter((channel) => runningSet.has(channel));
-  const keptSet = new Set(kept);
-  const added = running.filter((channel) => !keptSet.has(channel));
-  useWatchingStore.setState({ slotChannels: [...kept, ...added] });
-}
-
-async function syncChatterino(channels: string[]) {
-  if (!isTauri()) return;
-  const settings = useSettingsStore.getState().settings;
-  if (settings.chat.provider !== "chatterino") return;
-  const key = chatterinoSyncKey(channels);
-  if (!key) {
-    const hasRunningSessions = useWatchingStore
-      .getState()
-      .sessions.some((session) => session.running);
-    if (!chatterinoShouldCloseOnEmpty(chatSyncInflight, hasRunningSessions)) {
-      debugRuntimeEvent("windows", "chatterino.close.skipped", {
-        generation: chatSyncGeneration,
-        running: hasRunningSessions,
-        inflight: Boolean(chatSyncInflight),
-      });
-      return;
-    }
-    chatSyncGeneration += 1;
-    lastChatSyncKey = "";
-    chatSyncInflight = "";
-    debugRuntimeEvent("windows", "chatterino.close.request", {
-      generation: chatSyncGeneration,
-    });
-    void invoke("close_owned_chatterino")
-      .then(() =>
-        debugRuntimeEvent("windows", "chatterino.close.result", {
-          generation: chatSyncGeneration,
-          ok: true,
-        }),
-      )
-      .catch((reason) =>
-        debugRuntimeEvent("windows", "chatterino.close.result", {
-          generation: chatSyncGeneration,
-          ok: false,
-          reason: reason instanceof Error ? reason.message : String(reason),
-        }),
-      );
-    return;
-  }
-  // Duplicate Watching refresh + stream start used to fire two opens; the
-  // second kill+spawn hits Chatterino's single-instance mutex and the new
-  // process exits immediately.
-  if (chatterinoShouldSkipSync(key, lastChatSyncKey, chatSyncInflight)) {
-    debugRuntimeEvent("windows", "chatterino.open.skipped", {
-      key,
-      generation: chatSyncGeneration,
-      last: lastChatSyncKey,
-      inflight: chatSyncInflight,
-    });
-    return;
-  }
-  chatSyncInflight = key;
-  const generation = chatSyncGeneration;
-  debugRuntimeEvent("windows", "chatterino.open.request", {
-    key,
-    generation,
-    channels: channels.join(","),
-  });
-  void invoke<string>("open_chatterino_chat", { channels })
-    .then(() => {
-      if (generation === chatSyncGeneration) {
-        lastChatSyncKey = key;
-      }
-      debugRuntimeEvent("windows", "chatterino.open.result", {
-        key,
-        generation,
-        currentGeneration: chatSyncGeneration,
-        accepted: generation === chatSyncGeneration,
-        ok: true,
-      });
-    })
-    .catch((err: unknown) => {
-      lastChatSyncKey = "";
-      debugRuntimeEvent("windows", "chatterino.open.result", {
-        key,
-        generation,
-        ok: false,
-        reason: err instanceof Error ? err.message : String(err),
-      });
-      useWatchingStore.setState({
-        error:
-          err instanceof Error
-            ? err.message
-            : `Chatterino7 failed to open: ${String(err)}`,
-      });
-    })
-    .finally(() => {
-      if (chatSyncInflight === key) chatSyncInflight = "";
-    });
-}
-
-function scheduleLayoutAfterReady() {
-  if (!isTauri()) return;
-  if (layoutTimer) clearTimeout(layoutTimer);
-  layoutTimer = setTimeout(() => {
-    layoutTimer = null;
-    const settings = useSettingsStore.getState().settings;
-    if (settings.streaming.streamOpenMode === "independent") {
-      const channels =
-        settings.chat.provider === "chatterino" ? runningChannels() : [];
-      debugRuntimeEvent("windows", "layout.request", {
-        channels: channels.join(","),
-        reserveChat: channels.length > 0,
-        layout: channels.length ? "independent" : "",
-        linkedDock: channels.length > 0,
-        chatFraction: settings.streaming.chatWidthFraction,
-      });
-      void invoke("layout_watching", {
-        channels,
-        reserveChat: false,
-        layout: channels.length ? "independent" : undefined,
-        linkedDock: false,
-        chatFraction: settings.streaming.chatWidthFraction,
-      }).catch(() => undefined);
-      return;
-    }
-    const channels = layoutChannels();
-    if (!channels.length) {
-      debugRuntimeEvent("windows", "layout.request", {
-        channels: "",
-        reserveChat: false,
-        reason: "layout-inactive",
-      });
-      void invoke("layout_watching", {
-        channels: [],
-        reserveChat: false,
-      }).catch(() => undefined);
-      return;
-    }
-    const mode = settings.streaming.streamOpenMode;
-    const reserveChat = settings.chat.provider === "chatterino";
-    const linkedDock =
-      mode === "multistream" && settings.streaming.linkedDock;
-    const layout = currentLayout();
-    debugRuntimeEvent("windows", "layout.request", {
-      channels: channels.join(","),
-      reserveChat,
-      layout,
-      linkedDock,
-      chatFraction: settings.streaming.chatWidthFraction,
-      mainSide: settings.streaming.unevenMainSide,
-    });
-    void invoke("layout_watching", {
-      channels,
-      reserveChat,
-      layout,
-      linkedDock,
-      chatFraction: settings.streaming.chatWidthFraction,
-      mainSide: settings.streaming.unevenMainSide,
-    })
-      .then(() =>
-        debugRuntimeEvent("windows", "layout.result", {
-          channels: channels.join(","),
-          ok: true,
-        }),
-      )
-      .catch((reason) =>
-        debugRuntimeEvent("windows", "layout.result", {
-          channels: channels.join(","),
-          ok: false,
-          reason: reason instanceof Error ? reason.message : String(reason),
-        }),
-      );
-  }, 100);
-}
-
-function afterSessionsChanged() {
-  const channels = runningChannels();
-  debugRuntimeEvent("windows", "sessions.changed", {
-    channels: channels.join(","),
-    count: channels.length,
-    layoutChannels: layoutChannels().join(","),
-  });
-  if (useSettingsStore.getState().settings.streaming.streamOpenMode === "independent") {
-    void syncIndependentChatterino(chatterinoChannels());
-  } else {
-    void syncChatterino(chatterinoChannels());
-  }
-  syncEventSub();
-  syncViewerPresence();
-  scheduleLayoutAfterReady();
-}
-
-/** Keep Rust EventSub subscriptions aligned with every running stream. */
-export function syncEventSub() {
-  if (!isTauri()) return;
-  const settings = useSettingsStore.getState().settings;
-  const channels = runningChannels();
-  debugRuntimeEvent("raids", "eventsub.sync.frontend", {
-    enabled: settings.streaming.followRaids,
-    channels: channels.join(","),
-  });
-  void invoke("eventsub_sync", {
-    enabled: settings.streaming.followRaids,
-    channels,
-  }).catch((reason) =>
-    debugRuntimeEvent("raids", "eventsub.sync.frontend.result", {
-      ok: false,
-      reason: reason instanceof Error ? reason.message : String(reason),
-    }),
-  );
-}
-
-function stubHelixStream(opts: {
-  login: string;
-  userId: string;
-  displayName?: string;
-  title?: string;
-  gameName?: string;
-}): HelixStream {
-  return {
-    id: "",
-    user_id: opts.userId,
-    user_login: opts.login,
-    user_name: opts.displayName ?? opts.login,
-    game_id: "",
-    game_name: opts.gameName ?? "",
-    type: "live",
-    title: opts.title ?? "",
-    viewer_count: 0,
-    started_at: new Date().toISOString(),
-    language: "",
-    thumbnail_url: "",
-    is_mature: false,
-  };
-}
-
-const streamingListeners = createOwnedListenerSet();
-
-export async function bindStreamingListeners(): Promise<() => void> {
-  if (!isTauri()) {
-    return () => undefined;
-  }
-  const unlisten = await streamingListeners.bind([
-    () =>
-      listen<StreamStatusEvent>("stream-status", (event) => {
-        useWatchingStore.getState().applyStatus(event.payload);
-      }),
-    () =>
-      listen("stream-sessions-changed", () => {
-        void useWatchingStore.getState().refresh().then(() => {
-          afterSessionsChanged();
-        });
-      }),
-    () =>
-      listen<number>("dock-chat-fraction", (event) => {
-        const fraction = event.payload;
-        if (typeof fraction !== "number" || Number.isNaN(fraction)) return;
-        const settings = useSettingsStore.getState().settings;
-        const clamped = Math.min(0.45, Math.max(0.12, fraction));
-        if (Math.abs(settings.streaming.chatWidthFraction - clamped) < 0.001) {
-          return;
-        }
-        useSettingsStore.getState().setSettings({
-          streaming: {
-            ...settings.streaming,
-            chatWidthFraction: clamped,
-          },
-        });
-      }),
-  ]);
-  syncEventSub();
-  syncViewerPresence();
-  return unlisten;
-}
 
 export const useWatchingStore = create<WatchingState>((set, get) => ({
   sessions: [],
@@ -568,7 +43,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
         };
       }),
     });
-    presenceMetadata = prunePresenceMetadata(presenceMetadata, sessions);
+    presenceState.metadata = prunePresenceMetadata(presenceState.metadata, sessions);
     const active = get().activeChatChannel;
     if (active && !sessions.some((session) => session.channel === active)) {
       set({ activeChatChannel: sessions[0]?.channel ?? null });
@@ -721,6 +196,9 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           playerNoClose: settings.streaming.playerNoClose,
           autoCatchUp:
             settings.player.mpv.autoCatchUp && launch.playerId === "mpv",
+          volumeMode: settings.player.mpv.volumeMode,
+          volumeCustom: settings.player.mpv.volumeCustom,
+          volumeMax: settings.player.mpv.volumeBoost,
           reserveChat: besideChat,
           replaceExisting,
           slotIndex: Math.max(0, plannedChannels.indexOf(channel)),
@@ -892,6 +370,9 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
           playerNoClose: settings.streaming.playerNoClose,
           autoCatchUp:
             settings.player.mpv.autoCatchUp && launch.playerId === "mpv",
+          volumeMode: settings.player.mpv.volumeMode,
+          volumeCustom: settings.player.mpv.volumeCustom,
+          volumeMax: settings.player.mpv.volumeBoost,
           reserveChat: hasChatterino,
           replaceExisting: false,
           slotIndex: Math.max(0, plannedChannels.indexOf(toLogin)),
@@ -932,7 +413,7 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
 
   stopSession: async (id) => {
     const session = get().sessions.find((item) => item.id === id);
-    delete presenceMetadata[id];
+    delete presenceState.metadata[id];
     const channel = session?.channel.toLowerCase();
     debugRuntimeEvent("windows", "stream.stop.request", {
       channel: channel ?? "",
@@ -963,9 +444,9 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
             : state.activeChatChannel,
       }));
     }
-    lastChatSyncKey = "";
-    chatSyncInflight = "";
-    chatSyncGeneration += 1;
+    chatSyncState.lastKey = "";
+    chatSyncState.inflight = "";
+    chatSyncState.generation += 1;
     await get().refresh();
     afterSessionsChanged();
   },
@@ -974,11 +455,11 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
     debugRuntimeEvent("windows", "stream.stop_all.request");
     await invoke("stream_stop_all");
     debugRuntimeEvent("windows", "stream.stop_all.result", { ok: true });
-    lastChatSyncKey = "";
-    chatSyncInflight = "";
-    chatSyncGeneration += 1;
+    chatSyncState.lastKey = "";
+    chatSyncState.inflight = "";
+    chatSyncState.generation += 1;
     void invoke("close_owned_chatterino").catch(() => undefined);
-    presenceMetadata = {};
+    presenceState.metadata = {};
     set({ sessions: [], slotChannels: [], activeChatChannel: null });
     syncEventSub();
     syncViewerPresence();
@@ -1036,3 +517,8 @@ export const useWatchingStore = create<WatchingState>((set, get) => ({
 
   setActiveChat: (channel) => set({ activeChatChannel: channel }),
 }));
+
+export type { StreamSession, StreamStatusEvent } from "./store/types";
+export { syncViewerPresence } from "./store/presenceSync";
+export { syncEventSub, bindStreamingListeners } from "./store/listeners";
+

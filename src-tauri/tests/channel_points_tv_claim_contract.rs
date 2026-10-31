@@ -1,10 +1,13 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn bonus_claim_uses_tv_identity_without_changing_watch_identity() {
-    let points = include_str!("../src/channel_points.rs");
+    let points = sources::CHANNEL_POINTS;
     let claim_auth = include_str!("../src/channel_points_claim_auth.rs");
-    let lib = include_str!("../src/lib.rs");
-    let presence = include_str!("../src/viewer_presence.rs");
-    let realtime = include_str!("../src/channel_points_realtime.rs");
+    let lib = sources::LIB;
+    let presence = sources::VIEWER_PRESENCE;
+    let realtime = sources::CHANNEL_POINTS_REALTIME;
 
     assert!(lib.contains("mod channel_points_claim_auth;"));
     assert!(points.contains("ClaimCommunityPoints"));

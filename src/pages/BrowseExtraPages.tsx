@@ -118,20 +118,20 @@ export function GameStreamsPage() {
       <p>
         <Link to="/games">{t("routes:gamesTitle")}</Link>
       </p>
-      <header className="page__header">
-        <div>
-          <h1>{t("routes:gameStreamsTitle")}</h1>
-        </div>
-        {loggedIn && gameId ? (
-          <div className="page__header-actions">
-            <LanguageFilter />
-            <PageRefreshButton
-              refreshing={refreshing}
-              onRefresh={() => void query.refetch()}
-            />
-          </div>
-        ) : null}
-      </header>
+      <PageSubbar
+        title={t("routes:gameStreamsTitle")}
+        actions={
+          loggedIn && gameId ? (
+            <>
+              <LanguageFilter />
+              <PageRefreshButton
+                refreshing={refreshing}
+                onRefresh={() => void query.refetch()}
+              />
+            </>
+          ) : undefined
+        }
+      />
       {query.isLoading ? <LoadingGrid /> : null}
       {streams.length ? (
         <>
@@ -389,7 +389,7 @@ export function ChannelPage() {
 
   return (
     <section className="page">
-      <h1>{title}</h1>
+      <PageSubbar title={title} />
       {!loggedIn ? <p className="muted">{t("routes:followedLoginRequired")}</p> : null}
       {user ? (
         <div className="channel-header">
@@ -556,14 +556,7 @@ export function TeamPage() {
 
   return (
     <section className="page">
-      <header className="page__header">
-        <div>
-          <h1>{title}</h1>
-          {teamQuery.data?.info ? (
-            <p className="page__lede">{teamQuery.data.info}</p>
-          ) : null}
-        </div>
-      </header>
+      <PageSubbar title={title} lede={teamQuery.data?.info ?? undefined} />
 
       {!loggedIn ? (
         <p className="muted">{t("routes:followedLoginRequired")}</p>

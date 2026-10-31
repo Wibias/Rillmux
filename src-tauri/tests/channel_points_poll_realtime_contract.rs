@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn poll_and_prediction_subscriptions_are_acknowledged_before_ready() {
-    let source = include_str!("../src/channel_points_realtime.rs");
+    let source = sources::CHANNEL_POINTS_REALTIME;
 
     let subscribe = source
         .find("subscribe_poll_topics(")

@@ -394,25 +394,6 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
   min-width: 4rem;
 }
 
-.shell__titlebar-icon {
-  width: 19px;
-  height: 19px;
-  flex-shrink: 0;
-  display: block;
-  pointer-events: none;
-}
-
-.shell__titlebar-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.88rem;
-  font-weight: 400;
-  line-height: 1;
-  pointer-events: none;
-}
-
 /*
  * decorum injects its frameless titlebar chrome at page load. Its geometry
  * arrives as a <style> tag plus inline styles, and production CSP is

@@ -28,7 +28,10 @@ describe("stream opening modes", () => {
   });
 
   test("independent sessions are not fed into the multistream layout path", () => {
-    const source = readFileSync("src/lib/streaming/store.ts", "utf8");
+    const source = readFileSync(
+      "src/lib/streaming/store/layoutSchedule.ts",
+      "utf8",
+    );
     const body = functionBody(source, "function scheduleLayoutAfterReady(");
 
     expect(body).toContain("layoutChannels()");

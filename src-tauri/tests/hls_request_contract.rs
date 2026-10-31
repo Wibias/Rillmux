@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn hls_probe_matches_current_web_player_contract() {
-    let source = include_str!("../src/viewer_presence.rs");
+    let source = sources::VIEWER_PRESENCE;
 
     assert!(
         source.contains("const USHER_URL: &str = \"https://usher.ttvnw.net/api/channel/hls/\";")

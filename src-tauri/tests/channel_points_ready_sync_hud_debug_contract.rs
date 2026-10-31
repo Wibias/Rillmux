@@ -1,6 +1,9 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn ready_transition_resyncs_channel_points_presence() {
-    let store = include_str!("../../src/lib/streaming/store.ts");
+    let store = sources::STREAMING_STORE_TS;
     let start = store
         .find("applyStatus: (payload) =>")
         .expect("stream status handler");
@@ -22,7 +25,7 @@ fn ready_transition_resyncs_channel_points_presence() {
 
 #[test]
 fn stable_hud_host_state_does_not_log_every_watchdog_tick() {
-    let lib = include_str!("../src/lib.rs");
+    let lib = sources::LIB;
     let helper = lib
         .find("fn hud_host_debug_changed")
         .expect("HUD host debug state-change helper");

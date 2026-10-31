@@ -1,6 +1,38 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
+const DOCK_SHARDS = [
+  "geometry",
+  "config",
+  "session",
+  "win32_monitors",
+  "grip_thread",
+  "grip_api",
+  "grip_model",
+  "grip_proc",
+  "grip_windows",
+  "grip_sync",
+];
+
+const readDock = () =>
+  DOCK_SHARDS.map((shard) =>
+    readFileSync(`src-tauri/src/dock/${shard}.rs`, "utf8"),
+  ).join("\n");
+
+const STREAMING_DOCK_SHARDS = [
+  "layout",
+  "apply",
+  "watchdog",
+  "focus",
+  "members",
+  "commands",
+];
+
+const readStreamingDock = () =>
+  STREAMING_DOCK_SHARDS.map((shard) =>
+    readFileSync(`src-tauri/src/streaming/dock/${shard}.rs`, "utf8"),
+  ).join("\n");
+
 function blockBody(source: string, signature: string): string {
   const start = source.indexOf(signature);
   if (start < 0) throw new Error(`missing block: ${signature}`);
@@ -19,7 +51,7 @@ function blockBody(source: string, signature: string): string {
 
 describe("monitor picker divider relocation", () => {
   test("queues grip sync immediately after dispatching the selected monitor apply", () => {
-    const source = readFileSync("src-tauri/src/dock.rs", "utf8");
+    const source = readDock();
     const mouseDown = blockBody(source, "WM_LBUTTONDOWN => {");
     const body = blockBody(mouseDown, "if let GripKind::Identify(idx) = kind {");
 
@@ -33,7 +65,7 @@ describe("monitor picker divider relocation", () => {
   });
 
   test("dispatches monitor-change native placement off the grip window-proc thread", () => {
-    const source = readFileSync("src-tauri/src/streaming/dock.rs", "utf8");
+    const source = readStreamingDock();
     const body = blockBody(source, "fn apply_dock_layout_cb()");
 
     const monitorApply = body.indexOf("crate::dock::take_raise_after_apply()");
@@ -48,7 +80,7 @@ describe("monitor picker divider relocation", () => {
   });
 
   test("preserves raise-after-monitor-move semantics inside the worker apply", () => {
-    const source = readFileSync("src-tauri/src/streaming/dock.rs", "utf8");
+    const source = readStreamingDock();
     const body = blockBody(source, "fn apply_dock_layout_inner(raise_after_apply: bool)");
 
     expect(body).toContain("if raise_after_apply");
@@ -56,7 +88,7 @@ describe("monitor picker divider relocation", () => {
   });
 
   test("does not restack Channel Points HUDs on the grip-thread divider drag", () => {
-    const source = readFileSync("src-tauri/src/streaming/dock.rs", "utf8");
+    const source = readStreamingDock();
     const body = blockBody(source, "fn apply_dock_layout_inner(raise_after_apply: bool)");
 
     expect(body).not.toContain("restack_all_points_huds");

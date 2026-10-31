@@ -18,10 +18,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Website authentication and bonus-claim authentication can now be configured directly from About.
 - The first-run wizard adds an optional connections step and opens About's connection settings when completed.
+- The first launch after an update now shows the installed version's changelog once.
+- mpv volume can start from the last used level, the configured maximum, or a custom percentage.
 
 ### Changed
 
 - Website-auth and bonus-claim chips no longer occupy the title bar; connection management now lives in About.
+- Hovering outside the changelog dialog no longer tints the full-window dismiss layer purple.
+- Settings tabs use the same subtle active background as the main navigation instead of a colored side bar.
+- Settings, About, channel, team, and game pages now use the same page header bar as the browse pages instead of a smaller inline heading.
+
+### Internal
+
+- Split the 1,437-line settings panel into focused player, streaming, and remaining panel modules under 500 lines each.
+- Split the legacy `windows_layout.rs` and `channel_points.rs` modules into focused responsibility shards; their former 1,900- and 2,400-line bodies are now separate modules with the largest production shard under 750 lines.
+- Split the 3,000-line `dock.rs` into geometry, configuration, session, monitor, and grip-window shards; the largest shard is now under 430 lines.
+- Split `channel_points_realtime.rs` and `viewer_presence.rs` into state, session, and telemetry shards so each file stays under 350 lines.
+- Split `lib.rs` into the app command and lifecycle shards, and `streaming/runtime.rs` into status, start, sessions, teardown, and player-window shards.
+- Split `eventsub.rs`, `twitch_web_auth.rs`, and `streaming/overlays.rs` into status, session, storage, and overlay-placement shards.
+- Split the remaining large streaming shards (`streaming/dock.rs`, the mpv window/title helpers) so no production Rust file exceeds about 600 lines.
+- Split the frontend page, multistream, Channel Points HUD/poll overlay, and streaming store modules into focused components; the largest production source file is now under 580 lines.
+- Release verification and installer builds run in parallel, cargo-audit uses a prebuilt binary, and Rust release codegen uses four units instead of one to reduce release wall time.
+- Rust CodeQL relies on buildless extraction, which current CodeQL releases require in place of a manual build step.
 
 ## [0.5.21] — 2026-10-30
 

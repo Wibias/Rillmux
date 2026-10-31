@@ -4,6 +4,24 @@ import { describe, expect, test } from "vitest";
 const read = (path: string) =>
   readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
+const DOCK_SHARDS = [
+  "geometry",
+  "config",
+  "session",
+  "win32_monitors",
+  "grip_thread",
+  "grip_api",
+  "grip_model",
+  "grip_proc",
+  "grip_windows",
+  "grip_sync",
+];
+
+const readDock = () =>
+  DOCK_SHARDS.map((shard) => read(`src-tauri/src/dock/${shard}.rs`)).join(
+    "\n",
+  );
+
 describe("full-review regression gates", () => {
   test("CodeQL does not reference matrix in the job-level if", () => {
     const workflow = read(".github/workflows/codeql.yml");
@@ -61,10 +79,10 @@ describe("full-review regression gates", () => {
   });
 
   test("Channel Points HUD geometry uses one native placement path", () => {
-    const source = read("src/components/ChannelPointsHud.tsx");
+    const source = read("src/components/channelPointsHud/model.tsx");
     const flushBody = source.slice(
       source.indexOf("async function flushOverlayRect"),
-      source.indexOf("export function ChannelPointsHud"),
+      source.indexOf("export function useChannelPointsHudModel"),
     );
     expect(flushBody).toContain('invoke("overlay_place_hud"');
     expect(flushBody).not.toContain("PhysicalPosition");
@@ -79,7 +97,7 @@ describe("full-review regression gates", () => {
   });
 
   test("dock divider keeps an easy hit target at rest and while hovered", () => {
-    const source = read("src-tauri/src/dock.rs");
+    const source = readDock();
     expect(source).toContain("pub const DIVIDER_REST_THICK: i32 = 8;");
     expect(source).toContain("pub const DIVIDER_HOVER_THICK: i32 = 8;");
     expect(source).toContain("fn divider_thickness(hover: bool)");

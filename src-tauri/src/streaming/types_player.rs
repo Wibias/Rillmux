@@ -29,6 +29,10 @@ pub struct LaunchRequest {
     pub player_no_close: Option<bool>,
     /// Opt-in: raise mpv speed while the stream is behind live, then restore.
     pub auto_catch_up: Option<bool>,
+    /// last | max | custom. New clients always send this.
+    pub volume_mode: Option<String>,
+    pub volume_custom: Option<f64>,
+    pub volume_max: Option<f64>,
     /// Leave a right strip for Chatterino; Rust sets absolute mpv --geometry.
     pub reserve_chat: Option<bool>,
     /// When true, keep existing sessions until this one is ready, then stop them.
@@ -309,22 +313,30 @@ fn mpv_get_property_f64(_pipe: &str, _property: &str) -> Option<f64> {
     None
 }
 
-/// Last mpv volume the user settled on, so switching streams (or following a
+/// Last used mpv volume, so switching streams (or following a
 /// raid) keeps their level instead of resetting to the configured default.
-/// Process-local: a fresh app start returns to the configured volume.
 static LAST_MPV_VOLUME: OnceLock<Mutex<Option<f64>>> = OnceLock::new();
+
+fn last_volume_path() -> std::path::PathBuf {
+    crate::diagnostics::app_data_dir().join("last-mpv-volume.txt")
+}
 
 fn volume_is_usable(value: f64) -> bool {
     value.is_finite() && value > 0.0
 }
 
 fn remembered_volume() -> Option<f64> {
-    LAST_MPV_VOLUME
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .ok()
-        .and_then(|slot| *slot)
-        .filter(|value| volume_is_usable(*value))
+    let slot = LAST_MPV_VOLUME.get_or_init(|| Mutex::new(None));
+    let Ok(mut guard) = slot.lock() else {
+        return None;
+    };
+    if guard.is_none() {
+        *guard = std::fs::read_to_string(last_volume_path())
+            .ok()
+            .and_then(|value| value.trim().parse::<f64>().ok())
+            .filter(|value| volume_is_usable(*value));
+    }
+    guard.filter(|value| volume_is_usable(*value))
 }
 
 fn remember_volume(value: f64) {
@@ -334,6 +346,10 @@ fn remember_volume(value: f64) {
     if let Ok(mut slot) = LAST_MPV_VOLUME.get_or_init(|| Mutex::new(None)).lock() {
         *slot = Some(value);
     }
+    if let Some(parent) = last_volume_path().parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(last_volume_path(), format!("{value:.2}"));
 }
 
 /// Capture the volume of an owned player just before it closes.
@@ -360,6 +376,35 @@ fn inherited_or_initial(inherited: Option<f64>, initial: f64) -> f64 {
     inherited
         .filter(|value| volume_is_usable(*value))
         .unwrap_or(initial)
+}
+
+fn bounded_player_volume(value: f64, maximum: f64) -> f64 {
+    let maximum = if maximum.is_finite() {
+        maximum.clamp(100.0, 1000.0)
+    } else {
+        100.0
+    };
+    if !volume_is_usable(value) {
+        return 100.0_f64.min(maximum);
+    }
+    value.clamp(1.0, maximum)
+}
+
+fn selected_player_volume(
+    mode: &str,
+    custom: f64,
+    maximum: f64,
+    inherited: Option<f64>,
+    initial: f64,
+) -> f64 {
+    match mode {
+        "max" => bounded_player_volume(maximum, maximum),
+        "custom" => bounded_player_volume(custom, maximum),
+        _ => bounded_player_volume(
+            inherited_or_initial(inherited.or_else(remembered_volume), initial),
+            maximum,
+        ),
+    }
 }
 
 /// Playback speed mpv is raised to while auto catch-up drains a lag.

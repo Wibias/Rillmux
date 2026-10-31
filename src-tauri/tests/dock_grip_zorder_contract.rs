@@ -1,8 +1,11 @@
+#[path = "support/sources.rs"]
+mod sources;
+
 #[test]
 fn regular_dock_grips_never_enter_global_topmost_band() {
-    let dock = include_str!("../src/dock.rs");
-    let streaming = include_str!("../src/streaming/dock.rs");
-    let windows_layout = include_str!("../src/streaming/windows_layout.rs");
+    let dock = sources::DOCK;
+    let streaming = sources::STREAMING_DOCK;
+    let windows_layout = sources::WINDOWS_LAYOUT;
 
     assert!(
         !dock.contains("DockCmd::ElevateGrips"),
@@ -35,7 +38,7 @@ fn regular_dock_grips_never_enter_global_topmost_band() {
 
 #[test]
 fn raising_dock_windows_restacks_channel_points_huds() {
-    let windows_layout = include_str!("../src/streaming/windows_layout.rs");
+    let windows_layout = sources::WINDOWS_LAYOUT;
     let start = windows_layout
         .find("fn raise_dock_windows_inner(")
         .expect("raise_dock_windows_inner");
@@ -54,14 +57,14 @@ fn raising_dock_windows_restacks_channel_points_huds() {
 
 #[test]
 fn monitor_identify_overlay_remains_the_only_permanent_topmost_grip() {
-    let dock = include_str!("../src/dock.rs");
+    let dock = sources::DOCK;
     assert!(dock.contains("if is_identify { WS_EX_TOPMOST } else { 0 }"));
 }
 
 #[test]
 fn stream_switch_layout_restacks_chat_above_the_new_player() {
-    let layout = include_str!("../src/streaming/dock.rs");
-    let windows = include_str!("../src/streaming/windows_layout.rs");
+    let layout = sources::STREAMING_DOCK;
+    let windows = sources::WINDOWS_LAYOUT;
     let launch = include_str!("../src/streaming/tools_process.rs");
 
     let watching = layout

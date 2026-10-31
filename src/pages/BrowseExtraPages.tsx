@@ -27,6 +27,9 @@ import {
   searchCategories,
   searchChannels,
   type HelixStream,
+  type HelixTeam,
+  type HelixTeamMember,
+  type HelixUser,
 } from "../lib/twitch/helix";
 import { languagesQueryKey } from "../lib/twitch/languages";
 import { toggleMutedFollowed } from "../lib/notifications/followedLive";
@@ -35,6 +38,10 @@ import "../pages/SettingsPage.css";
 function useLoggedIn() {
   const session = useAuthStore((s) => s.session);
   return Boolean(session?.loggedIn);
+}
+
+function canQuery(loggedIn: boolean, value: string) {
+  return loggedIn && Boolean(value);
 }
 
 export function GamesPage() {
@@ -102,7 +109,7 @@ export function GameStreamsPage() {
 
   const query = useInfiniteQuery({
     queryKey: ["game-streams", gameId, langKey],
-    enabled: loggedIn && Boolean(gameId),
+    enabled: canQuery(loggedIn, gameId),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       getStreamsByGame(gameId, pageParam, streamLanguages),
@@ -324,7 +331,10 @@ export function TeamsSearchPage() {
 
       {!submitted && loggedIn ? (
         <div className="empty-panel empty-panel--hero empty-panel--dashed">
-          <span className="empty-panel__icon empty-panel__icon--circle" aria-hidden>
+          <span
+            className="empty-panel__icon empty-panel__icon--circle"
+            aria-hidden
+          >
             <TeamsIcon size={22} />
           </span>
           <div>
@@ -339,20 +349,177 @@ export function TeamsSearchPage() {
   );
 }
 
+function ChannelHeader({
+  user,
+  live,
+  onWatch,
+}: {
+  user?: HelixUser;
+  live?: HelixStream;
+  onWatch: (stream: HelixStream) => void;
+}) {
+  const { t } = useTranslation(["routes", "common"]);
+  if (!user) return null;
+
+  return (
+    <div className="channel-header">
+      <img
+        src={user.profile_image_url}
+        alt=""
+        width={72}
+        height={72}
+        className="channel-header__avatar"
+      />
+      <div>
+        <p className="muted">@{user.login}</p>
+        {live ? (
+          <>
+            <p>{live.title}</p>
+            <p className="muted">
+              {live.game_name} · {live.viewer_count}
+            </p>
+            <div className="channel-header__actions">
+              <button type="button" onClick={() => onWatch(live)}>
+                {t("common:watch")}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="muted">{t("routes:channelOffline")}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChannelNotificationSettings({ login }: { login: string }) {
+  const { t } = useTranslation(["routes", "settings"]);
+  const setSettings = useSettingsStore((s) => s.setSettings);
+  const notifications = useSettingsStore((s) => s.settings.notifications);
+  if (!login) return null;
+
+  const loginKey = login.toLowerCase();
+  const notifyWhenLive = !notifications.mutedFollowed.some(
+    (muted) => muted.toLowerCase() === loginKey,
+  );
+
+  return (
+    <fieldset className="settings__group">
+      <legend>{t("routes:channelNotifyTitle")}</legend>
+      <label className="settings__row settings__row--check">
+        <input
+          type="checkbox"
+          checked={notifyWhenLive}
+          disabled={!notifications.followedOnline}
+          onChange={(event) =>
+            setSettings({
+              notifications: {
+                ...notifications,
+                mutedFollowed: toggleMutedFollowed(
+                  notifications.mutedFollowed,
+                  loginKey,
+                  event.target.checked,
+                ),
+              },
+            })
+          }
+        />
+        <span className="settings__check-text">
+          {t("routes:channelNotifyLive")}
+          {!notifications.followedOnline ? (
+            <small className="muted">
+              {t("routes:channelNotifyGlobalOff")}
+            </small>
+          ) : null}
+        </span>
+      </label>
+    </fieldset>
+  );
+}
+
+function ChannelQualitySettings({
+  login,
+  overrideQuality,
+  setOverrideQuality,
+}: {
+  login: string;
+  overrideQuality: string;
+  setOverrideQuality: (quality: string) => void;
+}) {
+  const { t } = useTranslation(["routes", "settings"]);
+  const setChannelOverride = useSettingsStore((s) => s.setChannelOverride);
+  const globalQuality = useSettingsStore((s) => s.settings.streaming.quality);
+  if (!login) return null;
+
+  return (
+    <fieldset className="settings__group">
+      <legend>{t("routes:channelOverrideTitle")}</legend>
+      <div className="settings__row">
+        <div className="settings__label">
+          <span>{t("routes:channelOverrideQuality")}</span>
+          <small className="muted">
+            {t("settings:useGlobal")}: {globalQuality}
+          </small>
+        </div>
+        <div className="settings__control settings__control--row">
+          <input
+            className="input"
+            value={overrideQuality}
+            placeholder={globalQuality}
+            onChange={(event) => setOverrideQuality(event.target.value)}
+          />
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() =>
+              setChannelOverride(login, {
+                quality: overrideQuality.trim() || undefined,
+              })
+            }
+          >
+            {t("routes:channelOverrideSave")}
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => {
+              setChannelOverride(login, null);
+              setOverrideQuality("");
+            }}
+          >
+            {t("routes:channelOverrideClear")}
+          </button>
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
+function ChannelTeams({ teams }: { teams?: HelixTeam[] }) {
+  const { t } = useTranslation("routes");
+  if (!teams?.length) return null;
+
+  return (
+    <>
+      <h2>{t("channelTeams")}</h2>
+      <ul className="team-list">
+        {teams.map((team) => (
+          <li key={team.id}>
+            <Link to={`/team/${team.team_name}`}>{team.team_display_name}</Link>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 export function ChannelPage() {
   const { t } = useTranslation(["routes", "common", "settings"]);
   const { login = "" } = useParams();
   const loggedIn = useLoggedIn();
   const watchStream = useWatchingStore((s) => s.watchStream);
   const channels = useSettingsStore((s) => s.settings.channels);
-  const setChannelOverride = useSettingsStore((s) => s.setChannelOverride);
-  const setSettings = useSettingsStore((s) => s.setSettings);
-  const notifications = useSettingsStore((s) => s.settings.notifications);
-  const globalQuality = useSettingsStore((s) => s.settings.streaming.quality);
   const loginKey = login.toLowerCase();
-  const notifyWhenLive = !notifications.mutedFollowed.some(
-    (m) => m.toLowerCase() === loginKey,
-  );
   const [overrideQuality, setOverrideQuality] = useState(
     () => channels[loginKey]?.quality ?? "",
   );
@@ -363,14 +530,14 @@ export function ChannelPage() {
 
   const userQuery = useQuery({
     queryKey: ["channel-user", login],
-    enabled: loggedIn && Boolean(login),
+    enabled: canQuery(loggedIn, login),
     queryFn: () => getUsersByLogin([login]),
   });
   const user = userQuery.data?.data[0];
 
   const streamQuery = useQuery({
     queryKey: ["channel-stream", login],
-    enabled: loggedIn && Boolean(login),
+    enabled: canQuery(loggedIn, login),
     queryFn: () => getChannelStreams(login),
     ...LIVE_STREAM_QUERY,
   });
@@ -390,124 +557,100 @@ export function ChannelPage() {
   return (
     <section className="page">
       <PageSubbar title={title} />
-      {!loggedIn ? <p className="muted">{t("routes:followedLoginRequired")}</p> : null}
-      {user ? (
-        <div className="channel-header">
-          <img
-            src={user.profile_image_url}
-            alt=""
-            width={72}
-            height={72}
-            className="channel-header__avatar"
-          />
-          <div>
-            <p className="muted">@{user.login}</p>
-            {live ? (
-              <>
-                <p>{live.title}</p>
-                <p className="muted">
-                  {live.game_name} · {live.viewer_count}
-                </p>
-                <div className="channel-header__actions">
-                  <button type="button" onClick={() => void watchStream(live)}>
-                    {t("common:watch")}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <p className="muted">{t("routes:channelOffline")}</p>
-            )}
-          </div>
+      {!loggedIn ? (
+        <p className="muted">{t("routes:followedLoginRequired")}</p>
+      ) : null}
+      <ChannelHeader
+        user={user}
+        live={live}
+        onWatch={(stream) => void watchStream(stream)}
+      />
+      <ChannelNotificationSettings login={login} />
+      <ChannelQualitySettings
+        login={login}
+        overrideQuality={overrideQuality}
+        setOverrideQuality={setOverrideQuality}
+      />
+      <ChannelTeams teams={teamsQuery.data?.data} />
+    </section>
+  );
+}
+
+function TeamStatus({
+  loggedIn,
+  isLoading,
+  error,
+  found,
+}: {
+  loggedIn: boolean;
+  isLoading: boolean;
+  error: Error | null;
+  found: boolean;
+}) {
+  const { t } = useTranslation("routes");
+  return (
+    <>
+      {!loggedIn ? (
+        <p className="muted">{t("followedLoginRequired")}</p>
+      ) : null}
+      {isLoading ? <LoadingGrid count={4} /> : null}
+      {error ? <p className="muted">{error.message}</p> : null}
+      {!isLoading && !error && loggedIn && !found ? (
+        <div className="empty-panel">
+          <strong>{t("teamEmpty")}</strong>
         </div>
       ) : null}
+    </>
+  );
+}
 
-      {login ? (
-        <fieldset className="settings__group">
-          <legend>{t("routes:channelNotifyTitle")}</legend>
-          <label className="settings__row settings__row--check">
-            <input
-              type="checkbox"
-              checked={notifyWhenLive}
-              disabled={!notifications.followedOnline}
-              onChange={(e) =>
-                setSettings({
-                  notifications: {
-                    ...notifications,
-                    mutedFollowed: toggleMutedFollowed(
-                      notifications.mutedFollowed,
-                      loginKey,
-                      e.target.checked,
-                    ),
-                  },
-                })
-              }
-            />
-            <span className="settings__check-text">
-              {t("routes:channelNotifyLive")}
-              {!notifications.followedOnline ? (
-                <small className="muted">{t("routes:channelNotifyGlobalOff")}</small>
-              ) : null}
-            </span>
-          </label>
-        </fieldset>
-      ) : null}
+function TeamLiveStreams({
+  streams,
+  onWatch,
+}: {
+  streams: HelixStream[];
+  onWatch: (stream: HelixStream) => void;
+}) {
+  const { t } = useTranslation("routes");
+  if (!streams.length) return null;
 
-      {login ? (
-        <fieldset className="settings__group">
-          <legend>{t("routes:channelOverrideTitle")}</legend>
-          <div className="settings__row">
-            <div className="settings__label">
-              <span>{t("routes:channelOverrideQuality")}</span>
-              <small className="muted">
-                {t("settings:useGlobal")}: {globalQuality}
-              </small>
-            </div>
-            <div className="settings__control settings__control--row">
-              <input
-                className="input"
-                value={overrideQuality}
-                placeholder={globalQuality}
-                onChange={(e) => setOverrideQuality(e.target.value)}
-              />
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() =>
-                  setChannelOverride(login, {
-                    quality: overrideQuality.trim() || undefined,
-                  })
-                }
-              >
-                {t("routes:channelOverrideSave")}
-              </button>
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => {
-                  setChannelOverride(login, null);
-                  setOverrideQuality("");
-                }}
-              >
-                {t("routes:channelOverrideClear")}
-              </button>
-            </div>
-          </div>
-        </fieldset>
-      ) : null}
+  return (
+    <>
+      <h2>{t("teamLive")}</h2>
+      <StreamGrid streams={streams} onWatch={onWatch} />
+    </>
+  );
+}
 
-      {teamsQuery.data?.data?.length ? (
-        <>
-          <h2>{t("routes:channelTeams")}</h2>
-          <ul className="team-list">
-            {teamsQuery.data.data.map((team) => (
-              <li key={team.id}>
-                <Link to={`/team/${team.team_name}`}>{team.team_display_name}</Link>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-    </section>
+function TeamMembers({
+  members,
+  liveByLogin,
+}: {
+  members?: HelixTeamMember[];
+  liveByLogin: Map<string, HelixStream>;
+}) {
+  const { t } = useTranslation("routes");
+  if (!members?.length) return null;
+
+  return (
+    <>
+      <h2>{t("teamMembers")}</h2>
+      <ul className="team-member-list">
+        {members.map((member) => {
+          const live = liveByLogin.get(member.user_login.toLowerCase());
+          return (
+            <li key={member.user_id} className="team-member">
+              <Link to={`/channel/${member.user_login}`}>{member.user_name}</Link>
+              {live ? (
+                <span className="badge badge--live">{t("liveBadge")}</span>
+              ) : (
+                <span className="muted">{t("teamOffline")}</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 
@@ -519,12 +662,12 @@ export function TeamPage() {
 
   const teamQuery = useQuery({
     queryKey: ["team", teamName],
-    enabled: loggedIn && Boolean(teamName),
+    enabled: canQuery(loggedIn, teamName),
     queryFn: () => getTeamByName(teamName),
   });
 
   const members = teamQuery.data?.users;
-  const memberIds = members?.map((m) => m.user_id) ?? [];
+  const memberIds = members?.map((member) => member.user_id) ?? [];
 
   const liveQuery = useQuery({
     queryKey: ["team-live", teamName, memberIds.join(",")],
@@ -543,8 +686,8 @@ export function TeamPage() {
 
   const liveStreams = useMemo(
     () =>
-      (members ?? []).flatMap((m) => {
-        const stream = liveByLogin.get(m.user_login.toLowerCase());
+      (members ?? []).flatMap((member) => {
+        const stream = liveByLogin.get(member.user_login.toLowerCase());
         return stream ? [stream] : [];
       }),
     [members, liveByLogin],
@@ -557,54 +700,17 @@ export function TeamPage() {
   return (
     <section className="page">
       <PageSubbar title={title} lede={teamQuery.data?.info ?? undefined} />
-
-      {!loggedIn ? (
-        <p className="muted">{t("routes:followedLoginRequired")}</p>
-      ) : null}
-      {teamQuery.isLoading ? <LoadingGrid count={4} /> : null}
-      {teamQuery.isError ? (
-        <p className="muted">{(teamQuery.error as Error).message}</p>
-      ) : null}
-      {teamQuery.isSuccess && !teamQuery.data ? (
-        <div className="empty-panel">
-          <strong>{t("routes:teamEmpty")}</strong>
-        </div>
-      ) : null}
-
-      {liveStreams.length ? (
-        <>
-          <h2>{t("routes:teamLive")}</h2>
-          <StreamGrid
-            streams={liveStreams}
-            onWatch={(stream) => {
-              void watchStream(stream);
-            }}
-          />
-        </>
-      ) : null}
-
-      {(members?.length ?? 0) > 0 ? (
-        <>
-          <h2>{t("routes:teamMembers")}</h2>
-          <ul className="team-member-list">
-            {(members ?? []).map((member) => {
-              const live = liveByLogin.get(member.user_login.toLowerCase());
-              return (
-                <li key={member.user_id} className="team-member">
-                  <Link to={`/channel/${member.user_login}`}>
-                    {member.user_name}
-                  </Link>
-                  {live ? (
-                    <span className="badge badge--live">{t("routes:liveBadge")}</span>
-                  ) : (
-                    <span className="muted">{t("routes:teamOffline")}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      ) : null}
+      <TeamStatus
+        loggedIn={loggedIn}
+        isLoading={teamQuery.isLoading}
+        error={teamQuery.isError ? (teamQuery.error as Error) : null}
+        found={Boolean(teamQuery.data)}
+      />
+      <TeamLiveStreams
+        streams={liveStreams}
+        onWatch={(stream) => void watchStream(stream)}
+      />
+      <TeamMembers members={members} liveByLogin={liveByLogin} />
     </section>
   );
 }

@@ -47,6 +47,32 @@ function RecheckButton({
   );
 }
 
+function RecheckActions({
+  found,
+  onRecheck,
+  checking,
+}: {
+  found: boolean;
+  onRecheck?: () => void;
+  checking: boolean;
+}) {
+  if (!onRecheck) return null;
+
+  const className = found
+    ? "setup-help__actions"
+    : "setup-help__actions setup-help__actions--recheck";
+
+  return (
+    <div className={className}>
+      <RecheckButton
+        onRecheck={onRecheck}
+        checking={checking}
+        secondary={found}
+      />
+    </div>
+  );
+}
+
 export function StreamlinkSetupHelp({
   status,
   onRecheck,
@@ -97,18 +123,9 @@ export function StreamlinkSetupHelp({
               {t("streamlinkDocs")}
             </button>
           </div>
-          {onRecheck ? (
-            <div className="setup-help__actions setup-help__actions--recheck">
-              <RecheckButton onRecheck={onRecheck} checking={checking} />
-            </div>
-          ) : null}
         </>
       )}
-      {found && onRecheck ? (
-        <div className="setup-help__actions">
-          <RecheckButton onRecheck={onRecheck} checking={checking} secondary />
-        </div>
-      ) : null}
+      <RecheckActions found={found} onRecheck={onRecheck} checking={checking} />
     </div>
   );
 }
@@ -168,18 +185,9 @@ export function PlayerSetupHelp({
               {t("playerPortable")}
             </button>
           </div>
-          {onRecheck ? (
-            <div className="setup-help__actions setup-help__actions--recheck">
-              <RecheckButton onRecheck={onRecheck} checking={checking} />
-            </div>
-          ) : null}
         </>
       )}
-      {found && onRecheck ? (
-        <div className="setup-help__actions">
-          <RecheckButton onRecheck={onRecheck} checking={checking} secondary />
-        </div>
-      ) : null}
+      <RecheckActions found={found} onRecheck={onRecheck} checking={checking} />
     </div>
   );
 }
@@ -230,18 +238,9 @@ export function ChatterinoSetupHelp({
               {t("chatterinoDocs")}
             </button>
           </div>
-          {onRecheck ? (
-            <div className="setup-help__actions setup-help__actions--recheck">
-              <RecheckButton onRecheck={onRecheck} checking={checking} />
-            </div>
-          ) : null}
         </>
       )}
-      {found && onRecheck ? (
-        <div className="setup-help__actions">
-          <RecheckButton onRecheck={onRecheck} checking={checking} secondary />
-        </div>
-      ) : null}
+      <RecheckActions found={found} onRecheck={onRecheck} checking={checking} />
     </div>
   );
 }

@@ -2,8 +2,135 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke, isTauri } from "../lib/tauri";
 import type { DoctorReport } from "../lib/doctor";
-import { PlayerSetupHelp, StreamlinkSetupHelp, ChatterinoSetupHelp } from "./SetupHelp";
+import {
+  PlayerSetupHelp,
+  StreamlinkSetupHelp,
+  ChatterinoSetupHelp,
+} from "./SetupHelp";
 import "./DoctorPanel.css";
+
+function StreamlinkDoctorItem({
+  status,
+  onRecheck,
+  checking,
+}: {
+  status: DoctorReport["streamlink"];
+  onRecheck: () => void;
+  checking: boolean;
+}) {
+  const { t } = useTranslation("routes");
+  return (
+    <li>
+      {status.found
+        ? t("doctorStreamlinkOk", { version: status.version ?? "?" })
+        : t("doctorStreamlinkMissing")}
+      {status.found && status.path ? (
+        <p className="doctor__path muted">
+          {t("doctorToolPath", { path: status.path })}
+        </p>
+      ) : null}
+      {!status.found ? (
+        <StreamlinkSetupHelp
+          status={status}
+          onRecheck={onRecheck}
+          checking={checking}
+        />
+      ) : null}
+    </li>
+  );
+}
+
+function PlayerDoctorItem({
+  status,
+  onRecheck,
+  checking,
+}: {
+  status: DoctorReport["mpv"];
+  onRecheck: () => void;
+  checking: boolean;
+}) {
+  const { t } = useTranslation("routes");
+  return (
+    <li>
+      {status.found
+        ? t("doctorPlayerOk", { version: status.version ?? "?" })
+        : t("doctorPlayerMissing")}
+      {status.found && status.path ? (
+        <p className="doctor__path muted">
+          {t("doctorToolPath", { path: status.path })}
+        </p>
+      ) : null}
+      {!status.found ? (
+        <PlayerSetupHelp
+          status={status}
+          onRecheck={onRecheck}
+          checking={checking}
+        />
+      ) : null}
+    </li>
+  );
+}
+
+function ChatterinoDoctorItem({
+  status,
+  onRecheck,
+  checking,
+}: {
+  status: DoctorReport["chatterino"];
+  onRecheck: () => void;
+  checking: boolean;
+}) {
+  const { t } = useTranslation("routes");
+  return (
+    <li>
+      {status.found ? t("doctorChatOk") : t("doctorChatMissing")}
+      {status.found && status.path ? (
+        <p className="doctor__path muted">
+          {t("doctorToolPath", { path: status.path })}
+        </p>
+      ) : null}
+      {!status.found ? (
+        <ChatterinoSetupHelp
+          status={status}
+          onRecheck={onRecheck}
+          checking={checking}
+        />
+      ) : null}
+    </li>
+  );
+}
+
+function DoctorResults({
+  report,
+  onRecheck,
+  checking,
+}: {
+  report: DoctorReport | null;
+  onRecheck: () => void;
+  checking: boolean;
+}) {
+  if (!report) return null;
+
+  return (
+    <ul className="doctor__list">
+      <StreamlinkDoctorItem
+        status={report.streamlink}
+        onRecheck={onRecheck}
+        checking={checking}
+      />
+      <PlayerDoctorItem
+        status={report.mpv}
+        onRecheck={onRecheck}
+        checking={checking}
+      />
+      <ChatterinoDoctorItem
+        status={report.chatterino}
+        onRecheck={onRecheck}
+        checking={checking}
+      />
+    </ul>
+  );
+}
 
 export function DoctorPanel() {
   const { t } = useTranslation("routes");
@@ -54,65 +181,7 @@ export function DoctorPanel() {
       ) : null}
       {error ? <p className="muted">{error}</p> : null}
       {!report && !error && !checking ? <p className="muted">…</p> : null}
-      {report ? (
-        <ul className="doctor__list">
-          <li>
-            {report.streamlink.found
-              ? t("doctorStreamlinkOk", {
-                  version: report.streamlink.version ?? "?",
-                })
-              : t("doctorStreamlinkMissing")}
-            {report.streamlink.found && report.streamlink.path ? (
-              <p className="doctor__path muted">
-                {t("doctorToolPath", { path: report.streamlink.path })}
-              </p>
-            ) : null}
-            {!report.streamlink.found ? (
-              <StreamlinkSetupHelp
-                status={report.streamlink}
-                onRecheck={refresh}
-                checking={checking}
-              />
-            ) : null}
-          </li>
-          <li>
-            {report.mpv.found
-              ? t("doctorPlayerOk", {
-                  version: report.mpv.version ?? "?",
-                })
-              : t("doctorPlayerMissing")}
-            {report.mpv.found && report.mpv.path ? (
-              <p className="doctor__path muted">
-                {t("doctorToolPath", { path: report.mpv.path })}
-              </p>
-            ) : null}
-            {!report.mpv.found ? (
-              <PlayerSetupHelp
-                status={report.mpv}
-                onRecheck={refresh}
-                checking={checking}
-              />
-            ) : null}
-          </li>
-          <li>
-            {report.chatterino.found
-              ? t("doctorChatOk")
-              : t("doctorChatMissing")}
-            {report.chatterino.found && report.chatterino.path ? (
-              <p className="doctor__path muted">
-                {t("doctorToolPath", { path: report.chatterino.path })}
-              </p>
-            ) : null}
-            {!report.chatterino.found ? (
-              <ChatterinoSetupHelp
-                status={report.chatterino}
-                onRecheck={refresh}
-                checking={checking}
-              />
-            ) : null}
-          </li>
-        </ul>
-      ) : null}
+      <DoctorResults report={report} onRecheck={refresh} checking={checking} />
     </section>
   );
 }

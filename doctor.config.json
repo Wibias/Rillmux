@@ -22,30 +22,6 @@
           "src/components/ChannelPointsHud.tsx"
         ],
         "rules": ["react-doctor/no-autofocus"]
-      },
-      {
-        // React Doctor 0.9.18 adds a complexity rule that flags these existing
-        // components. Baseline them here so this tooling-only update does not
-        // force unrelated behavior-changing refactors into the dependency PR.
-        "files": [
-          "src/components/AuthBar.tsx",
-          "src/components/ChannelPointsClaimAuth.tsx",
-          "src/components/ConnectionHealth.tsx",
-          "src/components/DoctorPanel.tsx",
-          "src/components/TwitchWebsiteAuth.tsx",
-          "src/pages/BrowseExtraPages.tsx",
-          "src/pages/browse/FollowedPage.tsx",
-          "src/pages/multistream/SearchPanel.tsx",
-          "src/pages/multistream/SlotList.tsx"
-        ],
-        "rules": ["react-doctor/no-high-complexity-react-function"]
-      },
-      {
-        // React Doctor 0.9.18 newly reports this pre-existing duplicated subtree.
-        // Keep it as an explicit baseline instead of mixing UI refactors into
-        // the tooling upgrade.
-        "files": ["src/components/SetupHelp.tsx"],
-        "rules": ["react-doctor/duplicate-jsx-subtree"]
       }
     ]
   }

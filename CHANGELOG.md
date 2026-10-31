@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split the remaining large streaming shards (`streaming/dock.rs`, the mpv window/title helpers) so no production Rust file exceeds about 600 lines.
 - Split the frontend page, multistream, Channel Points HUD/poll overlay, and streaming store modules into focused components; the largest production source file is now under 580 lines.
 - Release verification and installer builds run in parallel, cargo-audit uses a prebuilt binary, and Rust release codegen uses four units instead of one to reduce release wall time.
-- Rust CodeQL relies on buildless extraction instead of compiling the crate, which keeps the analysis job fast.
+- Rust CodeQL relies on buildless extraction, which current CodeQL releases require in place of a manual build step.
 
 ## [0.5.21] — 2026-10-30
 

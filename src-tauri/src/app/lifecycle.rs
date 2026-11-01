@@ -79,6 +79,12 @@ fn set_native_sentry_enabled(enabled: bool) {
     }
 }
 
+fn close_splash(app: &AppHandle) {
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.close();
+    }
+}
+
 /// Swap the native splash window for the real app once the webview has painted.
 fn reveal_main_window(app: &AppHandle) {
     match app.get_webview_window("main") {
@@ -90,8 +96,35 @@ fn reveal_main_window(app: &AppHandle) {
         }
         None => boot_log("reveal main_missing"),
     }
-    if let Some(splash) = app.get_webview_window("splash") {
-        let _ = splash.close();
+    close_splash(app);
+}
+
+const SPLASH_CLOSE_TAIL: std::time::Duration = std::time::Duration::from_secs(2);
+const SPLASH_REVEAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+const SPLASH_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
+fn watch_splash_until_main_visible(app: &AppHandle) {
+    let started = std::time::Instant::now();
+    let mut close_deadline = None;
+    loop {
+        let visible = app
+            .get_webview_window("main")
+            .and_then(|window| window.is_visible().ok())
+            .unwrap_or(false);
+        if visible {
+            close_splash(app);
+            let until = *close_deadline
+                .get_or_insert_with(|| std::time::Instant::now() + SPLASH_CLOSE_TAIL);
+            if std::time::Instant::now() >= until {
+                return;
+            }
+        }
+        if started.elapsed() >= SPLASH_REVEAL_TIMEOUT {
+            boot_log("frontend_ready_timeout");
+            reveal_main_window(app);
+            return;
+        }
+        std::thread::sleep(SPLASH_POLL_INTERVAL);
     }
 }
 
@@ -124,6 +157,7 @@ fn show_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+    close_splash(app);
 }
 
 fn enable_main_title_bar_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {

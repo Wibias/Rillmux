@@ -116,23 +116,9 @@ pub fn run() {
             viewer_presence::init(app.handle().clone());
             let state = app.state::<SharedStreaming>().inner().clone();
             streaming::start_session_watchdog(app.handle().clone(), state);
-            // The main window stays hidden behind the native splash until the
-            // frontend reports its first frame. Never leave users staring at a
-            // splash if that signal is lost.
             {
                 let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(12));
-                    let hidden = handle
-                        .get_webview_window("main")
-                        .and_then(|window| window.is_visible().ok())
-                        .map(|visible| !visible)
-                        .unwrap_or(false);
-                    if hidden {
-                        boot_log("frontend_ready_timeout");
-                        reveal_main_window(&handle);
-                    }
-                });
+                std::thread::spawn(move || watch_splash_until_main_visible(&handle));
             }
             boot_log("setup_done");
             Ok(())
@@ -169,8 +155,17 @@ pub fn run() {
             // WEBVIEW2_USER_DATA_FOLDER). Give debug a folder of its own so
             // `tauri:dev` can start while the installed app is already open.
             #[cfg(all(windows, debug_assertions))]
-            if let Some(window) = ctx.config_mut().app.windows.first_mut() {
-                window.data_directory = Some(PathBuf::from("webview-dev"));
+            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                // Both config windows need the same debug profile: separate
+                // data directories per window fail to create a WebView2
+                // environment, and the shared default profile cannot start
+                // while the installed release is open.
+                let dev_dir = PathBuf::from(local)
+                    .join(branding::APP_DATA_FOLDER_PACKAGE)
+                    .join("webview-dev");
+                for window in ctx.config_mut().app.windows.iter_mut() {
+                    window.data_directory = Some(dev_dir.clone());
+                }
             }
             ctx
         })

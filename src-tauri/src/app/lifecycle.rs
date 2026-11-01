@@ -79,8 +79,6 @@ fn set_native_sentry_enabled(enabled: bool) {
     }
 }
 
-/// Close the native splash if it still exists. The splash window loads
-/// independently of the main window, so closing it must tolerate a miss.
 fn close_splash(app: &AppHandle) {
     if let Some(splash) = app.get_webview_window("splash") {
         let _ = splash.close();

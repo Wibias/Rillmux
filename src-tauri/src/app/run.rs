@@ -131,8 +131,6 @@ pub fn run() {
                             .and_then(|window| window.is_visible().ok())
                             .unwrap_or(false);
                         if visible {
-                            // Keep closing for a short tail: the splash webview
-                            // may be created just after the first check.
                             close_splash(&handle);
                             let until = *splash_deadline.get_or_insert_with(|| {
                                 std::time::Instant::now()

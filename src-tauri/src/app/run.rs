@@ -116,38 +116,9 @@ pub fn run() {
             viewer_presence::init(app.handle().clone());
             let state = app.state::<SharedStreaming>().inner().clone();
             streaming::start_session_watchdog(app.handle().clone(), state);
-            // The native splash window can finish creating after the main page
-            // has already loaded, so closing it once on page load can miss it.
-            // Watch the main window instead: once it is visible the splash must
-            // go, and a stalled frontend still gets revealed after the timeout.
             {
                 let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    let started = std::time::Instant::now();
-                    let mut splash_deadline = None;
-                    loop {
-                        let visible = handle
-                            .get_webview_window("main")
-                            .and_then(|window| window.is_visible().ok())
-                            .unwrap_or(false);
-                        if visible {
-                            close_splash(&handle);
-                            let until = *splash_deadline.get_or_insert_with(|| {
-                                std::time::Instant::now()
-                                    + std::time::Duration::from_secs(2)
-                            });
-                            if std::time::Instant::now() >= until {
-                                return;
-                            }
-                        }
-                        if started.elapsed() >= std::time::Duration::from_secs(12) {
-                            boot_log("frontend_ready_timeout");
-                            reveal_main_window(&handle);
-                            return;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                });
+                std::thread::spawn(move || watch_splash_until_main_visible(&handle));
             }
             boot_log("setup_done");
             Ok(())

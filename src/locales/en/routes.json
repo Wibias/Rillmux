@@ -57,6 +57,7 @@
   "watchingStatusReady": "Playing",
   "watchingStatusError": "Error",
   "settingsTitle": "Settings",
+  "settingsLede": "Appearance, playback, chat, and notifications.",
   "aboutTitle": "About",
   "aboutBlurb": "A desktop Twitch browser for Streamlink — browse live channels and open them in your player.",
   "aboutVersion": "Version {{version}}",

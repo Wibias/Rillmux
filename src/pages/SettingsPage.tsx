@@ -30,7 +30,10 @@ export function SettingsPage() {
 
   return (
     <section className="settings">
-      <PageSubbar title={t("routes:settingsTitle")} />
+      <PageSubbar
+        title={t("routes:settingsTitle")}
+        lede={t("routes:settingsLede")}
+      />
 
       <div className="settings__layout">
         <div

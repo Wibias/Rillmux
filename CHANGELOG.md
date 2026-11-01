@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Settings header now uses the same title-and-description band as the other pages.
 - The native startup splash always closes once the main window is visible, instead of lingering beside the loaded app.
 
+### Security
+
+- Updated the updater plugin to `zip` 9.2.0, which rejects oversized symlink targets before allocating during update extraction.
+
 ### Internal
 
 - Debug builds keep both config windows in their own WebView2 profile, so `tauri:dev` can run beside the installed release.

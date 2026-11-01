@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+
+- Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
+- Further parity and polish as we dogfood releases
+
+## [0.5.25] — 2026-11-01
+
 ### Fixed
 
 - The Settings header now uses the same title-and-description band as the other pages.
@@ -15,11 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Internal
 
 - Debug builds keep both config windows in their own WebView2 profile, so `tauri:dev` can run beside the installed release.
-
-### Planned
-
-- Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
-- Further parity and polish as we dogfood releases
 
 ## [0.5.24] — 2026-10-31
 

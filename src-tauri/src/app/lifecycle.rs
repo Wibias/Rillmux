@@ -79,6 +79,14 @@ fn set_native_sentry_enabled(enabled: bool) {
     }
 }
 
+/// Close the native splash if it still exists. The splash window loads
+/// independently of the main window, so closing it must tolerate a miss.
+fn close_splash(app: &AppHandle) {
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.close();
+    }
+}
+
 /// Swap the native splash window for the real app once the webview has painted.
 fn reveal_main_window(app: &AppHandle) {
     match app.get_webview_window("main") {
@@ -90,9 +98,7 @@ fn reveal_main_window(app: &AppHandle) {
         }
         None => boot_log("reveal main_missing"),
     }
-    if let Some(splash) = app.get_webview_window("splash") {
-        let _ = splash.close();
-    }
+    close_splash(app);
 }
 
 fn warm_streamlink_once() {
@@ -124,6 +130,7 @@ fn show_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+    close_splash(app);
 }
 
 fn enable_main_title_bar_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {

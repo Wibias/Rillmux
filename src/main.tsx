@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import "./i18n";
 import App from "./App";
@@ -8,9 +8,18 @@ if (overlayKind) {
   document.documentElement.dataset.overlay = overlayKind;
 }
 
+function BootSplashGate() {
+  // Dismiss from a commit effect, not requestAnimationFrame: the native splash
+  // keeps the main window hidden, and a hidden document does not run rAF.
+  useEffect(() => {
+    dismissSplash();
+  }, []);
+  return <App />;
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <BootSplashGate />
   </React.StrictMode>,
 );
 
@@ -25,11 +34,3 @@ function dismissSplash() {
   el.classList.add("is-leaving");
   window.setTimeout(() => el.remove(), 360);
 }
-
-// Fade the boot splash after the first commit; it covered the WebView while
-// the JS bundle loaded (noticeable in dev mode).
-requestAnimationFrame(() => {
-  requestAnimationFrame(() => {
-    dismissSplash();
-  });
-});

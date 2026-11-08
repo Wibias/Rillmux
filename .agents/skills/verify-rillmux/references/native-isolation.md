@@ -83,6 +83,8 @@ No account is created automatically. An operator must explicitly provision a sep
    New-ItemProperty -Path $key -Name approvalReference -PropertyType String -Value '<operator reference>' -Force | Out-Null
    ```
 
+   Use ISO-8601 UTC timestamps, for example `(Get-Date).ToUniversalTime().ToString('o')` and an explicit short expiry such as seven days. Keep the key owned by SYSTEM/Built-in Administrators and grant the isolated standard user only read access. If preflight reports `ATTESTATION_NOT_PROTECTED`, do not relax the verifier; fix the elevated owner/DACL setup and retry.
+
 4. Run `preflight --json` in the isolated context. It must report `status: VERIFIED`, `nativeIsolationVerified: true`, and `evidence.appDataOverrideIsCredentialProof: false`. A missing, malformed, expired, same-user, admin-user, VM-unconfirmed, or writable-attestation result is BLOCKED.
 
 ## Isolated native retest

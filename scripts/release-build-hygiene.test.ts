@@ -30,7 +30,7 @@ describe("release build hygiene", () => {
     expect(pkg).toContain("--scope full");
     expect(pkg).toContain("--blocking warning");
     expect(source).toContain("run: npm run doctor");
-    const gate = source.slice(source.indexOf("\n  ci:\n"));
+    const gate = source.slice(source.indexOf("  ci:"));
     expect(gate).toContain("needs: [changes, frontend, rust, react-doctor, verifier]");
   });
 

@@ -1,11 +1,13 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { win32 } from "node:path";
 import {
   WINDOWS_POWERSHELL_MODULES_PATH,
   WINDOWS_POWERSHELL_PATH,
+  WINDOWS_TASKKILL_PATH,
 } from "./native-isolation.mjs";
 
 const RUN_ID_PATTERN = /^verify-rillmux-native-\d{8}T\d{6}Z$/;
+const CREATION_TIME_TOLERANCE_MS = 1_000;
 
 const PROCESS_TABLE_SCRIPT = String.raw`$ErrorActionPreference = 'Stop'
 $items = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, CommandLine, @{ Name = 'CreationDateUtc'; Expression = { if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { $null } } }
@@ -35,7 +37,55 @@ function processMap(processes) {
   );
 }
 
-function descendantsOf(processes, rootPid) {
+function createdAtMs(processRecord) {
+  const value = Date.parse(processRecord?.CreationDateUtc);
+  return Number.isFinite(value) ? value : null;
+}
+
+function processIdentity(processRecord) {
+  return {
+    pid: Number(processRecord.ProcessId),
+    parentPid: Number(processRecord.ParentProcessId),
+    name: String(processRecord.Name ?? "").toLowerCase(),
+    creationDateUtc: processRecord.CreationDateUtc ?? null,
+    commandLine: processRecord.CommandLine ?? null,
+  };
+}
+
+function identityMatches(expected, actual) {
+  if (!expected || !actual) return false;
+  if (Number(actual.ProcessId) !== expected.pid) return false;
+  if (Number(actual.ParentProcessId) !== expected.parentPid) return false;
+  if (String(actual.Name ?? "").toLowerCase() !== expected.name) return false;
+  const actualCreatedAt = createdAtMs(actual);
+  const expectedCreatedAt = Date.parse(expected.creationDateUtc);
+  if (
+    !Number.isFinite(actualCreatedAt) ||
+    !Number.isFinite(expectedCreatedAt) ||
+    Math.abs(actualCreatedAt - expectedCreatedAt) > CREATION_TIME_TOLERANCE_MS
+  ) {
+    return false;
+  }
+  if (
+    expected.commandLine != null &&
+    normalized(actual.CommandLine) !== normalized(expected.commandLine)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function verifiedDescendants(processes, root) {
+  const rootPid = Number(root.ProcessId);
+  const rootCreatedAt = createdAtMs(root);
+  if (!Number.isFinite(rootCreatedAt)) {
+    return {
+      verified: false,
+      reasonCode: "NATIVE_ROOT_IDENTITY_UNPROVEN",
+      reason: "The verifier root process creation time is unavailable.",
+    };
+  }
+  const byPid = processMap(processes);
   const byParent = new Map();
   for (const process of processes) {
     const parent = Number(process.ParentProcessId);
@@ -43,17 +93,60 @@ function descendantsOf(processes, rootPid) {
     byParent.get(parent).push(Number(process.ProcessId));
   }
   const result = new Set();
-  const queue = [Number(rootPid)];
+  const depthByPid = new Map([[rootPid, 0]]);
+  const queue = [rootPid];
   while (queue.length) {
-    const parent = queue.shift();
-    for (const child of byParent.get(parent) ?? []) {
-      if (!result.has(child)) {
-        result.add(child);
-        queue.push(child);
+    const parentPid = queue.shift();
+    const parent = byPid.get(parentPid);
+    const parentCreatedAt = createdAtMs(parent);
+    if (!Number.isFinite(parentCreatedAt)) {
+      return {
+        verified: false,
+        reasonCode: "NATIVE_DESCENDANT_IDENTITY_UNPROVEN",
+        reason: `Process ${parentPid} has no usable creation time for descendant verification.`,
+      };
+    }
+    for (const child of byParent.get(parentPid) ?? []) {
+      if (child === rootPid || depthByPid.has(child)) {
+        return {
+          verified: false,
+          reasonCode: "NATIVE_DESCENDANT_IDENTITY_UNPROVEN",
+          reason: `Process ${child} forms an ambiguous or cyclic parent chain.`,
+        };
       }
+      if (result.has(child)) continue;
+      const childProcess = byPid.get(child);
+      const childCreatedAt = createdAtMs(childProcess);
+      if (!Number.isFinite(childCreatedAt)) {
+        return {
+          verified: false,
+          reasonCode: "NATIVE_DESCENDANT_IDENTITY_UNPROVEN",
+          reason: `Process ${child} has no usable creation time for descendant verification.`,
+        };
+      }
+      if (
+        childCreatedAt < rootCreatedAt - CREATION_TIME_TOLERANCE_MS ||
+        childCreatedAt < parentCreatedAt - CREATION_TIME_TOLERANCE_MS
+      ) {
+        return {
+          verified: false,
+          reasonCode: "NATIVE_DESCENDANT_IDENTITY_UNPROVEN",
+          reason: `Process ${child} predates its verified parent ${parentPid}; the parent PID is stale or reused.`,
+        };
+      }
+      result.add(child);
+      depthByPid.set(child, (depthByPid.get(parentPid) ?? 0) + 1);
+      queue.push(child);
     }
   }
-  return [...result];
+  const pids = [...result];
+  return {
+    verified: true,
+    pids,
+    terminationOrder: pids
+      .sort((left, right) => (depthByPid.get(right) ?? 0) - (depthByPid.get(left) ?? 0) || left - right)
+      .map((pid) => byPid.get(pid)),
+  };
 }
 
 function pathMatches(value, expected) {
@@ -188,8 +281,20 @@ export function verifyNativeProcessOwnership({
     return blocked("NATIVE_PID_REUSED", "The recorded PID belongs to a different process instance.");
   }
 
-  const descendantPids = descendantsOf(records, rootPid);
+  const descendantTree = verifiedDescendants(records, root);
+  if (!descendantTree.verified) {
+    return blocked(descendantTree.reasonCode, descendantTree.reason, { rootPid, killPids: [] });
+  }
+  const descendantPids = descendantTree.pids;
   const killPids = [...new Set([rootPid, ...descendantPids])].sort((a, b) => a - b);
+  const processIdentities = [
+    processIdentity(root),
+    ...descendantTree.terminationOrder.map(processIdentity),
+  ];
+  const terminationOrder = [
+    ...descendantTree.terminationOrder.map((process) => Number(process.ProcessId)),
+    rootPid,
+  ];
   const uniqueListeners = [...new Set(listenerPids.map(Number).filter((pid) => Number.isInteger(pid) && pid > 0))];
 
   if (requireCdp) {
@@ -225,6 +330,8 @@ export function verifyNativeProcessOwnership({
     rootPid,
     listenerPids: uniqueListeners,
     killPids,
+    terminationOrder,
+    processIdentities,
     rootCreatedAt: root.CreationDateUtc ?? null,
   };
 }
@@ -299,6 +406,110 @@ export function planNativeCleanup({
     appDataDir: expectedAppData,
     ownership,
     killPids: ownership.killPids,
+    terminationOrder: ownership.terminationOrder,
+    processIdentities: ownership.processIdentities,
+  };
+}
+
+export function windowsNativeTerminateArgs(pid) {
+  return ["/PID", String(pid), "/F"];
+}
+
+function terminateWindowsPid(pid) {
+  if (process.platform !== "win32") {
+    try {
+      process.kill(Number(pid), "SIGTERM");
+      return Promise.resolve({ ok: true, exitCode: 0 });
+    } catch (error) {
+      return Promise.resolve({ ok: false, error: String(error?.message ?? error) });
+    }
+  }
+  return new Promise((resolve) => {
+    const child = spawn(WINDOWS_TASKKILL_PATH, windowsNativeTerminateArgs(pid), {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("error", (error) =>
+      resolve({ ok: false, error: String(error?.message ?? error) }),
+    );
+    child.once("exit", (exitCode) => resolve({ ok: exitCode === 0, exitCode }));
+  });
+}
+
+export async function terminateVerifiedNativeProcesses({
+  plan,
+  readProcesses = readNativeProcessTable,
+  terminatePid = terminateWindowsPid,
+} = {}) {
+  if (plan?.status !== "ready") {
+    return {
+      ok: false,
+      reasonCode: plan?.reasonCode || "NATIVE_KILL_PLAN_NOT_READY",
+      reason: plan?.reason || "Native cleanup ownership was not verified.",
+      terminatedPids: [],
+    };
+  }
+  const order = Array.isArray(plan.terminationOrder) ? plan.terminationOrder.map(Number) : [];
+  const identities = Array.isArray(plan.processIdentities) ? plan.processIdentities : [];
+  const expectedByPid = new Map(identities.map((identity) => [Number(identity.pid), identity]));
+  if (
+    order.length === 0 ||
+    order.length !== identities.length ||
+    order.some((pid) => !expectedByPid.has(pid))
+  ) {
+    return {
+      ok: false,
+      reasonCode: "NATIVE_KILL_PLAN_INVALID",
+      reason: "The native termination plan does not contain one verified identity per PID.",
+      terminatedPids: [],
+    };
+  }
+
+  const terminatedPids = [];
+  for (let index = 0; index < order.length; index += 1) {
+    let records;
+    try {
+      records = readProcesses();
+    } catch (error) {
+      return {
+        ok: false,
+        reasonCode: "NATIVE_PROCESS_PROBE_FAILED",
+        reason: String(error?.message ?? error),
+        terminatedPids,
+      };
+    }
+    const byPid = processMap(records);
+    for (const pid of order.slice(index)) {
+      const expected = expectedByPid.get(pid);
+      const actual = byPid.get(pid);
+      if (!identityMatches(expected, actual)) {
+        return {
+          ok: false,
+          reasonCode: "NATIVE_PID_REUSED_OR_UNPROVEN",
+          reason: `Process ${pid} no longer matches its verified creation identity; no further kill was issued.`,
+          blockedPid: pid,
+          terminatedPids,
+        };
+      }
+    }
+    const pid = order[index];
+    const result = await terminatePid(pid);
+    if (!result?.ok) {
+      return {
+        ok: false,
+        reasonCode: "NATIVE_TERMINATION_FAILED",
+        reason: `Verified process ${pid} could not be terminated: ${result?.error || `exit ${result?.exitCode}`}`,
+        blockedPid: pid,
+        terminatedPids,
+      };
+    }
+    terminatedPids.push(pid);
+  }
+  return {
+    ok: true,
+    reasonCode: "TERMINATED",
+    reason: "Only independently verified native verifier PIDs were terminated without recursive taskkill.",
+    terminatedPids,
   };
 }
 

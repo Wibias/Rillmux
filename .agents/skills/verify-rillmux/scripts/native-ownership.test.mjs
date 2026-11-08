@@ -7,7 +7,9 @@ import {
   planNativeCleanup,
   readNativeProcessTable,
   selectCdpLane,
+  terminateVerifiedNativeProcesses,
   verifyNativeProcessOwnership,
+  windowsNativeTerminateArgs,
 } from "./native-ownership.mjs";
 
 const runtimeDir = "C:\\project\\.agents\\skills\\verify-rillmux\\.runtime";
@@ -50,6 +52,8 @@ function processTable({
   rootCommand = null,
   listenerParent = 200,
   rootCreatedAt = "2026-11-08T01:00:00.000Z",
+  cargoCreatedAt = "2026-11-08T01:00:01.000Z",
+  listenerCreatedAt = "2026-11-08T01:00:02.000Z",
 } = {}) {
   return [
     {
@@ -61,12 +65,19 @@ function processTable({
         `"C:\\node.exe" "C:\\project\\node_modules\\@tauri-apps\\cli\\tauri.js" dev --config "${overlayPath}"`,
       CreationDateUtc: rootCreatedAt,
     },
-    { ProcessId: 200, ParentProcessId: 100, Name: "cargo.exe", CommandLine: "cargo" },
+    {
+      ProcessId: 200,
+      ParentProcessId: 100,
+      Name: "cargo.exe",
+      CommandLine: "cargo",
+      CreationDateUtc: cargoCreatedAt,
+    },
     {
       ProcessId: 300,
       ParentProcessId: listenerParent,
       Name: "msedgewebview2.exe",
       CommandLine: "msedgewebview2 --type=browser",
+      CreationDateUtc: listenerCreatedAt,
     },
   ];
 }
@@ -106,7 +117,15 @@ describe("native verifier process ownership", () => {
 
   it("rejects ambiguous multiple CDP listener ownership", () => {
     const result = verify({
-      processes: [...processTable(), { ProcessId: 301, ParentProcessId: 200, Name: "msedgewebview2.exe" }],
+      processes: [
+        ...processTable(),
+        {
+          ProcessId: 301,
+          ParentProcessId: 200,
+          Name: "msedgewebview2.exe",
+          CreationDateUtc: "2026-11-08T01:00:02.000Z",
+        },
+      ],
       listenerPids: [300, 301],
     });
     assert.equal(result.verified, false);
@@ -157,6 +176,32 @@ describe("native verifier process ownership", () => {
     });
     assert.equal(result.verified, false);
     assert.equal(result.reasonCode, "NATIVE_ROOT_OWNERSHIP_MISMATCH");
+    assert.deepEqual(result.killPids, []);
+  });
+
+  it("rejects descendant identities older than their verified root or parent", () => {
+    const oldParent = verify({ processes: processTable({ cargoCreatedAt: "2026-11-08T00:59:00.000Z" }) });
+    assert.equal(oldParent.verified, false);
+    assert.equal(oldParent.reasonCode, "NATIVE_DESCENDANT_IDENTITY_UNPROVEN");
+    assert.deepEqual(oldParent.killPids, []);
+
+    const oldChild = verify({
+      processes: processTable({
+        cargoCreatedAt: "2026-11-08T01:00:03.000Z",
+        listenerCreatedAt: "2026-11-08T01:00:01.000Z",
+      }),
+    });
+    assert.equal(oldChild.verified, false);
+    assert.equal(oldChild.reasonCode, "NATIVE_DESCENDANT_IDENTITY_UNPROVEN");
+    assert.deepEqual(oldChild.killPids, []);
+  });
+
+  it("rejects descendants with missing creation evidence", () => {
+    const processes = processTable();
+    processes.find((entry) => entry.ProcessId === 200).CreationDateUtc = null;
+    const result = verify({ processes });
+    assert.equal(result.verified, false);
+    assert.equal(result.reasonCode, "NATIVE_DESCENDANT_IDENTITY_UNPROVEN");
     assert.deepEqual(result.killPids, []);
   });
 
@@ -304,8 +349,18 @@ describe("owner-proven native cleanup", () => {
     const plan = planNativeCleanup({
       native: nativeState(),
       processes: [
-        { ProcessId: 200, ParentProcessId: 1, Name: "cargo.exe" },
-        { ProcessId: 300, ParentProcessId: 200, Name: "msedgewebview2.exe" },
+        {
+          ProcessId: 200,
+          ParentProcessId: 1,
+          Name: "cargo.exe",
+          CreationDateUtc: "2026-11-08T01:00:01.000Z",
+        },
+        {
+          ProcessId: 300,
+          ParentProcessId: 200,
+          Name: "msedgewebview2.exe",
+          CreationDateUtc: "2026-11-08T01:00:02.000Z",
+        },
       ],
       runtimeDir,
       projectRoot,
@@ -313,5 +368,72 @@ describe("owner-proven native cleanup", () => {
     assert.equal(plan.status, "blocked");
     assert.equal(plan.reasonCode, "NATIVE_ORPHANED_OWNED_PIDS");
     assert.deepEqual(plan.killPids, []);
+  });
+
+  it("blocks cleanup when the root PID was reused or a parent PID is stale", () => {
+    const reusedRoot = planNativeCleanup({
+      native: nativeState(),
+      processes: processTable({ rootCreatedAt: "2026-11-08T01:05:00.000Z" }),
+      runtimeDir,
+      projectRoot,
+    });
+    assert.equal(reusedRoot.status, "blocked");
+    assert.equal(reusedRoot.killPids.length, 0);
+
+    const staleParent = planNativeCleanup({
+      native: nativeState(),
+      processes: processTable({ cargoCreatedAt: "2026-11-08T00:59:00.000Z" }),
+      runtimeDir,
+      projectRoot,
+    });
+    assert.equal(staleParent.status, "blocked");
+    assert.equal(staleParent.ownership.reasonCode, "NATIVE_DESCENDANT_IDENTITY_UNPROVEN");
+    assert.equal(staleParent.killPids.length, 0);
+  });
+
+  it("terminates only verified identities, deepest first, without recursive taskkill", async () => {
+    const plan = planNativeCleanup({
+      native: nativeState(),
+      processes: processTable(),
+      runtimeDir,
+      projectRoot,
+    });
+    const calls = [];
+    const result = await terminateVerifiedNativeProcesses({
+      plan,
+      readProcesses: () => processTable(),
+      terminatePid: async (pid) => {
+        calls.push(pid);
+        return { ok: true, exitCode: 0 };
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, [300, 200, 100]);
+    assert.deepEqual(result.terminatedPids, [300, 200, 100]);
+    assert.deepEqual(windowsNativeTerminateArgs(42), ["/PID", "42", "/F"]);
+    assert.equal(windowsNativeTerminateArgs(42).includes("/T"), false);
+  });
+
+  it("blocks before the first kill when a planned PID was reused", async () => {
+    const plan = planNativeCleanup({
+      native: nativeState(),
+      processes: processTable(),
+      runtimeDir,
+      projectRoot,
+    });
+    const reused = processTable({ listenerCreatedAt: "2026-11-08T01:00:05.000Z" });
+    const calls = [];
+    const result = await terminateVerifiedNativeProcesses({
+      plan,
+      readProcesses: () => reused,
+      terminatePid: async (pid) => {
+        calls.push(pid);
+        return { ok: true, exitCode: 0 };
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, "NATIVE_PID_REUSED_OR_UNPROVEN");
+    assert.deepEqual(result.terminatedPids, []);
+    assert.deepEqual(calls, []);
   });
 });

@@ -103,7 +103,7 @@ node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs cleanup
 node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs cleanup --lane native
 ```
 
-Native cleanup kills only live descendants of the exact recorded verifier root command. It never kills debug binaries by project path. Missing root/command evidence, orphaned recorded children, stale state, or ambiguous ownership produces `cleanup: blocked` with no kill. Web cleanup stops only its recorded PIDs. Keeps `evidence/`.
+Native cleanup kills only independently verified descendants of the exact recorded verifier root command. Every child must carry a creation time compatible with its verified parent, and every PID is rechecked immediately before a non-recursive termination. It never uses recursive `taskkill /T`, never kills debug binaries by project path, and reports missing root/command evidence, orphaned children, stale parent PIDs, stale state, or ambiguous ownership as `cleanup: blocked` with no kill. Web cleanup stops only its recorded PIDs. Keeps `evidence/`.
 
 ## Feature map
 

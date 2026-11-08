@@ -30,7 +30,6 @@ import {
 import { DIALOG_SELECTOR, snapshotReady } from "./web-snapshot.mjs";
 import {
   fetchCdpJson,
-  nativeCleanupPids,
   selectCdpPage,
 } from "./native-cdp.mjs";
 import {
@@ -51,6 +50,7 @@ import {
   planNativeCleanup,
   readNativeProcessTable,
   selectCdpLane,
+  terminateVerifiedNativeProcesses,
   verifyNativeProcessOwnership,
 } from "./native-ownership.mjs";
 
@@ -766,13 +766,57 @@ async function launchVerifiedNative(args, isolation) {
       );
     });
   } catch (error) {
-    for (const pid of nativeCleanupPids({ native })) {
-      killPid(pid);
+    let nativeCleanup;
+    try {
+      const processes = readNativeProcessTable();
+      const failureNative = { ...native };
+      const childHandleAlive = child.exitCode === null && child.signalCode === null;
+      if (childHandleAlive && !failureNative.rootCreatedAt) {
+        const rootRecord = processes.find((entry) => Number(entry.ProcessId) === Number(child.pid));
+        const launchedAt = Date.parse(failureNative.startedAt);
+        const rootStartedAt = Date.parse(rootRecord?.CreationDateUtc);
+        if (
+          rootRecord &&
+          Number.isFinite(launchedAt) &&
+          Number.isFinite(rootStartedAt) &&
+          Math.abs(rootStartedAt - launchedAt) <= 60_000
+        ) {
+          failureNative.rootCreatedAt = rootRecord.CreationDateUtc;
+        }
+      }
+      const plan = planNativeCleanup({
+        native: failureNative,
+        processes,
+        runtimeDir: RUNTIME_DIR,
+        projectRoot: PROJECT_ROOT,
+      });
+      nativeCleanup = plan.status === "ready"
+        ? await terminateVerifiedNativeProcesses({
+            plan,
+            readProcesses: readNativeProcessTable,
+          })
+        : {
+            ok: plan.status === "inactive",
+            reasonCode: plan.reasonCode || `NATIVE_CLEANUP_${String(plan.status).toUpperCase()}`,
+            reason: plan.reason || `Native cleanup plan is ${plan.status}; no process was killed.`,
+            terminatedPids: [],
+          };
+    } catch (cleanupError) {
+      nativeCleanup = {
+        ok: false,
+        reasonCode: "NATIVE_CLEANUP_PROBE_FAILED",
+        reason: String(cleanupError?.message ?? cleanupError),
+        terminatedPids: [],
+      };
     }
-    killPid(child.pid);
-    throw new Error(
-      `${error.message} See native log ${logPath}. If compile failed, fix Rust/frontend then retry.`,
+    const cleanupDetail = nativeCleanup.ok
+      ? `${nativeCleanup.terminatedPids.length} verified verifier process(es) stopped.`
+      : `cleanup BLOCKED (${nativeCleanup.reasonCode}): ${nativeCleanup.reason}. No unverified or recursive taskkill was issued; inspect the recorded state and clean up manually.`;
+    const wrapped = new Error(
+      `${error.message} See native log ${logPath}. Native ${cleanupDetail} If compile failed, fix Rust/frontend then retry.`,
     );
+    wrapped.extra = { nativeCleanup };
+    throw wrapped;
   }
 
     printJson({
@@ -1729,14 +1773,19 @@ async function cmdCleanup(args) {
     state.browserPid = null;
   }
   let nativeBlocked = false;
+  let nativeTermination = null;
   if (lane === "native" || lane === "all") {
     if (state.native && nativePlan?.status === "blocked") {
       nativeBlocked = true;
-    } else if (state.native) {
-      for (const pid of nativePlan?.killPids || []) {
-        killPid(pid);
-      }
+    } else if (state.native && nativePlan?.status === "ready") {
+      nativeTermination = await terminateVerifiedNativeProcesses({
+        plan: nativePlan,
+        readProcesses: readNativeProcessTable,
+      });
+      if (!nativeTermination.ok) nativeBlocked = true;
       await new Promise((r) => setTimeout(r, 800));
+    } else if (state.native && nativePlan?.status !== "inactive") {
+      nativeBlocked = true;
     }
     if (state.native && !nativeBlocked && nativePlan?.appDataDir) {
       try {
@@ -1763,6 +1812,7 @@ async function cmdCleanup(args) {
     evidenceDir: EVIDENCE_DIR,
     lastReceipt: state.lastReceipt ?? null,
     nativeCleanup: nativePlan,
+    nativeTermination,
   });
   if (nativeBlocked) process.exitCode = 1;
 }

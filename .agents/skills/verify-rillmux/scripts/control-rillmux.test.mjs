@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import { runInNewContext } from "node:vm";
 import { SNAPSHOT_JS } from "./control-rillmux.mjs";
@@ -74,5 +76,15 @@ describe("actual Rillmux shell snapshot and lane readiness", () => {
     assert.equal(snapshotReady(null), false);
     assert.equal(snapshotReady({ hydrated: true, appName: null }), false);
     assert.equal(snapshotReady({ hydrated: false, appName: "Rillmux" }), false);
+  });
+
+
+  it("still executes the real CLI entrypoint on Windows/Linux after making it import-safe", () => {
+    const file = fileURLToPath(new URL("./control-rillmux.mjs", import.meta.url));
+    const run = spawnSync(process.execPath, [file, "help"], {
+      encoding: "utf8", timeout: 10_000,
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(run.stdout, /Rillmux verification control surface/);
   });
 });

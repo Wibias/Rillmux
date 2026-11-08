@@ -27,7 +27,7 @@ import {
   webviewLogPathFor,
   writeCdpOverlay,
 } from "./native-lane.mjs";
-import { DIALOG_SELECTOR } from "./web-snapshot.mjs";
+import { DIALOG_SELECTOR, snapshotReady } from "./web-snapshot.mjs";
 import {
   fetchCdpJson,
   nativeCleanupPids,
@@ -311,7 +311,7 @@ async function withCdp(state, fn) {
   }
 }
 
-const SNAPSHOT_JS = `(() => {
+export const SNAPSHOT_JS = `(() => {
   const text = (el) => (el?.innerText || el?.textContent || "").replace(/\\s+/g, " ").trim();
   const alerts = [...document.querySelectorAll('[role="alert"]')].map(text);
   const headings = [...document.querySelectorAll("h1,h2")].map((el) => ({
@@ -349,7 +349,7 @@ const SNAPSHOT_JS = `(() => {
     title: document.title,
     url: location.href,
     pathname: location.pathname,
-    appName: text(document.querySelector(".shell__titlebar-title")),
+    appName: text(document.querySelector(".shell__brand-title")),
     hydrated: Boolean(document.querySelector(".shell")),
     splash: Boolean(document.getElementById("splash")),
     headings,
@@ -520,7 +520,7 @@ async function cmdLaunch(args) {
     await waitEval(
       session,
       SNAPSHOT_JS,
-      (snap) => snap?.hydrated === true && snap?.appName === "Rillmux",
+      (snap) => snapshotReady(snap),
       45_000,
       "hydrated Rillmux shell",
     );
@@ -608,10 +608,7 @@ async function cmdLaunchNative(args) {
       await waitEval(
         session,
         SNAPSHOT_JS,
-        (snap) =>
-          snap?.hydrated === true &&
-          snap?.appName === "Rillmux" &&
-          !(snap.alerts || []).some((a) => a.includes("Desktop shell required")),
+        (snap) => snapshotReady(snap, { native: true }),
         90_000,
         "hydrated native Rillmux shell without Vite guard",
       );
@@ -674,7 +671,7 @@ async function doctorWeb(state) {
     report.pathname = snap.pathname;
     report.hydrated = snap.hydrated;
     report.splash = snap.splash;
-    report.ready = snap.hydrated === true && snap.appName === "Rillmux" && !report.mismatch;
+    report.ready = snapshotReady(snap) && !report.mismatch;
   } catch (error) {
     report.next = `Web CDP inspect failed: ${error.message}`;
   }
@@ -727,9 +724,7 @@ async function doctorNativeLane(state) {
         instance.tauriProcessAlive &&
         instance.cdpListOk &&
         Boolean(instance.pageTarget) &&
-        snap.hydrated === true &&
-        snap.appName === "Rillmux" &&
-        !guard &&
+        snapshotReady(snap, { native: true }) &&
         !instance.mismatch;
       if (guard) instance.next = "Connected chrome still shows the Vite tauri-guard; this is not the native WebView.";
     } catch (error) {
@@ -1586,4 +1581,7 @@ async function main() {
   }
 }
 
-await main();
+// The snapshot contract is importable by unit tests without starting the CLI.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

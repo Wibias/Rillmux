@@ -20,6 +20,7 @@ jobs:
     outputs:
       frontend: ${{ steps.filter.outputs.frontend }}
       rust: ${{ steps.filter.outputs.rust }}
+      verifier: ${{ steps.filter.outputs.verifier }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -40,6 +41,26 @@ jobs:
             rust:
               - 'src-tauri/**'
               - '.github/workflows/ci.yml'
+            verifier:
+              - '.agents/skills/verify-rillmux/**'
+              - '.github/workflows/ci.yml'
+
+  verifier:
+    needs: changes
+    if: needs.changes.outputs.verifier == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Real shell snapshot, native CDP and receipt regressions
+        run: >-
+          node --test
+          .agents/skills/verify-rillmux/scripts/control-rillmux.test.mjs
+          .agents/skills/verify-rillmux/scripts/web-snapshot.test.mjs
+          .agents/skills/verify-rillmux/scripts/native-cdp.test.mjs
+          .agents/skills/verify-rillmux/scripts/receipt-resources.test.mjs
 
   frontend:
     needs: changes
@@ -204,18 +225,18 @@ jobs:
         run: cargo audit
 
   ci:
-    needs: [changes, frontend, rust, react-doctor]
+    needs: [changes, frontend, rust, react-doctor, verifier]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail if a needed job failed
         run: |
           set -euo pipefail
-          echo "changes=${{ needs.changes.result }} frontend=${{ needs.frontend.result }} rust=${{ needs.rust.result }} react-doctor=${{ needs.react-doctor.result }}"
+          echo "changes=${{ needs.changes.result }} frontend=${{ needs.frontend.result }} rust=${{ needs.rust.result }} react-doctor=${{ needs.react-doctor.result }} verifier=${{ needs.verifier.result }}"
           if [ "${{ needs.changes.result }}" != "success" ]; then
             exit 1
           fi
-          for result in "${{ needs.frontend.result }}" "${{ needs.rust.result }}" "${{ needs.react-doctor.result }}"; do
+          for result in "${{ needs.frontend.result }}" "${{ needs.rust.result }}" "${{ needs.react-doctor.result }}" "${{ needs.verifier.result }}"; do
             case "$result" in
               success|skipped) ;;
               *) exit 1 ;;

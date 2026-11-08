@@ -48,6 +48,7 @@ describe("release build hygiene", () => {
     for (const file of [
       "control-rillmux.test.mjs",
       "native-isolation.test.mjs",
+      "native-ownership.test.mjs",
       "web-snapshot.test.mjs",
       "native-cdp.test.mjs",
       "receipt-resources.test.mjs",

@@ -12,37 +12,37 @@ export const NATIVE_ISOLATION_ATTESTATION_KEY =
 export const NATIVE_ISOLATION_SCHEMA_VERSION = 1;
 export const WINDOWS_POWERSHELL_PATH =
   "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+export const WINDOWS_NETSTAT_PATH = "C:\\Windows\\System32\\netstat.exe";
+export const WINDOWS_TASKKILL_PATH = "C:\\Windows\\System32\\taskkill.exe";
 
-const WINDOWS_MODULES_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules";
+export const WINDOWS_POWERSHELL_MODULES_PATH =
+  "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules";
 
 const SID_PATTERN = /^S-1-(?:5-21|12-1)-\d+(?:-\d+)+$/;
 const PROTECTED_OWNER_SIDS = new Set(["S-1-5-18", "S-1-5-32-544"]);
-const MUTATION_RIGHTS =
-  0x00000002 | // SetValue
-  0x00000004 | // CreateSubKey
-  0x00000020 | // CreateLink
-  0x00010000 | // Delete
-  0x00040000 | // ChangePermissions
-  0x00080000 | // TakeOwnership
-  0x40000000; // GenericWrite
-
-const VM_MARKERS = [
-  "virtual machine",
-  "vmware",
-  "virtualbox",
-  "hyper-v",
-  "qemu",
-  "kvm",
-  "xen",
-  "parallels",
-];
+const READ_ONLY_REGISTRY_RIGHTS =
+  0x00000001 | // QueryValues
+  0x00000008 | // EnumerateSubKeys
+  0x00000010 | // Notify
+  0x00020000 | // ReadPermissions
+  0x00100000 | // Synchronize
+  0x20000000 | // GenericExecute
+  0x80000000; // GenericRead
 
 const WINDOWS_PROBE_SCRIPT = String.raw`$ErrorActionPreference = 'Stop'
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
 $attestation = $null
 $machineRecord = $null
-$virtualMachine = $null
+$administratorSid = 'S-1-5-32-544'
+$isAdminMember = $false
+# Groups include the deny-only Administrators SID in a UAC-filtered token.
+foreach ($group in $identity.Groups) {
+  if ($group.Value -eq $administratorSid) {
+    $isAdminMember = $true
+    break
+  }
+}
 $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
   [Microsoft.Win32.RegistryHive]::LocalMachine,
   [Microsoft.Win32.RegistryView]::Default
@@ -91,6 +91,7 @@ try {
       })
       $machineRecord = [pscustomobject]@{
         ownerSid = $ownerSid
+        areAccessRulesProtected = $acl.AreAccessRulesProtected
         rules = $rules
       }
     } catch {
@@ -101,30 +102,16 @@ try {
   }
 } catch {}
 
-try {
-  $bios = $hive.OpenSubKey('HARDWARE\DESCRIPTION\System\BIOS')
-  if ($null -ne $bios) {
-    $virtualMachine = [pscustomobject]@{
-      manufacturer = [string]$bios.GetValue('SystemManufacturer', '')
-      model = [string]$bios.GetValue('SystemProductName', '')
-    }
-    $bios.Dispose()
-  }
-} catch {}
-finally {
-  $hive.Dispose()
-}
+$hive.Dispose()
 
 [pscustomobject]@{
   identity = [pscustomobject]@{
     sid = $identity.User.Value
-    isAdmin = $principal.IsInRole(
-      [System.Security.Principal.WindowsBuiltInRole]::Administrator
-    )
+    isAdmin = $isAdminMember
+    isElevated = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
   }
   attestation = $attestation
   machineRecord = $machineRecord
-  virtualMachine = $virtualMachine
 } | ConvertTo-Json -Depth 6 -Compress`;
 
 function hashSid(sid) {
@@ -133,7 +120,7 @@ function hashSid(sid) {
     : null;
 }
 
-function baseResult({ platform, identity, attestation, machineRecord, virtualMachine, checkedAt }) {
+function baseResult({ platform, identity, attestation, machineRecord, checkedAt }) {
   const currentSid = typeof identity?.sid === "string" ? identity.sid : null;
   return {
     schemaVersion: NATIVE_ISOLATION_SCHEMA_VERSION,
@@ -147,6 +134,8 @@ function baseResult({ platform, identity, attestation, machineRecord, virtualMac
     reason: null,
     currentUserSidSha256: hashSid(currentSid),
     currentUserIsAdmin: typeof identity?.isAdmin === "boolean" ? identity.isAdmin : null,
+    currentUserIsElevated:
+      typeof identity?.isElevated === "boolean" ? identity.isElevated : null,
     productionUserSidSha256: hashSid(attestation?.productionUserSid),
     isolatedUserSidSha256: hashSid(attestation?.isolatedUserSid),
     isolationKind: attestation?.kind ?? null,
@@ -155,8 +144,7 @@ function baseResult({ platform, identity, attestation, machineRecord, virtualMac
     evidence: {
       identitySource: "WindowsIdentity.GetCurrent().User",
       attestationSource: "machine-scope HKLM registry",
-      machineRecordProtected: isMachineRecordProtected(machineRecord, currentSid),
-      virtualMachineDetected: isVirtualMachine(virtualMachine),
+      machineRecordProtected: isMachineRecordProtected(machineRecord),
       appDataOverrideIsCredentialProof: false,
       environmentIsCredentialProof: false,
     },
@@ -173,26 +161,23 @@ function block(context, reasonCode, reason) {
   };
 }
 
-function isVirtualMachine(virtualMachine) {
-  const description = `${virtualMachine?.manufacturer ?? ""} ${virtualMachine?.model ?? ""}`
-    .trim()
-    .toLowerCase();
-  return description.length > 0 && VM_MARKERS.some((marker) => description.includes(marker));
-}
-
-function isMachineRecordProtected(machineRecord, currentSid) {
+function isMachineRecordProtected(machineRecord) {
   if (!machineRecord || !PROTECTED_OWNER_SIDS.has(machineRecord.ownerSid)) return false;
+  if (machineRecord.areAccessRulesProtected !== true) return false;
   const rules = Array.isArray(machineRecord.rules) ? machineRecord.rules : [];
   if (rules.length === 0) return false;
   return !rules.some((rule) => {
-    if (rule?.access !== "Allow") return false;
+    if (!rule || typeof rule !== "object") return true;
+    if (rule.access === "Deny") return false;
+    if (rule.access !== "Allow") return true;
     const rights = rule.rights == null ? NaN : Number(rule.rights);
-    const canWrite = !Number.isFinite(rights) || (rights & MUTATION_RIGHTS) !== 0;
-    if (!canWrite) return false;
-    if (rule.sid === currentSid) return true;
-    // Only SYSTEM and Built-in Administrators may mutate the machine record to
-    // make it independent of the ordinary isolated-user token.
-    return !PROTECTED_OWNER_SIDS.has(rule.sid);
+    if (!Number.isFinite(rights) || !Number.isInteger(rights)) return true;
+    if (rule.sid == null) return true;
+    // SYSTEM and Built-in Administrators may retain FullControl. Every other
+    // principal gets an explicit read-only allowlist; unknown/new rights and
+    // GENERIC_ALL fail closed instead of being mistaken for read access.
+    if (PROTECTED_OWNER_SIDS.has(rule.sid)) return false;
+    return (rights & ~READ_ONLY_REGISTRY_RIGHTS) !== 0;
   });
 }
 
@@ -206,10 +191,9 @@ export function evaluateNativeIsolation({
   identity,
   attestation,
   machineRecord,
-  virtualMachine,
   checkedAt = new Date(),
 } = {}) {
-  const context = { platform, identity, attestation, machineRecord, virtualMachine, checkedAt };
+  const context = { platform, identity, attestation, machineRecord, checkedAt };
   if (platform !== "win32") {
     return block(context, "WINDOWS_ONLY", "Native Rillmux verification is Windows-only.");
   }
@@ -231,7 +215,14 @@ export function evaluateNativeIsolation({
   if (Number(attestation.version) !== NATIVE_ISOLATION_SCHEMA_VERSION) {
     return block(context, "ATTESTATION_SCHEMA_UNSUPPORTED", "The machine-scope isolation attestation version is unsupported.");
   }
-  if (!["separate-windows-user", "isolated-windows-vm"].includes(attestation.kind)) {
+  if (attestation.kind === "isolated-windows-vm") {
+    return block(
+      context,
+      "VM_ISOLATION_UNPROVEN",
+      "A VM hardware label alone is not proof of a separate credential boundary; use a verified separate Windows user.",
+    );
+  }
+  if (attestation.kind !== "separate-windows-user") {
     return block(context, "ISOLATION_KIND_UNSUPPORTED", "The isolation kind is not recognized.");
   }
   if (
@@ -265,7 +256,7 @@ export function evaluateNativeIsolation({
   if (expiresAt <= approvedAt) {
     return block(context, "ATTESTATION_INVALID", "The attestation expiry does not follow its approval time.");
   }
-  if (!isMachineRecordProtected(machineRecord, currentSid)) {
+  if (!isMachineRecordProtected(machineRecord)) {
     return block(
       context,
       "ATTESTATION_NOT_PROTECTED",
@@ -279,17 +270,13 @@ export function evaluateNativeIsolation({
     return block(context, "CURRENT_USER_IS_PRODUCTION", "The current Windows user is the production user, not an isolated user.");
   }
 
-  if (attestation.kind === "separate-windows-user" && identity.isAdmin) {
+  if (identity.isAdmin) {
     return block(
       context,
       "ISOLATED_USER_IS_ADMIN",
-      "A separate Windows user must run without an elevated administrator token.",
+      "The isolated Windows user must not belong to the Administrators group, regardless of UAC elevation.",
     );
   }
-  if (attestation.kind === "isolated-windows-vm" && !isVirtualMachine(virtualMachine)) {
-    return block(context, "ISOLATED_VM_NOT_PROVEN", "The attested Windows VM boundary could not be confirmed.");
-  }
-
   return {
     ...baseResult(context),
     status: "VERIFIED",
@@ -318,7 +305,7 @@ export function readWindowsIsolationProbe() {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        PSModulePath: WINDOWS_MODULES_PATH,
+        PSModulePath: WINDOWS_POWERSHELL_MODULES_PATH,
       },
     },
   );
@@ -340,12 +327,11 @@ export function probeNativeIsolation({
       identity: probe.identity,
       attestation: probe.attestation,
       machineRecord: probe.machineRecord,
-      virtualMachine: probe.virtualMachine,
       checkedAt,
     });
   } catch (error) {
     return block(
-      { platform, identity: null, attestation: null, machineRecord: null, virtualMachine: null, checkedAt },
+      { platform, identity: null, attestation: null, machineRecord: null, checkedAt },
       "WINDOWS_PROBE_FAILED",
       `Windows isolation probe failed closed: ${String(error?.message ?? error).slice(0, 500)}`,
     );

@@ -3,7 +3,7 @@
 - **Intent:** Confirm the desktop shell can probe Streamlink/mpv/Chatterino via Tauri (`get_doctor_report`), not the Vite fallback error.
 - **Entry:** `/about` Setup check (`DoctorPanel`, Recheck).
 - **Source:** `src/components/DoctorPanel.tsx`, `src-tauri/src/lib.rs` `get_doctor_report`, `src-tauri/src/doctor.rs`.
-- **Lane:** native-only. A verified Windows user/VM isolation preflight is mandatory before launch. Web shows `Desktop shell required` and must not be treated as a pass.
+- **Lane:** native-only. A verified separate-Windows-user isolation preflight is mandatory before launch. Web shows `Desktop shell required` and must not be treated as a pass.
 - **Credentials:** this feature does not ask for a Twitch login, but the surrounding app startup loads OAuth, playback, and Channel Points credential status. Treat the shared native startup credential boundary as sensitive.
 - **Binaries:** optional. `Streamlink X found` or `Streamlink not found` both prove the command ran.
 - **Drive:** `node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs drive native-setup-check` after a VERIFIED preflight and `launch --lane native`.

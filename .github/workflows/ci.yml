@@ -59,6 +59,7 @@ jobs:
           node --test
           .agents/skills/verify-rillmux/scripts/control-rillmux.test.mjs
           .agents/skills/verify-rillmux/scripts/native-isolation.test.mjs
+          .agents/skills/verify-rillmux/scripts/native-ownership.test.mjs
           .agents/skills/verify-rillmux/scripts/web-snapshot.test.mjs
           .agents/skills/verify-rillmux/scripts/native-cdp.test.mjs
           .agents/skills/verify-rillmux/scripts/receipt-resources.test.mjs

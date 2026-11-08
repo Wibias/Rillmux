@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createConnection } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   nativeDryRun,
@@ -43,7 +43,16 @@ import {
   nativeLaunchCapability,
   probeNativeIsolation,
   runGuardedNativeLaunch,
+  WINDOWS_TASKKILL_PATH,
 } from "./native-isolation.mjs";
+import {
+  evaluateNativeCdpAccess,
+  nativeReadinessVerified,
+  planNativeCleanup,
+  readNativeProcessTable,
+  selectCdpLane,
+  verifyNativeProcessOwnership,
+} from "./native-ownership.mjs";
 
 const SKILL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PROJECT_ROOT = resolve(SKILL_ROOT, "..", "..", "..");
@@ -96,7 +105,7 @@ Features for drive:
 Options:
   --json               Print machine-readable JSON (preflight, doctor, inspect, drive, status, receipt)
   --dry-run            Print intended actions without starting/stopping processes or clicking
-  --lane web|native    launch/doctor/inspect/drive/cleanup target (launch defaults to web)
+  --lane web|native    launch/doctor/inspect/drive/cleanup target (web is default; never falls back to native)
   --preview            Production vite preview (runs build unless --skip-build)
   --skip-build         Reuse dist/ from a previous build (with --preview)
   --port <n>           Vite preview port (default: free port in 18700-18999)
@@ -110,19 +119,19 @@ Options:
 Prerequisites:
   Node 20+, npm install, Windows Edge or Chrome for CDP driving.
   Web lane proves React chrome via isolated Vite + Chrome/Edge CDP.
-  Native lane requires a verified separate Windows user or isolated Windows VM.
+  Native lane requires a verified separate standard Windows user.
   APPDATA, a Git worktree, or environment variables do not isolate Credential Manager.
   Current production Windows profiles default to BLOCKED before any native spawn.
 
 Side effects:
   Web launch binds a local HTTP port and a dedicated browser profile.
   A verified native launch compiles/starts tauri:dev, binds port 1420, and writes
-  an isolated APPDATA tree. cleanup kills only recorded PIDs (taskkill /PID /T).
+  an isolated APPDATA tree. cleanup kills only owner-proven verifier process trees.
   Screenshots and receipts stay in evidence/.
 
 Isolation:
   Serial driving. Web uses a unique Vite port + browser profile. Native requires
-  an operator-attested Windows user/VM boundary plus APPDATA override. Do not
+  an operator-attested Windows-user boundary plus APPDATA override. Do not
   attach a second live driver to the same lane. Port 1420 must be free unless
   this verifier owns it. See references/native-isolation.md.
 `);
@@ -140,6 +149,12 @@ function loadState() {
 function saveState(state) {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   writeFileSync(STATE_PATH, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+function pathIsInside(parent, child) {
+  if (!parent || !child) return false;
+  const rel = relative(resolve(parent), resolve(child));
+  return Boolean(rel) && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 function gitHead() {
@@ -539,13 +554,109 @@ async function cmdLaunch(args) {
   printJson(out);
 }
 
-function nativeCdpView(state) {
+function nativeCdpEndpoint(state) {
   if (!state?.native?.cdpPort) {
     throw new Error(
       "No native instance. Run: node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs launch --lane native",
     );
   }
   return { cdpPort: state.native.cdpPort, origin: state.native.origin };
+}
+
+function nativeCdpAccess(state, isolation = probeNativeIsolation()) {
+  const native = state?.native;
+  if (!native?.cdpPort) {
+    return {
+      verified: false,
+      isolation,
+      ownership: {
+        verified: false,
+        reasonCode: "NATIVE_STATE_MISSING",
+        reason: "No native verifier instance is recorded.",
+      },
+      endpoint: null,
+    };
+  }
+  let ownership;
+  try {
+    ownership = verifyNativeProcessOwnership({
+      native,
+      processes: readNativeProcessTable(),
+      listenerPids: pidsListening(native.cdpPort),
+      runtimeDir: RUNTIME_DIR,
+      projectRoot: PROJECT_ROOT,
+      currentHead: gitHead(),
+      isolation,
+      requireCdp: true,
+      requireIsolation: true,
+      requireCurrentHead: true,
+    });
+  } catch (error) {
+    ownership = {
+      verified: false,
+      reasonCode: "NATIVE_PROCESS_PROBE_FAILED",
+      reason: `Native process ownership probe failed: ${String(error?.message ?? error).slice(0, 500)}`,
+      killPids: [],
+    };
+  }
+  const decision = evaluateNativeCdpAccess({ isolation, ownership });
+  return {
+    verified: decision.verified,
+    reasonCode: decision.reasonCode,
+    reason: decision.reason,
+    isolation,
+    ownership,
+    endpoint: decision.verified ? nativeCdpEndpoint(state) : null,
+  };
+}
+
+function requireNativeCdpAccess(state, isolation = probeNativeIsolation()) {
+  const access = nativeCdpAccess(state, isolation);
+  if (!access.verified) {
+    const reason = !access.isolation.nativeIsolationVerified
+      ? formatNativeIsolationBlock(access.isolation)
+      : `${access.ownership.reasonCode}: ${access.ownership.reason}`;
+    const error = new Error(`Native CDP access blocked (${reason})`);
+    error.extra = { nativeAccess: access };
+    throw error;
+  }
+  return access;
+}
+
+async function waitForNativeOwnership({ native, isolation, timeoutMs = 120_000 }) {
+  const start = Date.now();
+  let last = null;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      last = verifyNativeProcessOwnership({
+        native,
+        processes: readNativeProcessTable(),
+        listenerPids: pidsListening(native.cdpPort),
+        runtimeDir: RUNTIME_DIR,
+        projectRoot: PROJECT_ROOT,
+        currentHead: gitHead(),
+        isolation,
+        requireCdp: true,
+        requireIsolation: true,
+        requireCurrentHead: true,
+        requireRecordedRootCreatedAt: false,
+      });
+      if (last.verified) return last;
+    } catch (error) {
+      last = {
+        verified: false,
+        reasonCode: "NATIVE_PROCESS_PROBE_FAILED",
+        reason: String(error?.message ?? error),
+        killPids: [],
+      };
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+  }
+  const error = new Error(
+    `Native CDP ownership was not proven: ${last?.reasonCode || "NOT_READY"}: ${last?.reason || "timeout"}`,
+  );
+  error.extra = { nativeOwnership: last };
+  throw error;
 }
 
 async function launchVerifiedNative(args, isolation) {
@@ -565,9 +676,6 @@ async function launchVerifiedNative(args, isolation) {
   }
   if (existing.native?.pid && pidAlive(existing.native.pid)) {
     throw new Error("A native verifier instance is already recorded. Run cleanup --lane native first.");
-  }
-  for (const pid of debugRillmuxPids(PROJECT_ROOT)) {
-    killPid(pid);
   }
 
   mkdirSync(RUNTIME_DIR, { recursive: true });
@@ -591,6 +699,8 @@ async function launchVerifiedNative(args, isolation) {
     port: TAURI_DEV_PORT,
     cdpPort,
     pid: child.pid,
+    ownedPids: [child.pid],
+    overlayPath,
     appDataDir,
     logPath,
     webviewLogPath: webviewLogPathFor(logPath),
@@ -600,21 +710,52 @@ async function launchVerifiedNative(args, isolation) {
       kind: isolation.isolationKind,
       checkedAt: isolation.checkedAt,
       currentUserSidSha256: isolation.currentUserSidSha256,
+      currentUserIsAdmin: isolation.currentUserIsAdmin,
+      currentUserIsElevated: isolation.currentUserIsElevated,
+      attestationApprovedAt: isolation.attestationApprovedAt,
+      attestationExpiresAt: isolation.attestationExpiresAt,
       attestationKey: isolation.attestationKey,
     },
   };
+  native.startedResources = nativeRunResources(native);
   saveState({ ...existing, native, lastDrive: existing.lastDrive ?? null });
 
   try {
     const readyOrigin = await waitNativeHttp(TAURI_DEV_ORIGIN, 8 * 60_000);
     native.origin = readyOrigin;
-    const view = nativeCdpView({ native });
-    await waitCdpPage(view.cdpPort, 120_000);
-    native.ownedPids = [
-      ...new Set([native.pid, ...pidsListening(TAURI_DEV_PORT), ...pidsListening(native.cdpPort)]),
-    ];
+    saveState({ ...loadState(), native });
+    const ownership = await waitForNativeOwnership({ native, isolation });
+    native.ownedPids = ownership.killPids;
+    native.rootCreatedAt = ownership.rootCreatedAt;
+    native.cdpOwnership = {
+      verified: true,
+      rootPid: ownership.rootPid,
+      listenerPids: ownership.listenerPids,
+      checkedAt: new Date().toISOString(),
+    };
     native.startedResources = nativeRunResources(native);
     saveState({ ...loadState(), native });
+    const view = nativeCdpEndpoint({ native });
+    await waitCdpPage(view.cdpPort, 120_000);
+    const attachOwnership = verifyNativeProcessOwnership({
+      native,
+      processes: readNativeProcessTable(),
+      listenerPids: pidsListening(native.cdpPort),
+      runtimeDir: RUNTIME_DIR,
+      projectRoot: PROJECT_ROOT,
+      currentHead: gitHead(),
+      isolation,
+      requireCdp: true,
+      requireIsolation: true,
+      requireCurrentHead: true,
+    });
+    if (!attachOwnership.verified) {
+      const error = new Error(
+        `Native CDP attachment ownership changed: ${attachOwnership.reasonCode}: ${attachOwnership.reason}`,
+      );
+      error.extra = { nativeOwnership: attachOwnership };
+      throw error;
+    }
     await withCdp(view, async (session) => {
       await waitEval(
         session,
@@ -629,9 +770,6 @@ async function launchVerifiedNative(args, isolation) {
       killPid(pid);
     }
     killPid(child.pid);
-    for (const pid of debugRillmuxPids(PROJECT_ROOT)) {
-      killPid(pid);
-    }
     throw new Error(
       `${error.message} See native log ${logPath}. If compile failed, fix Rust/frontend then retry.`,
     );
@@ -727,13 +865,16 @@ async function doctorWeb(state) {
 
 async function doctorNativeLane(state) {
   const isolation = probeNativeIsolation();
+  const head = gitHead();
   const probes = await probeNativePrerequisites({
     projectRoot: PROJECT_ROOT,
     runtimeDir: RUNTIME_DIR,
     state,
   });
   const capability = nativeLaunchCapability(probes, isolation);
-  probes.headSha = gitHead();
+  probes.headSha = head;
+  const debugPids = debugRillmuxPids(PROJECT_ROOT);
+  const access = state?.native?.cdpPort ? nativeCdpAccess(state, isolation) : null;
   const instance = {
     ...probes.instance,
     ready: false,
@@ -741,40 +882,52 @@ async function doctorNativeLane(state) {
     next: null,
     tauriBanner: null,
     tauriProcessAlive: pidAlive(state?.native?.pid),
-    debugExePids: debugRillmuxPids(PROJECT_ROOT),
-    nativeAppProcessStarted: debugRillmuxPids(PROJECT_ROOT).length > 0,
+    debugExePids: debugPids,
+    nativeAppProcessStarted: debugPids.length > 0,
     cdpPort: state?.native?.cdpPort ?? null,
     cdpListeningPids: state?.native?.cdpPort ? pidsListening(state.native.cdpPort) : [],
     cdpSocketReachable: false,
     cdpListOk: false,
     pageTarget: null,
+    nativeAccess: access,
   };
   if (state?.native?.headSha && probes.headSha && state.native.headSha !== probes.headSha) {
     instance.mismatch =
       "Native tauri:dev was started from a different git HEAD. Run cleanup --lane native then launch --lane native.";
   }
   if (state?.native?.cdpPort) {
-    try {
-      const targets = await fetchCdpJson(state.native.cdpPort);
-      instance.cdpListOk = true;
-      instance.cdpSocketReachable =
-        instance.cdpListeningPids.length > 0 || instance.cdpListOk;
-      instance.pageTarget = selectCdpPage(targets)?.url ?? null;
-      const snap = await withCdp(nativeCdpView(state), (session) => session.evaluate(SNAPSHOT_JS));
-      instance.appName = snap.appName;
-      instance.hydrated = snap.hydrated;
-      instance.pathname = snap.pathname;
-      instance.tauriBanner = snap.alerts?.[0] ?? null;
-      const guard = (snap.alerts || []).some((a) => a.includes("Desktop shell required"));
-      instance.ready =
-        instance.tauriProcessAlive &&
-        instance.cdpListOk &&
-        Boolean(instance.pageTarget) &&
-        snapshotReady(snap, { native: true }) &&
-        !instance.mismatch;
-      if (guard) instance.next = "Connected chrome still shows the Vite tauri-guard; this is not the native WebView.";
-    } catch (error) {
-      instance.next = `Native CDP inspect failed: ${error.message}`;
+    if (!access?.verified) {
+      instance.next = `Native CDP attachment blocked: ${
+        !isolation.nativeIsolationVerified
+          ? formatNativeIsolationBlock(isolation)
+          : `${access?.ownership?.reasonCode || "NATIVE_ACCESS_BLOCKED"}: ${access?.ownership?.reason || "ownership not proven"}`
+      }`;
+    } else {
+      try {
+        const targets = await fetchCdpJson(state.native.cdpPort);
+        instance.cdpListOk = true;
+        instance.cdpSocketReachable =
+          instance.cdpListeningPids.length > 0 || instance.cdpListOk;
+        instance.pageTarget = selectCdpPage(targets)?.url ?? null;
+        const snap = await withCdp(access.endpoint, (session) => session.evaluate(SNAPSHOT_JS));
+        instance.appName = snap.appName;
+        instance.hydrated = snap.hydrated;
+        instance.pathname = snap.pathname;
+        instance.tauriBanner = snap.alerts?.[0] ?? null;
+        const guard = (snap.alerts || []).some((a) => a.includes("Desktop shell required"));
+        instance.ready = nativeReadinessVerified({
+          isolation,
+          ownership: access.ownership,
+          tauriProcessAlive: instance.tauriProcessAlive,
+          cdpListOk: instance.cdpListOk,
+          pageTarget: instance.pageTarget,
+          snapshotReady: snapshotReady(snap, { native: true }),
+          mismatch: instance.mismatch,
+        });
+        if (guard) instance.next = "Connected chrome still shows the Vite tauri-guard; this is not the native WebView.";
+      } catch (error) {
+        instance.next = `Native CDP inspect failed: ${error.message}`;
+      }
     }
   } else {
     instance.next = capability.canLaunch
@@ -786,6 +939,7 @@ async function doctorNativeLane(state) {
     ready: instance.ready,
     nativeIsolationVerified: capability.nativeIsolationVerified,
     nativeIsolation: isolation,
+    nativeOwnership: access?.ownership ?? null,
     canLaunch: capability.canLaunch,
     blockedReasons: capability.blockedReasons,
     tools: probes.tools,
@@ -843,14 +997,14 @@ async function cmdInspect(args) {
 
 function cdpTarget(args) {
   const state = loadState();
-  if (args.lane === "native" || (!state?.cdpPort && state?.native?.cdpPort)) {
-    return nativeCdpView(state);
+  const lane = selectCdpLane({ requested: args.lane, state });
+  if (lane === "native") {
+    return requireNativeCdpAccess(state).endpoint;
   }
-  return requireState();
+  return requireState(state);
 }
 
-function requireState() {
-  const state = loadState();
+function requireState(state = loadState()) {
   if (!state?.origin || !state?.cdpPort) {
     throw new Error(
       "No web runtime state. Run: node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs launch",
@@ -1087,7 +1241,7 @@ async function driveNativeSetupCheck(state, dryRun) {
       ],
     };
   }
-  const view = nativeCdpView(state);
+  const view = requireNativeCdpAccess(state).endpoint;
   return withCdp(view, async (session) => {
     await session.send("Page.navigate", { url: `${view.origin}/about` });
     const snap = await waitEval(
@@ -1198,7 +1352,7 @@ async function driveMpvVolumeBoost(state, dryRun) {
       ],
     };
   }
-  const view = nativeCdpView(state);
+  const view = requireNativeCdpAccess(state).endpoint;
   const boostSelect = (value) =>
     (value.controls || []).find(
       (control) => control.tag === "select" && control.label === "Volume boost",
@@ -1328,7 +1482,7 @@ async function driveStreamCardGameLine(state, dryRun) {
       ],
     };
   }
-  const view = nativeCdpView(state);
+  const view = requireNativeCdpAccess(state).endpoint;
   return withCdp(view, async (session) => {
     await session.send("Page.navigate", { url: view.origin + "/streams" });
     const metas = await waitEval(
@@ -1411,7 +1565,6 @@ async function cmdDrive(args) {
     if (!isolation.nativeIsolationVerified) {
       fail(formatNativeIsolationBlock(isolation), { nativeIsolation: isolation });
     }
-    nativeCdpView(loaded);
   }
   const state = args.dryRun
     ? loaded.origin || loaded.native
@@ -1473,7 +1626,7 @@ async function cmdReceipt(args) {
         kind: surface === "desktop" ? "native-tauri" : "local-preview",
         detail:
           surface === "desktop"
-            ? "npm run tauri:dev after VERIFIED Windows user/VM preflight; app startup can load credential status and the isolated profile may be written"
+            ? "npm run tauri:dev after VERIFIED Windows-user preflight; app startup can load credential status and the isolated profile may be written"
             : "Vite + isolated browser profile; no Twitch or Streamlink calls required for chrome features",
       },
     ],
@@ -1509,7 +1662,10 @@ function killPid(pid) {
   if (!pid) return;
   try {
     if (process.platform === "win32") {
-      spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+      spawn(WINDOWS_TASKKILL_PATH, ["/PID", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
     } else {
       process.kill(pid, "SIGTERM");
     }
@@ -1524,22 +1680,45 @@ async function cmdCleanup(args) {
     printJson({ ok: true, note: "nothing to clean" });
     return;
   }
+  const lane = args.lane || "all";
+  let nativePlan = null;
+  if ((lane === "native" || lane === "all") && state.native) {
+    try {
+      nativePlan = planNativeCleanup({
+        native: state.native,
+        processes: readNativeProcessTable(),
+        runtimeDir: RUNTIME_DIR,
+        projectRoot: PROJECT_ROOT,
+      });
+    } catch (error) {
+      nativePlan = {
+        status: "blocked",
+        reasonCode: "NATIVE_PROCESS_PROBE_FAILED",
+        reason: String(error?.message ?? error),
+        killPids: [],
+      };
+    }
+  }
   if (args.dryRun) {
+    const includeWeb = lane === "web" || lane === "all";
     printJson({
       dryRun: true,
-      wouldKill: [state.browserPid, state.previewPid, state.native?.pid],
-      wouldRemove: [state.profileDir, state.native?.appDataDir],
+      wouldKill: [
+        ...(includeWeb ? [state.browserPid, state.previewPid] : []),
+        ...(nativePlan?.killPids || []),
+      ].filter(Boolean),
+      wouldRemove: [includeWeb ? state.profileDir : null, nativePlan?.appDataDir].filter(Boolean),
       wouldKeep: [EVIDENCE_DIR],
+      nativeCleanup: nativePlan,
     });
     return;
   }
-  const lane = args.lane || "all";
   if (lane === "web" || lane === "all") {
     killPid(state.browserPid);
     await new Promise((r) => setTimeout(r, 400));
     killPid(state.previewPid);
     await new Promise((r) => setTimeout(r, 400));
-    if (state.profileDir && state.profileDir.startsWith(RUNTIME_DIR)) {
+    if (pathIsInside(RUNTIME_DIR, state.profileDir)) {
       try {
         rmSync(state.profileDir, { recursive: true, force: true });
       } catch (error) {
@@ -1549,36 +1728,43 @@ async function cmdCleanup(args) {
     state.previewPid = null;
     state.browserPid = null;
   }
+  let nativeBlocked = false;
   if (lane === "native" || lane === "all") {
-    for (const pid of nativeCleanupPids(state)) {
-      killPid(pid);
+    if (state.native && nativePlan?.status === "blocked") {
+      nativeBlocked = true;
+    } else if (state.native) {
+      for (const pid of nativePlan?.killPids || []) {
+        killPid(pid);
+      }
+      await new Promise((r) => setTimeout(r, 800));
     }
-    for (const pid of debugRillmuxPids(PROJECT_ROOT)) {
-      killPid(pid);
-    }
-    await new Promise((r) => setTimeout(r, 800));
-    if (state.native?.appDataDir && state.native.appDataDir.startsWith(RUNTIME_DIR)) {
+    if (state.native && !nativeBlocked && nativePlan?.appDataDir) {
       try {
-        rmSync(state.native.appDataDir, { recursive: true, force: true });
+        rmSync(nativePlan.appDataDir, { recursive: true, force: true });
       } catch (error) {
         process.stderr.write(`WARN: could not remove native APPDATA yet: ${error.message}\n`);
       }
     }
-    if (state.native) {
+    if (state.native && !nativeBlocked) {
       state.native.pid = null;
+      state.native.ownedPids = [];
       state.native.cleanedAt = new Date().toISOString();
     }
   }
   const keptEvidence = existsSync(EVIDENCE_DIR);
-  state.cleanedAt = new Date().toISOString();
-  saveState(state);
+  if (!nativeBlocked) {
+    state.cleanedAt = new Date().toISOString();
+    saveState(state);
+  }
   printJson({
-    ok: true,
-    cleanup: "pass",
+    ok: !nativeBlocked,
+    cleanup: nativeBlocked ? "blocked" : "pass",
     evidenceRetained: keptEvidence,
     evidenceDir: EVIDENCE_DIR,
     lastReceipt: state.lastReceipt ?? null,
+    nativeCleanup: nativePlan,
   });
+  if (nativeBlocked) process.exitCode = 1;
 }
 
 async function cmdStatus() {
@@ -1638,7 +1824,7 @@ async function main() {
         throw new Error(`Unknown command "${command}". Run --help.`);
     }
   } catch (error) {
-    fail(error.message);
+    fail(error.message, error.extra || {});
   }
 }
 

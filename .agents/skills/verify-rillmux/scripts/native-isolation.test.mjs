@@ -17,6 +17,8 @@ const SYSTEM_SID = "S-1-5-18";
 const READ_KEY = 131097;
 const WRITE_KEY = 131078;
 const FULL_CONTROL = 983551;
+const GENERIC_ALL = 0x10000000;
+const UNKNOWN_WRITE_OR_ALL = 0x02000000;
 
 function attestation(overrides = {}) {
   return {
@@ -34,6 +36,7 @@ function attestation(overrides = {}) {
 function machineRecord(overrides = {}) {
   return {
     ownerSid: ADMIN_SID,
+    areAccessRulesProtected: true,
     rules: [
       { sid: SYSTEM_SID, access: "Allow", rights: FULL_CONTROL },
       { sid: ADMIN_SID, access: "Allow", rights: FULL_CONTROL },
@@ -46,10 +49,9 @@ function machineRecord(overrides = {}) {
 function evaluate(overrides = {}) {
   return evaluateNativeIsolation({
     platform: "win32",
-    identity: { sid: ISOLATED_SID, isAdmin: false },
+    identity: { sid: ISOLATED_SID, isAdmin: false, isElevated: false },
     attestation: attestation(),
     machineRecord: machineRecord(),
-    virtualMachine: { manufacturer: "Dell Inc.", model: "Precision" },
     checkedAt: new Date("2026-11-08T00:00:00.000Z"),
     ...overrides,
   });
@@ -112,9 +114,13 @@ describe("fail-closed Windows native isolation preflight", () => {
     );
   });
 
-  it("blocks an unattested administrator token and broadly writable HKLM record", () => {
+  it("blocks administrator-group membership and broadly writable HKLM records", () => {
     assert.equal(
       evaluate({ identity: { sid: ISOLATED_SID, isAdmin: true } }).reasonCode,
+      "ISOLATED_USER_IS_ADMIN",
+    );
+    assert.equal(
+      evaluate({ identity: { sid: ISOLATED_SID, isAdmin: true, isElevated: false } }).reasonCode,
       "ISOLATED_USER_IS_ADMIN",
     );
     assert.equal(
@@ -128,8 +134,54 @@ describe("fail-closed Windows native isolation preflight", () => {
     assert.equal(
       evaluate({
         machineRecord: machineRecord({
+          rules: [{ sid: USERS_SID, access: "Allow", rights: GENERIC_ALL }],
+        }),
+      }).reasonCode,
+      "ATTESTATION_NOT_PROTECTED",
+    );
+    assert.equal(
+      evaluate({
+        machineRecord: machineRecord({
+          rules: [{ sid: USERS_SID, access: "Allow", rights: FULL_CONTROL }],
+        }),
+      }).reasonCode,
+      "ATTESTATION_NOT_PROTECTED",
+    );
+    assert.equal(
+      evaluate({
+        machineRecord: machineRecord({
+          rules: [{ sid: USERS_SID, access: "Unknown", rights: READ_KEY }],
+        }),
+      }).reasonCode,
+      "ATTESTATION_NOT_PROTECTED",
+    );
+    assert.equal(
+      evaluate({
+        machineRecord: machineRecord({
+          rules: [{ sid: USERS_SID, access: "Allow", rights: UNKNOWN_WRITE_OR_ALL }],
+        }),
+      }).reasonCode,
+      "ATTESTATION_NOT_PROTECTED",
+    );
+    assert.equal(
+      evaluate({
+        machineRecord: machineRecord({
+          rules: [{ sid: null, access: "Allow", rights: READ_KEY }],
+        }),
+      }).reasonCode,
+      "ATTESTATION_NOT_PROTECTED",
+    );
+    assert.equal(
+      evaluate({
+        machineRecord: machineRecord({
           ownerSid: ISOLATED_SID,
         }),
+      }).reasonCode,
+      "ATTESTATION_NOT_PROTECTED",
+    );
+    assert.equal(
+      evaluate({
+        machineRecord: machineRecord({ areAccessRulesProtected: false }),
       }).reasonCode,
       "ATTESTATION_NOT_PROTECTED",
     );
@@ -152,21 +204,17 @@ describe("fail-closed Windows native isolation preflight", () => {
     assert.notEqual(result.productionUserSidSha256, result.isolatedUserSidSha256);
     assert.doesNotMatch(JSON.stringify(result), /S-1-5-21/);
     assert.doesNotMatch(JSON.stringify(result), /operator-approved verifier account/);
+    assert.equal(
+      evaluate({ identity: { sid: ISOLATED_SID, isAdmin: false, isElevated: true } })
+        .nativeIsolationVerified,
+      true,
+    );
   });
 
-  it("accepts VM isolation only when the OS itself reports a virtual machine", () => {
-    const vmAttestation = attestation({ kind: "isolated-windows-vm" });
+  it("does not accept a VM hardware label as credential-isolation proof", () => {
     assert.equal(
-      evaluate({ attestation: vmAttestation }).reasonCode,
-      "ISOLATED_VM_NOT_PROVEN",
-    );
-    assert.equal(
-      evaluate({
-        attestation: vmAttestation,
-        identity: { sid: ISOLATED_SID, isAdmin: true },
-        virtualMachine: { manufacturer: "Microsoft Corporation", model: "Virtual Machine" },
-      }).nativeIsolationVerified,
-      true,
+      evaluate({ attestation: attestation({ kind: "isolated-windows-vm" }) }).reasonCode,
+      "VM_ISOLATION_UNPROVEN",
     );
   });
 
@@ -250,6 +298,7 @@ describe("fail-closed Windows native isolation preflight", () => {
     const probe = readWindowsIsolationProbe();
     assert.match(probe.identity.sid, /^S-1-(?:5-21|12-1)-\d+(?:-\d+)+$/);
     assert.equal(typeof probe.identity.isAdmin, "boolean");
+    assert.equal(typeof probe.identity.isElevated, "boolean");
     assert.ok("attestation" in probe);
     assert.ok("machineRecord" in probe);
   });

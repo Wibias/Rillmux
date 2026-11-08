@@ -38,6 +38,12 @@ import {
   receiptStartedResources,
   webRunResources,
 } from "./receipt-resources.mjs";
+import {
+  formatNativeIsolationBlock,
+  nativeLaunchCapability,
+  probeNativeIsolation,
+  runGuardedNativeLaunch,
+} from "./native-isolation.mjs";
 
 const SKILL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PROJECT_ROOT = resolve(SKILL_ROOT, "..", "..", "..");
@@ -66,6 +72,7 @@ Usage (from project root):
 Commands:
   help                 Show this help
   launch               Start a lane: web (default) or native Tauri
+  preflight            Check whether native launch has proven Windows isolation
   doctor               Read-only health check; always reports web and native lanes with --json
   inspect              Machine-readable DOM snapshot of the current page
   goto --path <route>  Navigate to an in-app route (e.g. /about, /settings)
@@ -87,7 +94,7 @@ Features for drive:
   native-setup-check   About setup check via Tauri get_doctor_report (native)
 
 Options:
-  --json               Print machine-readable JSON (doctor, inspect, drive, status, receipt)
+  --json               Print machine-readable JSON (preflight, doctor, inspect, drive, status, receipt)
   --dry-run            Print intended actions without starting/stopping processes or clicking
   --lane web|native    launch/doctor/inspect/drive/cleanup target (launch defaults to web)
   --preview            Production vite preview (runs build unless --skip-build)
@@ -103,19 +110,21 @@ Options:
 Prerequisites:
   Node 20+, npm install, Windows Edge or Chrome for CDP driving.
   Web lane proves React chrome via isolated Vite + Chrome/Edge CDP.
-  Native lane runs npm run tauri:dev with isolated APPDATA and WebView2 CDP.
-  Native launch does not log in, start Streamlink/mpv, or read the OS keyring.
+  Native lane requires a verified separate Windows user or isolated Windows VM.
+  APPDATA, a Git worktree, or environment variables do not isolate Credential Manager.
+  Current production Windows profiles default to BLOCKED before any native spawn.
 
 Side effects:
   Web launch binds a local HTTP port and a dedicated browser profile.
-  Native launch compiles/starts tauri:dev, binds port 1420, and writes an isolated
-  APPDATA tree. cleanup kills only recorded PIDs (taskkill /PID /T), not by name.
+  A verified native launch compiles/starts tauri:dev, binds port 1420, and writes
+  an isolated APPDATA tree. cleanup kills only recorded PIDs (taskkill /PID /T).
   Screenshots and receipts stay in evidence/.
 
 Isolation:
-  Serial driving. Web uses a unique Vite port + browser profile. Native uses
-  APPDATA override plus debug webview-dev. Do not attach a second live driver
-  to the same lane. Port 1420 must be free unless this verifier owns it.
+  Serial driving. Web uses a unique Vite port + browser profile. Native requires
+  an operator-attested Windows user/VM boundary plus APPDATA override. Do not
+  attach a second live driver to the same lane. Port 1420 must be free unless
+  this verifier owns it. See references/native-isolation.md.
 `);
 }
 
@@ -539,7 +548,7 @@ function nativeCdpView(state) {
   return { cdpPort: state.native.cdpPort, origin: state.native.origin };
 }
 
-async function cmdLaunchNative(args) {
+async function launchVerifiedNative(args, isolation) {
   const existing = loadState() || {};
   const probes = await probeNativePrerequisites({
     projectRoot: PROJECT_ROOT,
@@ -550,11 +559,6 @@ async function cmdLaunchNative(args) {
   const runId = `verify-rillmux-native-${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}`;
   const appDataDir = join(RUNTIME_DIR, `native-appdata-${runId}`);
   const logPath = join(RUNTIME_DIR, `${runId}.tauri-dev.log`);
-
-  if (args.dryRun) {
-    printJson({ ...nativeDryRun({ cdpPort, appDataDir, logPath }), probes });
-    return;
-  }
 
   if (!probes.canLaunch) {
     throw new Error(probes.blockedReasons.join(" "));
@@ -591,6 +595,13 @@ async function cmdLaunchNative(args) {
     logPath,
     webviewLogPath: webviewLogPathFor(logPath),
     startedAt: new Date().toISOString(),
+    isolation: {
+      status: isolation.status,
+      kind: isolation.isolationKind,
+      checkedAt: isolation.checkedAt,
+      currentUserSidSha256: isolation.currentUserSidSha256,
+      attestationKey: isolation.attestationKey,
+    },
   };
   saveState({ ...existing, native, lastDrive: existing.lastDrive ?? null });
 
@@ -632,6 +643,39 @@ async function cmdLaunchNative(args) {
       ...native,
       started_resources: native.startedResources ?? nativeRunResources(native),
     });
+}
+
+async function cmdLaunchNative(args) {
+  const isolation = probeNativeIsolation();
+  if (!args.dryRun) {
+    const guarded = await runGuardedNativeLaunch({
+      isolation,
+      start: (verifiedIsolation) => launchVerifiedNative(args, verifiedIsolation),
+    });
+    if (!guarded.started) {
+      fail(formatNativeIsolationBlock(guarded.isolation), {
+        nativeIsolation: guarded.isolation,
+      });
+    }
+    return;
+  }
+
+  const existing = loadState() || {};
+  const probes = await probeNativePrerequisites({
+    projectRoot: PROJECT_ROOT,
+    runtimeDir: RUNTIME_DIR,
+    state: existing,
+  });
+  const cdpPort = await pickPort(undefined);
+  const runId = `verify-rillmux-native-${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}`;
+  const appDataDir = join(RUNTIME_DIR, `native-appdata-${runId}`);
+  const logPath = join(RUNTIME_DIR, `${runId}.tauri-dev.log`);
+  printJson({
+    ...nativeDryRun({ cdpPort, appDataDir, logPath }),
+    probes,
+    nativeIsolation: isolation,
+    spawnBlocked: !isolation.nativeIsolationVerified,
+  });
 }
 
 async function doctorWeb(state) {
@@ -682,11 +726,13 @@ async function doctorWeb(state) {
 }
 
 async function doctorNativeLane(state) {
+  const isolation = probeNativeIsolation();
   const probes = await probeNativePrerequisites({
     projectRoot: PROJECT_ROOT,
     runtimeDir: RUNTIME_DIR,
     state,
   });
+  const capability = nativeLaunchCapability(probes, isolation);
   probes.headSha = gitHead();
   const instance = {
     ...probes.instance,
@@ -731,15 +777,17 @@ async function doctorNativeLane(state) {
       instance.next = `Native CDP inspect failed: ${error.message}`;
     }
   } else {
-    instance.next = probes.canLaunch
+    instance.next = capability.canLaunch
       ? "Run: node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs launch --lane native"
-      : probes.blockedReasons[0];
+      : capability.blockedReasons[0];
   }
   return {
     lane: "native",
     ready: instance.ready,
-    canLaunch: probes.canLaunch,
-    blockedReasons: probes.blockedReasons,
+    nativeIsolationVerified: capability.nativeIsolationVerified,
+    nativeIsolation: isolation,
+    canLaunch: capability.canLaunch,
+    blockedReasons: capability.blockedReasons,
     tools: probes.tools,
     port: probes.port,
     auth: probes.auth,
@@ -1097,9 +1145,9 @@ const SET_SELECT_JS = (label, value) =>
   "el.dispatchEvent(new Event('change',{bubbles:true}));" +
   "return {ok:true,value:el.value};})()";
 
-// The settings store resolves through the app data folder (bundle identifier),
-// not the verifier's APPDATA override, so a native drive touches the real
-// profile file. Snapshot and restore it around the drive.
+// Tauri plugin-store may resolve through shell folders instead of the verifier
+// APPDATA override. This backup remains defense-in-depth inside the isolated
+// Windows profile; the native isolation preflight is the primary boundary.
 const STORE_FILES = ["com.wibias.rillmux", "Rillmux"]
   .map((dir) => join(process.env.APPDATA || "", dir, "settings.json"))
   .filter((file) => file.length > 3);
@@ -1359,6 +1407,10 @@ async function cmdDrive(args) {
   }
   const loaded = loadState() || {};
   if (NATIVE_FEATURES.has(feature) && !args.dryRun) {
+    const isolation = probeNativeIsolation();
+    if (!isolation.nativeIsolationVerified) {
+      fail(formatNativeIsolationBlock(isolation), { nativeIsolation: isolation });
+    }
     nativeCdpView(loaded);
   }
   const state = args.dryRun
@@ -1421,7 +1473,7 @@ async function cmdReceipt(args) {
         kind: surface === "desktop" ? "native-tauri" : "local-preview",
         detail:
           surface === "desktop"
-            ? "npm run tauri:dev with isolated APPDATA; setup check uses get_doctor_report (no credentials)"
+            ? "npm run tauri:dev after VERIFIED Windows user/VM preflight; app startup can load credential status and the isolated profile may be written"
             : "Vite + isolated browser profile; no Twitch or Streamlink calls required for chrome features",
       },
     ],
@@ -1533,6 +1585,12 @@ async function cmdStatus() {
   printJson(loadState() || { launched: false });
 }
 
+async function cmdPreflight() {
+  const isolation = probeNativeIsolation();
+  printJson({ command: "preflight", lane: "native", ...isolation });
+  if (!isolation.nativeIsolationVerified) process.exitCode = 1;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] || "help";
@@ -1545,6 +1603,9 @@ async function main() {
         return;
       case "launch":
         await cmdLaunch(args);
+        return;
+      case "preflight":
+        await cmdPreflight();
         return;
       case "doctor":
         await cmdDoctor(args);

@@ -107,10 +107,13 @@ export async function probeNativePrerequisites({ projectRoot, runtimeDir, state 
     port: { id: TAURI_DEV_PORT, busy: portBusy, ownedByVerifier: owned, foreignOccupant: foreignDevServer },
     auth: {
       inspected: false,
-      reason: "OS credential store is not read. Presence is inferred only from the signed-out chrome after native launch.",
+      reason:
+        "This doctor probe does not open the credential store. It is not evidence for the launched app; the native isolation preflight governs launch.",
     },
     isolation: {
       appDataOverride: "APPDATA → .agents/skills/verify-rillmux/.runtime/native-appdata-<runId>",
+      credentialStore:
+        "NOT isolated by APPDATA or environment variables; requires a verified separate Windows user or isolated Windows VM",
       webview: "debug tauri:dev uses webview-dev (product), not the installed-app WebView2 folder",
       note: "LOCALAPPDATA is not overridden so system mpv/Chatterino discovery still works.",
     },
@@ -154,7 +157,9 @@ export function nativeDryRun({ cdpPort, appDataDir, logPath }) {
     ],
     logPath,
     webviewLogPath: webviewLogPathFor(logPath),
-    isolation: "isolated APPDATA; kill only the recorded npm/tauri PID tree",
+    isolation:
+      "workspace files use isolated APPDATA; native launch still requires verified Windows user/VM credential isolation",
+    credentialStoreIsolation: "BLOCKED unless native-isolation preflight returns VERIFIED",
   };
 }
 

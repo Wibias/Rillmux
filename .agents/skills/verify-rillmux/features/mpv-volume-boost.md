@@ -6,6 +6,6 @@
 - **Lane:** native-only. Persistence goes through the Tauri store, so Vite chrome can only prove the control, not the round trip.
 - **Credentials:** none.
 - **Binaries:** none. No stream is started; mpv is not launched.
-- **Drive:** `node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs drive mpv-volume-boost` after `launch --lane native`.
+- **Drive:** `node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs drive mpv-volume-boost` after a VERIFIED isolation preflight and `launch --lane native`.
 - **Success:** `Volume boost` select present with options `100,130,150,200,300`, default `100` labelled "Off (100%)", setting 200 updates the presets summary to `volume boost 200%`, and the value is still `200` after a WebView reload.
 - **Other states:** the composed `--volume-max`/`--volume` player args and the attach-time IPC volume are not observable here; they need a real stream start (Twitch token + Streamlink + mpv) and are covered by unit tests instead.

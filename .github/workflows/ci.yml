@@ -54,10 +54,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: Real shell snapshot, native CDP and receipt regressions
+      - name: Shell snapshot, native isolation/CDP and receipt regressions
         run: >-
           node --test
           .agents/skills/verify-rillmux/scripts/control-rillmux.test.mjs
+          .agents/skills/verify-rillmux/scripts/native-isolation.test.mjs
+          .agents/skills/verify-rillmux/scripts/native-ownership.test.mjs
           .agents/skills/verify-rillmux/scripts/web-snapshot.test.mjs
           .agents/skills/verify-rillmux/scripts/native-cdp.test.mjs
           .agents/skills/verify-rillmux/scripts/receipt-resources.test.mjs

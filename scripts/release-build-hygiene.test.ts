@@ -34,6 +34,29 @@ describe("release build hygiene", () => {
     expect(gate).toContain("needs: [changes, frontend, rust, react-doctor, verifier]");
   });
 
+  it("runs every verifier regression file in the Windows verifier job", async () => {
+    const source = await readRepo(".github/workflows/ci.yml");
+    const verifierStart = source.indexOf("\n  verifier:");
+    const frontendStart = source.indexOf("\n  frontend:", verifierStart);
+    expect(verifierStart).toBeGreaterThan(-1);
+    expect(frontendStart).toBeGreaterThan(verifierStart);
+    const verifierJob = source.slice(
+      verifierStart,
+      frontendStart,
+    );
+
+    for (const file of [
+      "control-rillmux.test.mjs",
+      "native-isolation.test.mjs",
+      "native-ownership.test.mjs",
+      "web-snapshot.test.mjs",
+      "native-cdp.test.mjs",
+      "receipt-resources.test.mjs",
+    ]) {
+      expect(verifierJob).toContain(file);
+    }
+  });
+
   it("keeps the actual Tauri release build warning-fatal", async () => {
     const source = await readRepo(".github/workflows/release.yml");
 

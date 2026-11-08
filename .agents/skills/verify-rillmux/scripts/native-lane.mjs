@@ -5,6 +5,11 @@ import { execFileSync, spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createConnection } from "node:net";
+import {
+  WINDOWS_NETSTAT_PATH,
+  WINDOWS_POWERSHELL_MODULES_PATH,
+  WINDOWS_POWERSHELL_PATH,
+} from "./native-isolation.mjs";
 
 export const TAURI_DEV_ORIGIN = "http://localhost:1420";
 export const TAURI_DEV_PORT = 1420;
@@ -66,6 +71,7 @@ export async function probeNativePrerequisites({ projectRoot, runtimeDir, state 
   const portBusy = await portTaken(TAURI_DEV_PORT);
   const owned = Boolean(state?.native?.pid);
   const foreignDevServer = portBusy && !owned;
+  const unownedDebugPids = debugRillmuxPids(projectRoot);
 
   const tools = {
     cargo: { found: Boolean(cargo), path: cargo, version: versionOf(cargo) },
@@ -99,18 +105,27 @@ export async function probeNativePrerequisites({ projectRoot, runtimeDir, state 
       `Port ${TAURI_DEV_PORT} is already in use by a process this verifier did not start. Stop that Vite/tauri:dev session or reuse it only if it is this checkout.`,
     );
   }
+  if (unownedDebugPids.length > 0) {
+    blockers.push(
+      `Found ${unownedDebugPids.length} debug Rillmux process(es) at this checkout. Broad same-path cleanup is disabled; close them manually or run owner-verified cleanup for their exact recorded run.`,
+    );
+  }
 
   return {
     os: process.platform,
     headSha: null,
     tools,
     port: { id: TAURI_DEV_PORT, busy: portBusy, ownedByVerifier: owned, foreignOccupant: foreignDevServer },
+    unownedDebugPids,
     auth: {
       inspected: false,
-      reason: "OS credential store is not read. Presence is inferred only from the signed-out chrome after native launch.",
+      reason:
+        "This doctor probe does not open the credential store. It is not evidence for the launched app; the native isolation preflight governs launch.",
     },
     isolation: {
       appDataOverride: "APPDATA → .agents/skills/verify-rillmux/.runtime/native-appdata-<runId>",
+      credentialStore:
+        "NOT isolated by APPDATA or environment variables; requires a verified separate standard Windows user",
       webview: "debug tauri:dev uses webview-dev (product), not the installed-app WebView2 folder",
       note: "LOCALAPPDATA is not overridden so system mpv/Chatterino discovery still works.",
     },
@@ -154,13 +169,15 @@ export function nativeDryRun({ cdpPort, appDataDir, logPath }) {
     ],
     logPath,
     webviewLogPath: webviewLogPathFor(logPath),
-    isolation: "isolated APPDATA; kill only the recorded npm/tauri PID tree",
+    isolation:
+      "workspace files use isolated APPDATA; native launch still requires verified Windows-user credential isolation",
+    credentialStoreIsolation: "BLOCKED unless native-isolation preflight returns VERIFIED",
   };
 }
 
 export function pidsListening(port) {
   try {
-    const out = execFileSync("netstat", ["-ano"], {
+    const out = execFileSync(WINDOWS_NETSTAT_PATH, ["-ano"], {
       encoding: "utf8",
       windowsHide: true,
     });
@@ -182,13 +199,18 @@ export function debugRillmuxPids(projectRoot) {
   const escaped = marker.replace(/'/g, "''");
   try {
     const out = execFileSync(
-      "powershell.exe",
+      WINDOWS_POWERSHELL_PATH,
       [
         "-NoProfile",
         "-Command",
         `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq '${escaped}' } | ForEach-Object { $_.ProcessId }`,
       ],
-      { encoding: "utf8", windowsHide: true, timeout: 20_000 },
+      {
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 20_000,
+        env: { ...process.env, PSModulePath: WINDOWS_POWERSHELL_MODULES_PATH },
+      },
     );
     return out
       .split(/\r?\n/)

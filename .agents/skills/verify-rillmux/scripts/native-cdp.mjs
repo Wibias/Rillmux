@@ -28,6 +28,7 @@ export function selectCdpPage(targets) {
   );
 }
 
+/** Recorded PIDs only. Callers must prove live verifier ownership before killing. */
 export function nativeCleanupPids(state) {
   const native = state?.native;
   if (!native) return [];

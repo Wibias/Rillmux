@@ -2,7 +2,9 @@
 
 Control: `node .agents/skills/verify-rillmux/scripts/control-rillmux.mjs`
 
-Lanes: **web** = isolated Vite + Chrome/Edge CDP. **native** = `npm run tauri:dev` + WebView2 CDP. Do not prove native-only behavior on the web lane.
+Lanes: **web** = isolated Vite + Chrome/Edge CDP. **native** = `npm run tauri:dev` + WebView2 CDP after a VERIFIED separate-Windows-user isolation preflight. Do not prove native-only behavior on the web lane.
+
+Every native launch/drive is credential-sensitive because app startup can load all three Twitch keyring entries. The per-feature Credentials column describes additional feature intent, not a guarantee that startup avoids the credential store. See [../references/native-isolation.md](../references/native-isolation.md).
 
 | Feature | Web | Native | Credentials | External binaries | Drive |
 | --- | --- | --- | --- | --- | --- |

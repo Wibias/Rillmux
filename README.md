@@ -123,7 +123,7 @@ Timestamp server used when signing: `http://timestamp.digicert.com`.
 
 ## Lineage
 
-This is the Tauri rewrite that used to live at [`Wibias/streamlink-twitch-gui`](https://github.com/Wibias/streamlink-twitch-gui) (archived). The original NW.js app is [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui).
+This is a Tauri rewrite that more performant and up to date version of streamlink twitch gui. . The original NW.js app is [streamlink/streamlink-twitch-gui](https://github.com/streamlink/streamlink-twitch-gui).
 
 ## License
 

@@ -6,7 +6,7 @@
   "slotsUsed": "{{used}} of {{cap}} slots used",
   "layoutFull": "Layout is full — stop a stream or pick a larger layout.",
   "currentStreams": "Streams",
-  "currentEmpty": "No streams yet. Add channels below.",
+  "currentEmpty": "No streams yet. Search a channel below and add it.",
   "dragHint": "Drag to reorder tiles.",
   "chatPick": "Chat",
   "chatActive": "Chat active",

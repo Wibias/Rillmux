@@ -215,11 +215,19 @@
 .shell__link--active {
   color: var(--text);
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--nav-active);
+}
+
+/* Keep the selected tint when the active row itself is hovered; the hover
+   rule has higher specificity and would otherwise make the marker look
+   unselected under the pointer. */
+.shell__link--active:hover {
+  background: var(--nav-active);
+  color: var(--text);
 }
 
 html[data-theme="light"] .shell__link--active {
-  background: rgba(14, 14, 16, 0.08);
+  background: var(--nav-active);
 }
 
 .shell__link--active svg {
@@ -254,7 +262,7 @@ html[data-theme="light"] .shell__link--active .shell__link-count {
 
 .shell__account {
   position: relative;
-  margin: 0;
+  margin: 0.55rem 0 0;
   padding: 0.75rem 0.6rem 0;
   border-top: 1px solid var(--border);
   display: flex;

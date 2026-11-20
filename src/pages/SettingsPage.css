@@ -58,7 +58,8 @@
 }
 
 .settings__tab.is-active:hover {
-  background: var(--nav-hover);
+  background: var(--nav-active);
+  color: var(--text);
 }
 
 .settings__main {
@@ -67,10 +68,10 @@
 }
 
 .settings__heading {
-  margin: 0 0 1.1rem;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  margin: 0 0 0.85rem;
+  font-size: 1.02rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
   line-height: 1.2;
   text-wrap: balance;
 }

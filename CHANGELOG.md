@@ -12,7 +12,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
-## [0.5.25] — 2026-11-01
+## [0.5.26] - 2026-11-21
+
+### Changed
+
+- Stream cards show the channel avatar again, with a neutral initial fallback when user data is unavailable.
+- The selected navigation item uses the accent tint and keeps it while hovered.
+- Settings content headings are subordinate to the page title instead of competing with it.
+- The multistream layout selector is compact and sits beside its label.
+- The Watching empty state now explains the next step and links directly to Top streams.
+
+### Fixed
+
+- Followed list rows no longer repeat a filled accent play button; accent is reserved for the selected view, current page, and primary actions.
+- The stream card action menu has a larger pointer target and a visible keyboard focus ring.
+- Faint text roles meet 4.5:1 contrast in both themes.
+- The About navigation marker is no longer clipped by the account divider.
+
+### Internal
+
+- Added a durable design findings ledger and before/after captures under `docs/screenshots/design-refresh`.
+- Refreshed the README screenshots for the current interface.
+
+## [0.5.25] - 2026-11-01
 
 ### Fixed
 

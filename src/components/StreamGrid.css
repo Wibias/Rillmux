@@ -22,6 +22,11 @@
   background: #000;
   aspect-ratio: 16 / 9;
   cursor: pointer;
+  transition: box-shadow 0.14s ease-out;
+}
+
+.stream-card__thumb-btn:hover {
+  box-shadow: 0 0 0 1px var(--accent-line);
 }
 
 .stream-card__thumb {
@@ -38,11 +43,45 @@
 }
 
 .stream-card__body {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.55rem;
+  padding: 0.55rem 0.1rem 0;
+  min-width: 0;
+}
+
+.stream-card__avatar {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.stream-card__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.stream-card__avatar-fallback {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.stream-card__copy {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.18rem;
-  padding: 0.5rem 0.1rem 0;
-  min-width: 0;
+  gap: 0.16rem;
 }
 
 .stream-card__row {

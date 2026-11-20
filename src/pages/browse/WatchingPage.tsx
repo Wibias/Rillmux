@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Link } from "react-router";
 import { useTranslation } from "react-i18next";
 import { EmbeddedChat } from "../../components/EmbeddedChat";
 import { PageSubbar } from "../../components/AppShell";
@@ -57,6 +58,12 @@ export function WatchingPage() {
         {!sessions.length ? (
           <div className="empty-panel">
             <strong>{t("routes:watchingEmpty")}</strong>
+            <p className="muted">{t("routes:watchingEmptyBody")}</p>
+            <div className="empty-panel__actions">
+              <Link className="button-secondary" to="/streams">
+                {t("routes:watchingBrowse")}
+              </Link>
+            </div>
           </div>
         ) : null}
         <ul className="watching-list">

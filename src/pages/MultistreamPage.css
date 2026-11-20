@@ -7,16 +7,14 @@
 }
 
 .ms-layout-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 1rem;
-  max-width: 28rem;
   margin-bottom: 0.55rem;
 }
 
 .ms-layout-row select {
-  width: 100%;
+  width: 18rem;
   max-width: none;
   min-height: 2.35rem;
   border-radius: 4px;

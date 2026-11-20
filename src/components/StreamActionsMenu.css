@@ -4,9 +4,12 @@
 }
 
 .stream-menu__trigger {
+  position: relative;
   appearance: none;
-  width: 1.75rem;
-  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
   min-height: 0;
   padding: 0;
   border: none;
@@ -15,6 +18,15 @@
   color: var(--text-muted);
   font-size: 1.1rem;
   line-height: 1;
+}
+
+/* Keeps the compact 32px control at rest while giving it a ~49px pointer
+   target inside the card's existing gap/padding, without covering the
+   channel link. */
+.stream-menu__trigger::before {
+  content: "";
+  position: absolute;
+  inset: -0.55rem -0.9rem -0.55rem -0.15rem;
 }
 
 .stream-menu__trigger:hover,

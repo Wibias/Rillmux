@@ -12,7 +12,7 @@
   --border-subtle: rgba(255, 255, 255, 0.08);
   --text: #efeff1;
   --text-muted: rgba(239, 239, 241, 0.62);
-  --text-faint: rgba(239, 239, 241, 0.38);
+  --text-faint: rgba(239, 239, 241, 0.52);
   --accent: #9147ff;
   --accent-hover: #772ce8;
   --accent-light: #bf94ff;
@@ -61,7 +61,7 @@ html[data-theme="light"] {
   --border-subtle: rgba(14, 14, 16, 0.06);
   --text: #0e0e10;
   --text-muted: #53535f;
-  --text-faint: #848494;
+  --text-faint: #62626e;
   --accent: #9147ff;
   --accent-hover: #772ce8;
   --accent-light: #5c16c5;
@@ -100,6 +100,11 @@ body {
 
 a {
   color: var(--accent-light);
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 h1 {
@@ -278,7 +283,7 @@ p {
 
 .empty-panel__icon {
   flex-shrink: 0;
-  color: var(--accent);
+  color: var(--text-muted);
   display: grid;
 }
 
@@ -296,15 +301,43 @@ p {
   height: 1.35rem;
 }
 
+.empty-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+.empty-panel__actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.empty-panel__actions a:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
 .empty-panel strong {
   display: block;
   color: var(--text);
   margin-bottom: 0.2rem;
-  font-weight: 600;
+  font-weight: 650;
+  font-size: 0.95rem;
 }
 
 .empty-panel p {
   margin: 0;
+  max-width: 48ch;
+  line-height: 1.5;
 }
 
 .input,

@@ -63,8 +63,8 @@
 }
 
 .followed-search .input:focus {
-  border-color: var(--border-strong);
-  box-shadow: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 html[data-theme="light"] .followed-search .input {
@@ -131,9 +131,9 @@ html[data-theme="light"] .followed-search .input {
 }
 
 .followed-views button.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-light);
 }
 
 .followed-views button:hover {
@@ -142,9 +142,9 @@ html[data-theme="light"] .followed-search .input {
 }
 
 .followed-views button.is-active:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: #fff;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-light);
 }
 
 .followed-filters {

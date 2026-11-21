@@ -33,9 +33,8 @@ export function StreamGrid({
     <div className="stream-grid">
       {streams.map((stream) => {
         const pinned = pins.has(stream.user_login.toLowerCase());
-        const partner = isTwitchPartner(
-          usersByLogin[stream.user_login.toLowerCase()],
-        );
+        const user = usersByLogin[stream.user_login.toLowerCase()];
+        const partner = isTwitchPartner(user);
         return (
           <article key={stream.id} className="stream-card">
             <button
@@ -55,36 +54,47 @@ export function StreamGrid({
               </span>
             </button>
             <div className="stream-card__body">
-              <div className="stream-card__row">
-                <Link
-                  className="stream-card__name"
-                  to={`/channel/${stream.user_login}`}
-                >
-                  {stream.user_name}
-                  {partner ? <VerifiedBadge /> : null}
-                </Link>
-                <StreamActionsMenu
-                  stream={stream}
-                  pinned={pinned}
-                  onWatch={onWatch}
-                  onTogglePin={onTogglePin}
-                />
-              </div>
-              <p className="stream-card__title" title={stream.title}>
-                {stream.title}
-              </p>
-              <p className="stream-card__meta muted">
-                {t(
-                  stream.game_name
-                    ? "routes:streamViewersUptimeGame"
-                    : "routes:streamViewersUptime",
-                  {
-                    viewers: formatViewers(stream.viewer_count),
-                    uptime: formatUptime(stream.started_at),
-                    game: stream.game_name,
-                  },
+              <span className="stream-card__avatar" aria-hidden>
+                {user?.profile_image_url ? (
+                  <img src={user.profile_image_url} alt="" loading="lazy" />
+                ) : (
+                  <span className="stream-card__avatar-fallback">
+                    {stream.user_name.slice(0, 1).toUpperCase()}
+                  </span>
                 )}
-              </p>
+              </span>
+              <div className="stream-card__copy">
+                <div className="stream-card__row">
+                  <Link
+                    className="stream-card__name"
+                    to={`/channel/${stream.user_login}`}
+                  >
+                    {stream.user_name}
+                    {partner ? <VerifiedBadge /> : null}
+                  </Link>
+                  <StreamActionsMenu
+                    stream={stream}
+                    pinned={pinned}
+                    onWatch={onWatch}
+                    onTogglePin={onTogglePin}
+                  />
+                </div>
+                <p className="stream-card__title" title={stream.title}>
+                  {stream.title}
+                </p>
+                <p className="stream-card__meta muted">
+                  {t(
+                    stream.game_name
+                      ? "routes:streamViewersUptimeGame"
+                      : "routes:streamViewersUptime",
+                    {
+                      viewers: formatViewers(stream.viewer_count),
+                      uptime: formatUptime(stream.started_at),
+                      game: stream.game_name,
+                    },
+                  )}
+                </p>
+              </div>
             </div>
           </article>
         );

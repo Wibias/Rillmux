@@ -52,6 +52,8 @@
   "watchingTitle": "Watching",
   "watchingLede": "Stop, mute, and manage the streams you have open.",
   "watchingEmpty": "No active streams.",
+  "watchingEmptyBody": "Open a channel from Top streams or your Followed list, and it will appear here.",
+  "watchingBrowse": "Browse Top streams",
   "watchingStatusStarting": "Starting…",
   "watchingStatusAds": "Waiting for pre-roll ads…",
   "watchingStatusReady": "Playing",

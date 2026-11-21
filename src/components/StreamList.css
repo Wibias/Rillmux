@@ -174,7 +174,16 @@
   padding: 0;
   display: grid;
   place-items: center;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+}
+
+.stream-list__play:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-light);
 }
 
 .stream-list__detail {

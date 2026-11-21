@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-001",
+      "route": "/",
+      "kind": "VISUAL",
+      "priority": "HIGH",
+      "symptom": "The Followed list view renders a filled purple play button on every row (11 visible), plus a filled purple view toggle and filled page buttons, so accent no longer marks the primary or selected state.",
+      "acceptance": "Row-level play controls are neutral at rest and use accent only on hover/focus; accent fill is limited to the selected view, the current page, and one primary action, with at most 3 filled-accent controls in the first viewport.",
+      "evidenceRef": "render: before-followed-list.png (1280x880, 2026-11-20)"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-002",
+      "route": "shell",
+      "kind": "OTHER",
+      "priority": "MEDIUM",
+      "symptom": "Faint text roles (section labels, card metadata, viewer counts) use 0.38-0.42 alpha white on #181818 at roughly 8.8-11px, measuring below 4.5:1 and straining the dense browsing surface.",
+      "acceptance": "Every text role used for labels or values reaches at least 4.5:1 against its own surface at the 13px base size; decorative-only text is not used for information.",
+      "evidenceRef": "source: src/styles/global.css --text-faint + render: before-followed.png"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-003",
+      "route": "shell",
+      "kind": "OTHER",
+      "priority": "MEDIUM",
+      "symptom": "The stream card action menu trigger is 1.75rem (about 23px) with no expanded hit area, and several icon-only controls have no visible keyboard focus treatment.",
+      "acceptance": "The menu trigger exposes at least a 40x40px effective hit area without covering the channel link, and every interactive control shows a visible focus-visible ring.",
+      "evidenceRef": "source: src/components/StreamActionsMenu.css + render: before-followed.png"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-004",
+      "route": "/watching",
+      "kind": "OTHER",
+      "priority": "MEDIUM",
+      "symptom": "The Watching empty state is a single sentence inside a dashed box with no next action, although the page exists to manage active streams reached from browse.",
+      "acceptance": "The empty state names the page task and offers exactly one clear action that leads to the streams browse page.",
+      "evidenceRef": "render: before-watching.png"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-005",
+      "route": "/settings/*",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "Two page-level titles compete: the thin 1.65rem route title in the toolbar and a bold 1.35rem tab heading at the top of the content column.",
+      "acceptance": "One dominant page title remains; the in-content tab heading is subordinate in size and weight and does not compete as a second page title.",
+      "evidenceRef": "render: before-settings-streaming.png"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-006",
+      "route": "/",
+      "kind": "VISUAL",
+      "priority": "MEDIUM",
+      "symptom": "Stream cards identify channels only by name text, with no channel avatar, which slows recognition across a dense grid of 12+ live channels and removes a product-specific identity cue.",
+      "acceptance": "Cards show the channel avatar when user data is available and a stable neutral fallback otherwise, while keeping the channel name plus the two required text lines under the thumbnail.",
+      "evidenceRef": "render: before-followed.png + source: src/components/StreamGrid.tsx"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-007",
+      "route": "/search",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "The empty state is dominated by a large purple search glyph while the input and Search button are already the primary action, adding a second accent focal point.",
+      "acceptance": "The empty state uses neutral iconography and one action cue; accent stays on the primary search control.",
+      "evidenceRef": "render: before-search.png"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-008",
+      "route": "/multistream",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "The layout selector spans a full 28rem form row on an otherwise empty page, and the empty stream area only says that no streams exist without pointing at the add-channel path below.",
+      "acceptance": "The layout control sits in a compact control column aligned with its label, and the empty stream area names the add/search action that fills it.",
+      "evidenceRef": "render: before-multistream.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-001",
+      "disposition": "RESOLVED",
+      "reason": "Move repeated row play actions to a neutral rest state with accent on hover/focus; keep accent fill for the selected view and current page.",
+      "evidenceRef": "docs/screenshots/design-refresh/followed-list-before.jpg vs followed-list-after.jpg; 11 row play buttons are neutral at rest; only the selected view toggle and current page keep accent fill."
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-002",
+      "disposition": "RESOLVED",
+      "reason": "Raise the faint text token to 0.52 alpha in dark and #62626e in light, then measure the actual ratios.",
+      "evidenceRef": "Computed contrast from src/styles/global.css: rgba(239,239,241,0.52) on #181818 = 5.01:1, on #202020 = 4.60:1, on #101010 = 5.37:1; light #62626e on #eef0f4 = 5.27:1."
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-003",
+      "disposition": "RESOLVED",
+      "reason": "Keep the 2rem glyph visual, add a pseudo-element hit area only into the existing right/top/bottom gap, and add a global focus-visible rule for links, buttons and form controls.",
+      "evidenceRef": "src/components/StreamActionsMenu.css: 2rem trigger with ::before inset -0.55rem -0.9rem -0.55rem -0.15rem yields a 48.8 x 49.6 CSS px effective hit area inside the card gap; focus ring captured in docs/screenshots/design-refresh/focus-visible.jpg."
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-004",
+      "disposition": "RESOLVED",
+      "reason": "Add one task sentence and a single 'Browse Top streams' link to /streams.",
+      "evidenceRef": "docs/screenshots/design-refresh/watching-after.jpg shows the single action; docs/screenshots/design-refresh/watching-link-verified.jpg shows the resulting /streams route after activating it."
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-005",
+      "disposition": "RESOLVED",
+      "reason": "Reduce the in-content tab heading to 1.02rem/650 so the route title owns the page-level hierarchy.",
+      "evidenceRef": "src/pages/SettingsPage.css: route title remains 1.45rem/600 while .settings__heading is 1.02rem/650; settings-before.jpg vs settings-after.jpg shows the single dominant title."
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-006",
+      "disposition": "RESOLVED",
+      "reason": "Add the channel avatar from the already-fetched usersByLogin data with an initial fallback; keep the name, title, and meta lines intact.",
+      "evidenceRef": "src/components/StreamGrid.tsx uses usersByLogin[login].profile_image_url with an initial fallback; followed-after.jpg shows avatars on all 12 visible cards with name + title + meta retained."
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-007",
+      "disposition": "RESOLVED",
+      "reason": "Use the muted text color for the generic empty-state icon and keep accent only on the Search button.",
+      "evidenceRef": "src/styles/global.css .empty-panel__icon now uses var(--text-muted); search-after.jpg shows a neutral glyph with accent retained on the Search button."
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-008",
+      "disposition": "RESOLVED",
+      "reason": "Constrain the layout select to 18rem beside its label and name the search-and-add action in the empty copy.",
+      "evidenceRef": "src/pages/MultistreamPage.css .ms-layout-row is a flex row with an 18rem select; src/locales/en/multistream.json currentEmpty names searching and adding a channel; multistream-before.jpg vs after shows the compact control and actionable copy."
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-009",
+      "route": "/streams",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "Top streams shares the StreamGrid and shell surface used by Followed; the route was inspected after the shared card change for route-specific regressions.",
+      "acceptance": "Top streams keeps the channel name plus two text lines, readable metadata, and at most one filled-accent primary control per viewport.",
+      "evidenceRef": "docs/screenshots/design-refresh/streams-after.jpg"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-009",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "The route uses the same StreamGrid component covered by RMX-DESIGN-001 and RMX-DESIGN-006; the 1280x880 render shows the updated cards with neutral row actions and no new defect.",
+      "evidenceRef": "docs/screenshots/design-refresh/streams-after.jpg"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-010",
+      "route": "/games",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "The category grid is a separate repeated-unit surface from the stream cards and was inspected for consistency under the shared shell.",
+      "acceptance": "Category cards keep readable names, viewer counts, and media-first focus without new accent or hierarchy regressions.",
+      "evidenceRef": "docs/screenshots/design-refresh/games-after.jpg"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-010",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "The GameGrid already uses a media-first card with a 3:4 frame and restrained hover; the 1280x880 render shows no defect introduced by this pass.",
+      "evidenceRef": "docs/screenshots/design-refresh/games-after.jpg"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-011",
+      "route": "/teams",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "The team lookup is a small idle/search surface that shares the shell and empty-panel primitives with the search route.",
+      "acceptance": "The idle state remains legible and its primary control remains the single accent focal point.",
+      "evidenceRef": "docs/screenshots/design-refresh/teams-after.jpg"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-011",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "The route uses the same input and empty-panel primitives updated globally; the 1280x880 render shows a readable idle state with accent on the submit control only.",
+      "evidenceRef": "docs/screenshots/design-refresh/teams-after.jpg"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-012",
+      "route": "/about",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "The About route carries connection status cards and setup diagnostics under the shared shell and typography.",
+      "acceptance": "Status labels stay readable, equal comparison cards stay justified, and no new competing page title appears.",
+      "evidenceRef": "docs/screenshots/design-refresh/about-after.jpg"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "2445efdd-29ca-4797-afdb-8361376fd51d",
+      "id": "RMX-DESIGN-012",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "The 1280x880 render keeps one page title, readable status text with the raised faint token, and equal cards for comparable connection states; no route-specific defect was found.",
+      "evidenceRef": "docs/screenshots/design-refresh/about-after.jpg"
+    }
+  ]
+}

@@ -12,6 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional Authenticode-signed installers once a Windows code-signing certificate is available in CI
 - Further parity and polish as we dogfood releases
 
+## [0.5.27] - 2026-11-23
+
+### Changed
+
+- Followed cards reveal a neutral play cue on hover or keyboard focus, and the list view uses larger previews without a redundant badge.
+- About groups the version, changelog, and update actions into one toolbar and keeps the Manage connections login compact.
+- Settings labels the setup-wizard action as “Open setup wizard”.
+
+### Fixed
+
+- Hover, focus, and selected states on Followed views render their intended accent treatment in dark and light themes.
+- Followed list rows no longer fill with accent color on hover.
+- Scrollbars follow the active theme instead of the browser default.
+
+### Internal
+
+- Recorded this iteration in the durable design findings ledger.
+
 ## [0.5.26] - 2026-11-21
 
 ### Changed

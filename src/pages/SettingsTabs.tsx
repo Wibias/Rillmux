@@ -114,7 +114,7 @@ export function SettingsInterfacePanel() {
                 })
               }
             >
-              {t("settings:showSetupAgain")}
+              {t("settings:openSetupWizard")}
             </button>
           </div>
         </div>

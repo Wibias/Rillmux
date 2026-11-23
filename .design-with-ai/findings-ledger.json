@@ -216,6 +216,206 @@
       "disposition": "KEEP_JUSTIFIED",
       "reason": "The 1280x880 render keeps one page title, readable status text with the raised faint token, and equal cards for comparable connection states; no route-specific defect was found.",
       "evidenceRef": "docs/screenshots/design-refresh/about-after.jpg"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-013",
+      "route": "shell",
+      "kind": "OTHER",
+      "priority": "MEDIUM",
+      "symptom": "Followed hover, focus, and selected states reference the undefined custom properties --accent-line, --accent-soft, and --ring, so the stream-card outline, view-toggle selected fill, list play hover, and search focus ring silently lose their intended rendering.",
+      "acceptance": "Every referenced interaction token resolves to a theme-appropriate value and the stream-card hover outline, view-toggle selected background, list play hover, and search focus ring render visibly in dark and light themes with no unresolved var() for these states.",
+      "evidenceRef": "source: src/styles/global.css :root; src/pages/FollowedPage.css; src/components/StreamGrid.css; src/components/StreamList.css"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-014",
+      "route": "/",
+      "kind": "VISUAL",
+      "priority": "MEDIUM",
+      "symptom": "Grid stream thumbnails have no visible watch affordance at rest or hover; the only intended hover response is a 1px accent outline that currently fails because its token is undefined.",
+      "acceptance": "Hovering or keyboard-focusing a grid thumbnail reveals one neutral, non-obscuring watch cue with an accessible name, leaves the LIVE badge readable, and adds no resting accent fill.",
+      "evidenceRef": "render: docs/screenshots/design-refresh/followed-after.jpg; source: src/components/StreamGrid.tsx and StreamGrid.css"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-015",
+      "route": "/",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "In list view the stream thumbnail is only 3.7rem wide and carries a 0.52rem LIVE badge, making the preview and badge too small to recognize or read at 1280x880.",
+      "acceptance": "List rows show a thumbnail at least 4.5rem wide with a legible or intentionally removed LIVE badge, while the streamer, title, game, viewers, runtime, and actions remain aligned and scannable at 1280x880.",
+      "evidenceRef": "render: docs/screenshots/design-refresh/followed-list-after.jpg; source: src/components/StreamList.css"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-016",
+      "route": "shell",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "Scrollable areas such as the Followed list and Multistream live strip expose bright native scrollbars that read as browser chrome rather than part of the dark app surface.",
+      "acceptance": "Scrollbars use a thin neutral theme-aware thumb in dark and light modes, remain discoverable and operable, and cause no horizontal or vertical layout shift.",
+      "evidenceRef": "render: docs/screenshots/design-refresh/multistream-after.jpg; live render: /multistream at 1264x791"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-017",
+      "route": "/",
+      "kind": "VISUAL",
+      "priority": "HIGH",
+      "symptom": "Hovering a row in Followed list view fills the entire row with solid accent purple because the invisible row-expand button inherits the global button hover background.",
+      "acceptance": "Pointer hovering or keyboard-focusing a list row shows a subtle neutral surface change and a visible focus ring, never an accent-filled row; all row text and controls stay readable.",
+      "evidenceRef": "render: C:\\tmp\\rillmux-card-focus.png (1264x791 preview); source: src/components/StreamList.css .stream-list__expand"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-018",
+      "route": "/about",
+      "kind": "VISUAL",
+      "priority": "MEDIUM",
+      "symptom": "In the logged-out About render, the Manage connections login action fills the full card width with accent, competing with the sidebar login CTA as a second dominant primary action.",
+      "acceptance": "The Manage connections action is a compact accent control aligned to the panel content start, remains clearly primary within its panel, and no longer spans the whole card.",
+      "evidenceRef": "render: .agents/skills/verify-rillmux/evidence/verify-rillmux-20261123T031952Z-1795404614187.png (1264x791)"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-019",
+      "route": "/about",
+      "kind": "VISUAL",
+      "priority": "LOW",
+      "symptom": "The version line and View changelog sit on one row while Check for updates drops to a separate row, so update actions read as detached leftovers rather than one metadata toolbar.",
+      "acceptance": "Version and all update-related actions share one aligned, wrapping toolbar on desktop and mobile; update status and error text remain below without duplicating controls.",
+      "evidenceRef": "render: .agents/skills/verify-rillmux/evidence/verify-rillmux-20261123T031952Z-1795404614187.png (1264x791)"
+    },
+    {
+      "type": "FOUND",
+      "id": "RMX-DESIGN-020",
+      "route": "/settings",
+      "kind": "DETAIL",
+      "priority": "LOW",
+      "symptom": "In Interface settings the row title and its button both read 'Show setup wizard again', so the control repeats the setting name instead of stating the action it performs.",
+      "acceptance": "The row keeps the setting name and the button uses a short action label that describes opening the wizard, still right-aligned in the settings row.",
+      "evidenceRef": "render: C:/tmp/rillmux-design-evidence-20261123/settings-after.png; source: src/pages/SettingsTabs.tsx"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-001",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "Current list render keeps row play controls neutral at rest; the shared token repair restores their intended hover accent without reintroducing accent-filled rows.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/list-rest.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-002",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "The raised --text-faint token remains in current source and the inspected settings, about, streams and multistream renders keep labels legible.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/settings-after.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-003",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "The expanded action-menu hit area and global focus-visible rule remain; a keyboard-focused card shows the visible ring and watch cue.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/card-focus.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-006",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "StreamGrid still renders the fetched channel avatar with an initial fallback; the 1264 and 390 renders keep the channel name plus two text lines.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/grid-mobile.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-008",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "The current multistream surface keeps the 18rem layout control and names the search/add path in its empty copy; the browser lane exposes the intentionally inactive-mode state.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/multistream-after.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-009",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "Top streams still uses the shared StreamGrid. The route was inspected at 1264x791; populated card behavior is covered by RMX-DESIGN-013 through 015 and the earlier populated render.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/streams-after.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-012",
+      "disposition": "KEEP_JUSTIFIED",
+      "reason": "About was inspected at 1264x791 and 390x844: one page title, readable status labels, justified comparison cards, and no route-specific regression.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/about-after.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-013",
+      "disposition": "RESOLVED",
+      "reason": "Define --accent-soft, --accent-line and --ring in :root so every intended interaction state resolves in both themes.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/after-token-audit.json"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-014",
+      "disposition": "RESOLVED",
+      "reason": "Add a neutral play cue on thumbnail hover/focus and a theme-aware accent outline; keep no resting accent.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/card-hover.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-015",
+      "disposition": "RESOLVED",
+      "reason": "Enlarge the list thumbnail to 4.6rem and remove the redundant sub-8px LIVE badge while preserving row alignment.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/list-rest.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-016",
+      "disposition": "RESOLVED",
+      "reason": "Theme the scrollbar thumb and track for WebView2 and Firefox while keeping a 10px operable target.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/settings-after.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-017",
+      "disposition": "RESOLVED",
+      "reason": "Keep the invisible row-expand button transparent on hover, focus and active so only the subtle row surface change remains.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/after-token-audit.json"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-018",
+      "disposition": "RESOLVED",
+      "reason": "Constrain the Manage connections login action to content width with align-self:flex-start.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/about-after.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-019",
+      "disposition": "RESOLVED",
+      "reason": "Move version, changelog, update-check and install actions into one wrapping metadata toolbar.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/about-after.png"
+    },
+    {
+      "type": "REVIEWED",
+      "runId": "8b674d3c-c0ea-49f9-afc1-facbe90dabdb",
+      "id": "RMX-DESIGN-020",
+      "disposition": "RESOLVED",
+      "reason": "Keep the setting name in the row and label the button with the action it performs: Open setup wizard.",
+      "evidenceRef": "C:/tmp/rillmux-design-evidence-20261123/settings-final.png"
     }
   ]
 }

@@ -126,13 +126,6 @@
   display: block;
 }
 
-.stream-list__thumb .badge {
-  /* This list only contains live streams, so a sub-8px badge on the small
-     row preview adds noise without adding state. The expanded detail keeps
-     its full-size badge. */
-  display: none;
-}
-
 .stream-list__name {
   display: inline-flex;
   align-items: center;

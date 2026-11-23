@@ -207,9 +207,6 @@ export function StreamList({
                     alt=""
                     loading="lazy"
                   />
-                  <span className="badge badge--live">
-                    {t("routes:liveBadge")}
-                  </span>
                 </span>
                 <Link
                   className="stream-list__name"

@@ -1,0 +1,20 @@
+.about-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.about-meta .about-version {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.about-meta__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}

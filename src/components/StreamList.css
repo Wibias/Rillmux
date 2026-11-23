@@ -76,6 +76,12 @@
   cursor: pointer;
 }
 
+.stream-list__expand:hover,
+.stream-list__expand:focus-visible,
+.stream-list__expand:active {
+  background: transparent;
+}
+
 .stream-list__main > :not(.stream-list__expand) {
   position: relative;
   z-index: 1;
@@ -105,8 +111,8 @@
 
 .stream-list__thumb {
   position: relative;
-  flex: 0 0 3.7rem;
-  width: 3.7rem;
+  flex: 0 0 4.6rem;
+  width: 4.6rem;
   aspect-ratio: 16 / 9;
   border-radius: 3px;
   overflow: hidden;
@@ -121,11 +127,10 @@
 }
 
 .stream-list__thumb .badge {
-  position: absolute;
-  left: 0.18rem;
-  top: 0.18rem;
-  font-size: 0.52rem;
-  padding: 0.1rem 0.2rem;
+  /* This list only contains live streams, so a sub-8px badge on the small
+     row preview adds noise without adding state. The expanded detail keeps
+     its full-size badge. */
+  display: none;
 }
 
 .stream-list__name {

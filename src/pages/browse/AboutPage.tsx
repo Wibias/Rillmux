@@ -7,6 +7,7 @@ import { ConnectionHealth } from "../../components/ConnectionHealth";
 import { ChangelogDialog } from "../../components/ChangelogDialog";
 import { useUpdaterCheck } from "../../components/DeepLinkAndUpdaterBootstrap";
 import { isTauri } from "../../lib/tauri";
+import "./AboutPage.css";
 
 export function AboutPage() {
   const { t } = useTranslation("routes");
@@ -48,9 +49,15 @@ export function AboutPage() {
   return (
     <section className="page">
       <PageSubbar title={t("aboutTitle")} lede={t("aboutBlurb")} />
-      {appVersion ? (
-        <p className="muted about-version">
-          {t("aboutVersion", { version: appVersion })}
+      <div className="about-meta">
+        {appVersion ? (
+          <p className="muted about-version">
+            {t("aboutVersion", { version: appVersion })}
+          </p>
+        ) : (
+          <span />
+        )}
+        <div className="about-meta__actions">
           <button
             type="button"
             className="button-secondary"
@@ -58,22 +65,20 @@ export function AboutPage() {
           >
             {t("viewChangelog")}
           </button>
-        </p>
-      ) : null}
-      <div className="channel-header__actions" style={{ marginBottom: "1rem" }}>
-        <button
-          type="button"
-          className="button-secondary"
-          disabled={status === "checking"}
-          onClick={() => void check()}
-        >
-          {status === "checking" ? t("updateChecking") : t("checkUpdates")}
-        </button>
-        {status === "available" && version ? (
-          <button type="button" onClick={() => void install()}>
-            {t("updateInstall")} ({version})
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={status === "checking"}
+            onClick={() => void check()}
+          >
+            {status === "checking" ? t("updateChecking") : t("checkUpdates")}
           </button>
-        ) : null}
+          {status === "available" && version ? (
+            <button type="button" onClick={() => void install()}>
+              {t("updateInstall")} ({version})
+            </button>
+          ) : null}
+        </div>
       </div>
       {status === "available" && version ? (
         <p>{t("updateAvailable", { version })}</p>

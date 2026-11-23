@@ -8,7 +8,7 @@ import {
 } from "../lib/twitch/helix";
 import { formatUptime, formatViewers } from "../lib/browse/format";
 import { StreamActionsMenu } from "./StreamActionsMenu";
-import { VerifiedBadge } from "./FollowedIcons";
+import { PlayIcon, VerifiedBadge } from "./FollowedIcons";
 import "./StreamGrid.css";
 
 interface StreamGridProps {
@@ -51,6 +51,9 @@ export function StreamGrid({
               />
               <span className="badge badge--live stream-card__live">
                 {t("routes:liveBadge")}
+              </span>
+              <span className="stream-card__play" aria-hidden>
+                <PlayIcon />
               </span>
             </button>
             <div className="stream-card__body">

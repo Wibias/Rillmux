@@ -16,6 +16,9 @@
   --accent: #9147ff;
   --accent-hover: #772ce8;
   --accent-light: #bf94ff;
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 58%, var(--border));
+  --ring: 0 0 0 1px var(--accent);
   --danger: #e91916;
   --success: #3dd68c;
   --radius: 4px;
@@ -96,6 +99,33 @@ body {
   line-height: 1.4;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
+}
+
+html {
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 65%, var(--border-strong));
+  background-clip: padding-box;
 }
 
 a {
@@ -618,6 +648,7 @@ html[data-theme="light"] .game-card__frame {
   .stream-item__shade,
   .stream-item__play,
   .stream-item__thumb,
+  .stream-card__play,
   .game-card__art {
     transition: none;
   }

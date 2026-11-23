@@ -99,6 +99,11 @@
   font-size: 0.82rem;
 }
 
+.connections__manage .authbar > button {
+  align-self: flex-start;
+  min-width: 12rem;
+}
+
 @media (max-width: 720px) {
   .connections__header {
     align-items: stretch;

@@ -130,6 +130,7 @@
   "deepLinkAutoWatch": "Start streams from stg:// links (off = open channel page only)",
   "showSetupAgain": "Show setup wizard again",
   "showSetupAgainHint": "Reopens the first-run Streamlink / player / login checklist.",
+  "openSetupWizard": "Open setup wizard",
   "followedOnline": "Notify when followed channels go live",
   "followedOnlineHint": "Desktop notifications when someone you follow starts streaming. Turn off to mute everyone.",
   "mutedFollowed": "Muted channels",

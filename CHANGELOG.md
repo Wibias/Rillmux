@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Followed list rows no longer fill with accent color on hover.
 - Scrollbars follow the active theme instead of the browser default.
 
+### Security
+
+- Updated `url` to 2.5.9 to address RUSTSEC-2026-0592.
+
 ### Internal
 
 - Recorded this iteration in the durable design findings ledger.

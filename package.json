@@ -23,8 +23,8 @@
     "perf:dock-ab": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-dock-watchdog.ps1"
   },
   "dependencies": {
-    "@sentry/react": "^11.12.0",
-    "@tanstack/react-query": "^5.107.1",
+    "@sentry/react": "^11.16.0",
+    "@tanstack/react-query": "^5.108.3",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-deep-link": "^2.6.3",
     "@tauri-apps/plugin-dialog": "^2.8.4",
@@ -33,11 +33,11 @@
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-store": "^2.5.1",
     "@tauri-apps/plugin-updater": "^2.14.1",
-    "i18next": "^27.1.2",
+    "i18next": "^27.2.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "react-i18next": "^18.0.1",
-    "react-router": "^8.5.1",
+    "react-i18next": "^18.0.3",
+    "react-router": "^8.5.2",
     "zustand": "^5.1.0"
   },
   "devDependencies": {
@@ -48,7 +48,7 @@
     "@vitejs/plugin-react": "^6.3.0",
     "typescript": "~5.8.3",
     "vite": "^8.3.8",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   },
   "allowScripts": {
     "esbuild@0.28.1": true
